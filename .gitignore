@@ -1,0 +1,44 @@
+# --- secrets -----------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- node / typescript -------------------------------------------------------
+node_modules/
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+coverage/
+.nyc_output/
+
+# --- package managers --------------------------------------------------------
+.pnpm-store/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- render / media artifacts ------------------------------------------------
+# Generated video, frames and cached layers never belong in git — they live in R2.
+*.mp4
+*.mov
+*.webm
+renders/
+out-frames/
+.cache/
+
+# --- editors / OS ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# --- local claude state ------------------------------------------------------
+.claude/settings.local.json
