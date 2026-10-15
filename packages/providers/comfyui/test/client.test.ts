@@ -92,4 +92,45 @@ describe('ComfyClient', () => {
     const bytes = await new ComfyClient(BASE, f).view({ filename: 'a.png', subfolder: 'adforge', type: 'output' });
     expect([...bytes]).toEqual([9, 8, 7]);
   });
+
+  it('maps a non-JSON 200 body to UPSTREAM', async () => {
+    const client = new ComfyClient(BASE, fakeFetch({ 'GET /history/abc': () => new Response('<html>oops</html>', { status: 200 }) }));
+    const err = await client.history('abc').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).code).toBe('UPSTREAM');
+    expect((err as ProviderError).message).toContain('Non-JSON /history/abc response');
+  });
+
+  it('maps a mid-stream body failure in view to UPSTREAM', async () => {
+    const f = fakeFetch({
+      'GET /view': () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              c.error(new Error('reset'));
+            },
+          }),
+        ),
+    });
+    const err = await new ComfyClient(BASE, f).view({ filename: 'a.png', subfolder: '', type: 'output' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).code).toBe('UPSTREAM');
+    expect((err as ProviderError).message).toContain('body read failed');
+  });
+
+  it('times out a hung server as UPSTREAM', async () => {
+    const hung = ((_url: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      })) as typeof fetch;
+    const err = await new ComfyClient(BASE, hung, 20).systemStats().catch((e: unknown) => e);
+    expect((err as ProviderError).code).toBe('UPSTREAM');
+    expect((err as ProviderError).message).toMatch(/timed out after 20ms/);
+    expect((err as ProviderError).message).toContain(BASE);
+  });
+
+  it('tolerates a trailing slash on the base URL', async () => {
+    const client = new ComfyClient(`${BASE}/`, fakeFetch({ 'GET /system_stats': () => json({}) }));
+    await expect(client.systemStats()).resolves.toEqual({});
+  });
 });

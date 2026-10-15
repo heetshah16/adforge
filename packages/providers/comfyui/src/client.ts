@@ -40,23 +40,37 @@ export type Fetch = typeof fetch;
 
 /** Thin HTTP client. Every response it reads is schema-checked; transport and shape failures are UPSTREAM. */
 export class ComfyClient {
+  private readonly baseUrl: string;
+
   constructor(
-    private readonly baseUrl: string,
+    baseUrl: string,
     private readonly fetchImpl: Fetch = fetch,
-  ) {}
+    private readonly timeoutMs = 30_000,
+  ) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
+  }
 
   async #request(path: string, init?: RequestInit): Promise<Response> {
     try {
-      return await this.fetchImpl(`${this.baseUrl}${path}`, init);
+      const timeout = AbortSignal.timeout(this.timeoutMs);
+      const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+      return await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, signal });
     } catch (e) {
-      throw new ProviderError(P, 'UPSTREAM', `ComfyUI unreachable at ${this.baseUrl}: ${(e as Error).message}`, e);
+      const why = (e as Error).name === 'TimeoutError' ? `timed out after ${this.timeoutMs}ms` : (e as Error).message;
+      throw new ProviderError(P, 'UPSTREAM', `ComfyUI unreachable at ${this.baseUrl}: ${why}`, e);
     }
   }
 
   async #json<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
     const res = await this.#request(path, init);
     if (!res.ok) throw new ProviderError(P, 'UPSTREAM', `${init?.method ?? 'GET'} ${path} -> HTTP ${res.status}`);
-    const parsed = schema.safeParse(await res.json());
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch (e) {
+      throw new ProviderError(P, 'UPSTREAM', `Non-JSON ${path} response`, e);
+    }
+    const parsed = schema.safeParse(body);
     if (!parsed.success) {
       throw new ProviderError(P, 'UPSTREAM', `Unexpected ${path} response: ${z.prettifyError(parsed.error)}`);
     }
@@ -104,7 +118,11 @@ export class ComfyClient {
     const q = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });
     const res = await this.#request(`/view?${q}`);
     if (!res.ok) throw new ProviderError(P, 'UPSTREAM', `GET /view ${file.filename} -> HTTP ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
+    try {
+      return new Uint8Array(await res.arrayBuffer());
+    } catch (e) {
+      throw new ProviderError(P, 'UPSTREAM', `GET /view ${file.filename}: body read failed`, e);
+    }
   }
 }
 
