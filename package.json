@@ -1,0 +1,18 @@
+{
+  "name": "adforge",
+  "private": true,
+  "packageManager": "pnpm@12.11.2",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "boot-check": "pnpm --filter @adforge/core boot-check",
+    "db:generate": "pnpm --filter @adforge/db generate",
+    "db:seed": "pnpm --filter @adforge/db seed"
+  },
+  "devDependencies": {
+    "turbo": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}

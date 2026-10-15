@@ -42,3 +42,6 @@ desktop.ini
 
 # --- local claude state ------------------------------------------------------
 .claude/settings.local.json
+
+# --- local data (PGlite + media) --------------------------------------------
+.data/

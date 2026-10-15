@@ -1,0 +1,21 @@
+packages:
+  - packages/*
+  - packages/providers/*
+  - apps/*
+
+saveExact: true
+
+# Every third-party version lives here, exact. Upgrades are deliberate PRs.
+catalog:
+  typescript: 7.0.2
+  turbo: 2.11.8
+  vitest: 5.0.4
+  zod: 4.6.7
+  tsx: 4.23.15
+  "@types/node": 26.6.5
+  drizzle-orm: 0.45.4
+  drizzle-kit: 0.31.11
+  "@electric-sql/pglite": 0.5.10
+
+allowBuilds:
+  esbuild: true
