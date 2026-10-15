@@ -42,6 +42,12 @@ describe('parseEnv', () => {
   });
 });
 
+describe('ADFORGE_PUBLIC_URL', () => {
+  it('strips trailing slashes', () => {
+    expect(parseEnv({ ADFORGE_PUBLIC_URL: 'http://localhost:3000/' }).ADFORGE_PUBLIC_URL).toBe('http://localhost:3000');
+  });
+});
+
 describe('dataDirWarnings', () => {
   it('warns when the data dir is inside OneDrive', () => {
     expect(dataDirWarnings('C:\\Users\\a\\OneDrive\\Desktop\\adforge\\.data')).toHaveLength(1);

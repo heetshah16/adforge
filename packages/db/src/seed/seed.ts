@@ -5,10 +5,22 @@ import { VOCAB, type VocabSeed } from './vocabulary';
 
 /**
  * Upsert by slug. Content fields and family membership follow the seed file;
- * `status` is set only on insert — re-seeding never revives a retired row.
+ * `status` is set only on insert (default `proposed`) — re-seeding never revives a retired row.
  * All-or-nothing: any bad reference rolls the whole seed back.
  */
 export async function seedVocabulary(db: Db, vocab: VocabSeed = VOCAB): Promise<void> {
+  for (const [kind, list] of [
+    ['family', vocab.families],
+    ['archetype', vocab.archetypes],
+    ['format', vocab.formats],
+    ['hook', vocab.hooks],
+  ] as const) {
+    const seen = new Set<string>();
+    for (const { slug } of list) {
+      if (seen.has(slug)) throw new Error(`Duplicate ${kind} slug "${slug}" in vocabulary seed`);
+      seen.add(slug);
+    }
+  }
   await db.transaction(async (tx) => {
     for (const f of vocab.families) {
       await tx
@@ -24,24 +36,24 @@ export async function seedVocabulary(db: Db, vocab: VocabSeed = VOCAB): Promise<
       return fam.id;
     };
 
-    for (const { slug, ...rest } of vocab.archetypes) {
+    for (const { slug, status, ...rest } of vocab.archetypes) {
       await tx
         .insert(archetypes)
-        .values({ slug, ...rest, status: 'active' })
+        .values({ slug, ...rest, status: status ?? 'proposed' })
         .onConflictDoUpdate({ target: archetypes.slug, set: rest });
     }
-    for (const { slug, family, ...rest } of vocab.formats) {
+    for (const { slug, family, status, ...rest } of vocab.formats) {
       const set = { ...rest, familyId: familyId(family, 'format') };
       await tx
         .insert(formats)
-        .values({ slug, ...set, status: 'active' })
+        .values({ slug, ...set, status: status ?? 'proposed' })
         .onConflictDoUpdate({ target: formats.slug, set });
     }
-    for (const { slug, family, ...rest } of vocab.hooks) {
+    for (const { slug, family, status, ...rest } of vocab.hooks) {
       const set = { ...rest, familyId: familyId(family, 'hook') };
       await tx
         .insert(hookArchetypes)
-        .values({ slug, ...set, status: 'active' })
+        .values({ slug, ...set, status: status ?? 'proposed' })
         .onConflictDoUpdate({ target: hookArchetypes.slug, set });
     }
   });

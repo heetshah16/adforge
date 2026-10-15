@@ -1,9 +1,15 @@
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 /** env.ts lives at packages/core/src/config/. */
 export const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
+if (!existsSync(join(REPO_ROOT, 'pnpm-workspace.yaml'))) {
+  throw new Error(
+    `REPO_ROOT resolved to ${REPO_ROOT}, which is not the AdForge repo root (no pnpm-workspace.yaml). env.ts was likely bundled to a different depth.`,
+  );
+}
 
 const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const WorkflowName = z.string().regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and dashes only');
@@ -20,7 +26,7 @@ export const Env = z.object({
     .min(1)
     .default('.data')
     .transform((p) => resolve(REPO_ROOT, p)),
-  ADFORGE_PUBLIC_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
+  ADFORGE_PUBLIC_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000').transform((u) => u.replace(/\/+$/, '')),
 
   ADFORGE_PROVIDER_STORAGE: z.enum(['local']).default('local'),
   ADFORGE_PROVIDER_IMAGE: z.enum(['comfyui']).default('comfyui'),

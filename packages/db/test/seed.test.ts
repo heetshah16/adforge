@@ -19,6 +19,24 @@ describe('seedVocabulary', () => {
     await close();
   });
 
+  it('inserts a new seed entry as proposed when it has no status', async () => {
+    const { db, close } = await openDb();
+    const vocab = clone();
+    vocab.hooks.push({ slug: 'test_new_hook', family: 'tension', name: 'T', shape: 's', skeleton: 'k', fitsArchetypes: [] });
+    await seedVocabulary(db, vocab);
+    const [row] = await db.select().from(hookArchetypes).where(eq(hookArchetypes.slug, 'test_new_hook'));
+    expect(row!.status).toBe('proposed');
+    await close();
+  });
+
+  it('rejects a duplicate slug within one seed', async () => {
+    const { db, close } = await openDb();
+    const vocab = clone();
+    vocab.hooks.push({ ...vocab.hooks[0]! });
+    await expect(seedVocabulary(db, vocab)).rejects.toThrow(/Duplicate hook slug "pattern_break"/);
+    await close();
+  });
+
   it('is idempotent', async () => {
     const { db, close } = await openDb();
     await seedVocabulary(db);

@@ -26,7 +26,7 @@ function isAlive(pid: number): boolean {
 /**
  * PGlite is single-process: two writers on one directory corrupt it.
  * The lock is created atomically WITH its pid (temp file + hard link), so a reader never sees it empty.
- * ponytail: pid lockfile, not an OS lock — a reused pid can block until the file is deleted by hand.
+ * ponytail: pid lockfile, not an OS lock - a reused pid can block until the file is deleted by hand.
  */
 function acquireLock(dataDir: string): () => void {
   mkdirSync(dataDir, { recursive: true });
@@ -51,11 +51,11 @@ function acquireLock(dataDir: string): () => void {
       const pid = Number(text);
       if (!/^\d+$/.test(text.trim()) || !Number.isSafeInteger(pid) || pid <= 0) {
         throw new Error(
-          `Lock file ${lockPath} is unreadable or corrupt — delete it if no other AdForge process is running.`,
+          `Lock file ${lockPath} is unreadable or corrupt - delete it if no other AdForge process is running.`,
         );
       }
       if (isAlive(pid)) {
-        throw new Error(`Database ${dataDir} is already open by pid ${pid}. Stop that process first.`);
+        throw new Error(`Database ${dataDir} is already open by pid ${pid}. If pid ${pid} is not an AdForge process, delete ${lockPath}.`);
       }
       // Stale: rename is atomic, so only one reclaimer wins; losers get ENOENT and retry the link.
       const stale = `${lockPath}.stale.${randomUUID()}`;
@@ -87,8 +87,11 @@ export async function openDb(dataDir?: string): Promise<{ db: Db; close(): Promi
     return {
       db,
       async close() {
-        await client.close();
-        release();
+        try {
+          await client.close();
+        } finally {
+          release();
+        }
       },
     };
   } catch (e) {
