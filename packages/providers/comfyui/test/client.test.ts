@@ -129,6 +129,24 @@ describe('ComfyClient', () => {
     expect((err as ProviderError).message).toContain(BASE);
   });
 
+  it('reports a timeout during body read as a timeout', async () => {
+    const stalled = ((_url: unknown, init?: RequestInit) => {
+      const body = new ReadableStream({
+        start(c) {
+          init?.signal?.addEventListener('abort', () => c.error(init.signal!.reason));
+        },
+      });
+      return Promise.resolve(new Response(body));
+    }) as typeof fetch;
+    const client = new ComfyClient(BASE, stalled, 20);
+    const a = await client.history('abc').catch((e: unknown) => e);
+    expect((a as ProviderError).code).toBe('UPSTREAM');
+    expect((a as ProviderError).message).toMatch(/timed out after 20ms reading \/history\/abc/);
+    const b = await client.view({ filename: 'a.mp4', subfolder: '', type: 'output' }).catch((e: unknown) => e);
+    expect((b as ProviderError).code).toBe('UPSTREAM');
+    expect((b as ProviderError).message).toMatch(/timed out after 20ms/);
+  });
+
   it('tolerates a trailing slash on the base URL', async () => {
     const client = new ComfyClient(`${BASE}/`, fakeFetch({ 'GET /system_stats': () => json({}) }));
     await expect(client.systemStats()).resolves.toEqual({});

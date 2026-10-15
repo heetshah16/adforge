@@ -61,6 +61,15 @@ export class ComfyClient {
     }
   }
 
+  /** The timeout stays armed while the body streams, so it can surface from a body read; don't mislabel it. */
+  #bodyError(e: unknown, what: string, fallback: string): ProviderError {
+    const msg =
+      (e as Error).name === 'TimeoutError'
+        ? `ComfyUI at ${this.baseUrl} timed out after ${this.timeoutMs}ms reading ${what}`
+        : fallback;
+    return new ProviderError(P, 'UPSTREAM', msg, e);
+  }
+
   async #json<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
     const res = await this.#request(path, init);
     if (!res.ok) throw new ProviderError(P, 'UPSTREAM', `${init?.method ?? 'GET'} ${path} -> HTTP ${res.status}`);
@@ -68,7 +77,7 @@ export class ComfyClient {
     try {
       body = await res.json();
     } catch (e) {
-      throw new ProviderError(P, 'UPSTREAM', `Non-JSON ${path} response`, e);
+      throw this.#bodyError(e, path, `Non-JSON ${path} response`);
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
@@ -121,7 +130,7 @@ export class ComfyClient {
     try {
       return new Uint8Array(await res.arrayBuffer());
     } catch (e) {
-      throw new ProviderError(P, 'UPSTREAM', `GET /view ${file.filename}: body read failed`, e);
+      throw this.#bodyError(e, `/view ${file.filename}`, `GET /view ${file.filename}: body read failed`);
     }
   }
 }
