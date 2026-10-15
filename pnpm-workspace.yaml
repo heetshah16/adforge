@@ -15,10 +15,7 @@ catalog:
   "@types/node": 26.6.5
   drizzle-orm: 0.45.4
   drizzle-kit: 0.31.11
-  "@electric-sql/pglite": 0.5.10
+  "@electric-sql/pglite": 0.5.8
 
 allowBuilds:
   esbuild: true
-
-minimumReleaseAgeExclude:
-  - "@electric-sql/pglite@0.5.10"

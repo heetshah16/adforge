@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,7 +32,7 @@ describe('openDb', () => {
     const { db, close, jobId } = await seedJob();
     const call = { jobId, kind: 'image', provider: 'comfyui', requestHash: 'h', idempotencyKey: 'k1' };
     await db.insert(providerCalls).values(call);
-    await expect(db.insert(providerCalls).values(call)).rejects.toThrow();
+    await expect(db.insert(providerCalls).values(call)).rejects.toMatchObject({ cause: { message: expect.stringMatching(/duplicate key.*provider_calls_idempotencyKey_unique/) } });
     await close();
   });
 
@@ -43,5 +44,22 @@ describe('openDb', () => {
     await first.close();
     const again = await openDb(dir); // lock released on close
     await again.close();
+  });
+
+  it('reclaims a lock left by a dead pid', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adforge-db-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, '.adforge.lock'), String(spawnSync(process.execPath, ['-e', '']).pid));
+    const db = await openDb(dir);
+    await db.close();
+  });
+
+  it('refuses a corrupt lock without deleting it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adforge-db-'));
+    dirs.push(dir);
+    const lock = join(dir, '.adforge.lock');
+    writeFileSync(lock, 'garbage');
+    await expect(openDb(dir)).rejects.toThrow(/unreadable or corrupt/);
+    expect(existsSync(lock)).toBe(true);
   });
 });
