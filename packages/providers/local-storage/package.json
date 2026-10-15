@@ -1,0 +1,13 @@
+{
+  "name": "@adforge/provider-local-storage",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc -p ." },
+  "dependencies": { "@adforge/core": "workspace:*" },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}
