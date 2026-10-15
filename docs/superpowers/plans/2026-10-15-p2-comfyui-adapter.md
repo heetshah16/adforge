@@ -187,17 +187,15 @@ describe('workflow manifests', () => {
     expect(() => assertManifestMatches(broken, m)).toThrow('in:size');
   });
 
-  const all = [
-    ...Object.values(PLATE_WORKFLOWS),
-    ...Object.values(CUTOUT_WORKFLOWS),
-    ...Object.values(BROLL_WORKFLOWS),
+  type Golden = [string, () => ApiWorkflow];
+  const golden: Golden[] = [
+    ...Object.values(PLATE_WORKFLOWS).map((m): Golden => [m.name, () => patchWorkflow(loadWorkflow(m.name).json, m.toPatches(m.sample))]),
+    ...Object.values(CUTOUT_WORKFLOWS).map((m): Golden => [m.name, () => patchWorkflow(loadWorkflow(m.name).json, m.toPatches(m.sample))]),
+    ...Object.values(BROLL_WORKFLOWS).map((m): Golden => [m.name, () => patchWorkflow(loadWorkflow(m.name).json, m.toPatches(m.sample))]),
   ];
-  for (const m of all) {
-    it(`golden: ${m.name} patched with its sample params`, async () => {
-      const { json } = loadWorkflow(m.name);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- manifests are heterogeneous here
-      const patched = patchWorkflow(json, (m as any).toPatches(m.sample));
-      await expect(JSON.stringify(patched, null, 2) + '\n').toMatchFileSnapshot(`./golden/${m.name}.json`);
+  for (const [name, patched] of golden) {
+    it(`golden: ${name} patched with its sample params`, async () => {
+      await expect(JSON.stringify(patched(), null, 2) + '\n').toMatchFileSnapshot(`./golden/${name}.json`);
     });
   }
 });
@@ -753,7 +751,7 @@ git commit -m "feat(comfyui): HTTP client with schema-checked responses and erro
 
 **Files:**
 - Modify: `packages/core/src/providers/types.ts` (add `isRetryable`)
-- Test: `packages/core/test/registry.test.ts` → no; create `packages/core/test/retryable.test.ts`
+- Test: `packages/core/test/retryable.test.ts`
 - Create: `packages/providers/comfyui/src/job.ts`
 - Test: `packages/providers/comfyui/test/job.test.ts`
 
@@ -821,7 +819,7 @@ const broll = loadWorkflow('broll-wan22-5b').json;
 const IMAGE_OUT = { title: 'out:image', mime: 'image/png' } as const;
 
 /** The recorded plate entry, re-keyed to `id`, with optional message overrides. */
-function plateEntry(id: string, messages?: HistoryEntry['status'] extends infer S ? (S extends { messages: infer M } ? M : never) : never) {
+function plateEntry(id: string, messages?: [string, Record<string, unknown>][]) {
   const rec = fixture('plate-flux-schnell.history.json') as Record<string, HistoryEntry>;
   const entry = structuredClone(Object.values(rec)[0]!);
   if (messages) entry.status = { ...entry.status!, status_str: 'error', messages };
@@ -1222,13 +1220,12 @@ describe('image provider', () => {
 
   it('derives the same seed from the same key when none is given', async () => {
     const seeds: unknown[] = [];
-    for (const run of [1, 2]) {
-      const f = fakeFetch(jobRoutes(`seed-key`, 'plate-flux-schnell', pngBytes(768, 1344)));
+    for (let run = 0; run < 2; run++) {
+      const f = fakeFetch(jobRoutes('seed-key', 'plate-flux-schnell', pngBytes(768, 1344)));
       const { image } = createComfyProviders({ ...opts, storage: memoryStorage(), fetchImpl: f });
       await image.generate({ prompt: 'p', width: 768, height: 1344, idempotencyKey: 'seed-key' });
       const body = f.bodies['POST /prompt']?.[0] as { prompt: Record<string, { inputs: { seed?: unknown }; _meta: { title: string } }> };
       seeds.push(Object.values(body.prompt).find((n) => n._meta.title === 'in:seed')!.inputs.seed);
-      expect(run).toBeGreaterThan(0);
     }
     expect(seeds[0]).toBe(seeds[1]);
     expect(typeof seeds[0]).toBe('number');
