@@ -8,7 +8,8 @@
     "typecheck": "turbo run typecheck",
     "boot-check": "pnpm --filter @adforge/core boot-check",
     "db:generate": "pnpm --filter @adforge/db generate",
-    "db:seed": "pnpm --filter @adforge/db seed"
+    "db:seed": "pnpm --filter @adforge/db seed",
+    "smoke:comfy": "pnpm --filter @adforge/provider-comfyui smoke"
   },
   "devDependencies": {
     "turbo": "catalog:",

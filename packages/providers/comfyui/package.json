@@ -1,0 +1,22 @@
+{
+  "name": "@adforge/provider-comfyui",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@adforge/core": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@adforge/provider-local-storage": "workspace:*",
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}
