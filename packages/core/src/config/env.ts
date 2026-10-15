@@ -1,5 +1,9 @@
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+/** env.ts lives at packages/core/src/config/. */
+export const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
 const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const WorkflowName = z.string().regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and dashes only');
@@ -11,7 +15,11 @@ const OpenRouterModel = z.string().regex(/^[a-z0-9-]+\/[a-z0-9.:-]+$/, 'expected
  * LLM vars become required in P5.
  */
 export const Env = z.object({
-  ADFORGE_DATA_DIR: z.string().min(1).default('.data'),
+  ADFORGE_DATA_DIR: z
+    .string()
+    .min(1)
+    .default('.data')
+    .transform((p) => resolve(REPO_ROOT, p)),
   ADFORGE_PUBLIC_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000'),
 
   ADFORGE_PROVIDER_STORAGE: z.enum(['local']).default('local'),

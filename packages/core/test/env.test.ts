@@ -1,5 +1,6 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dataDirWarnings, parseEnv } from '../src/config/env';
+import { REPO_ROOT, dataDirWarnings, parseEnv } from '../src/config/env';
 
 describe('parseEnv', () => {
   it('applies defaults to an empty environment', () => {
@@ -27,6 +28,17 @@ describe('parseEnv', () => {
     expect(parseEnv({ ADFORGE_LLM_DIRECTOR: 'anthropic/claude-opus-5' }).ADFORGE_LLM_DIRECTOR).toBe(
       'anthropic/claude-opus-5',
     );
+  });
+  it('default data dir resolves under the repo root', () => {
+    expect(parseEnv({}).ADFORGE_DATA_DIR).toBe(join(REPO_ROOT, '.data'));
+  });
+
+  it('absolute data dir passes through', () => {
+    expect(parseEnv({ ADFORGE_DATA_DIR: 'C:\\adforge-data' }).ADFORGE_DATA_DIR).toBe('C:\\adforge-data');
+  });
+
+  it('relative data dir is not cwd-dependent', () => {
+    expect(parseEnv({ ADFORGE_DATA_DIR: 'data/x' }).ADFORGE_DATA_DIR).toBe(join(REPO_ROOT, 'data', 'x'));
   });
 });
 
