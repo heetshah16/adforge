@@ -1,0 +1,8 @@
+{
+  "1": { "class_type": "LoadImage", "inputs": { "image": "" }, "_meta": { "title": "in:image" } },
+  "2": { "class_type": "LoadBackgroundRemovalModel", "inputs": { "bg_removal_name": "birefnet.safetensors" }, "_meta": { "title": "bg model" } },
+  "3": { "class_type": "RemoveBackground", "inputs": { "bg_removal_model": ["2", 0], "image": ["1", 0] }, "_meta": { "title": "foreground mask" } },
+  "4": { "class_type": "InvertMask", "inputs": { "mask": ["3", 0] }, "_meta": { "title": "invert (JoinImageWithAlpha treats mask as transparency)" } },
+  "5": { "class_type": "JoinImageWithAlpha", "inputs": { "image": ["1", 0], "alpha": ["4", 0] }, "_meta": { "title": "rgba" } },
+  "6": { "class_type": "SaveImage", "inputs": { "images": ["5", 0], "filename_prefix": "adforge/cutout" }, "_meta": { "title": "out:image" } }
+}

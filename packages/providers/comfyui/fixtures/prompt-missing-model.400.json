@@ -1,0 +1,55 @@
+{
+  "status": 400,
+  "body": {
+    "error": {
+      "type": "prompt_outputs_failed_validation",
+      "message": "Prompt outputs failed validation",
+      "details": "",
+      "extra_info": {}
+    },
+    "node_errors": {
+      "1": {
+        "errors": [
+          {
+            "type": "value_not_in_list",
+            "message": "Value not in list",
+            "details": "unet_name: 'wan2.2_ti2v_5B_fp16.safetensors' not in []",
+            "extra_info": {
+              "input_name": "unet_name",
+              "input_config": [
+                [],
+                {}
+              ],
+              "received_value": "wan2.2_ti2v_5B_fp16.safetensors"
+            }
+          }
+        ],
+        "dependent_outputs": [
+          "12"
+        ],
+        "class_type": "UNETLoader"
+      },
+      "2": {
+        "errors": [
+          {
+            "type": "value_not_in_list",
+            "message": "Value not in list",
+            "details": "clip_name: 'umt5_xxl_fp8_e4m3fn_scaled.safetensors' not in []",
+            "extra_info": {
+              "input_name": "clip_name",
+              "input_config": [
+                [],
+                {}
+              ],
+              "received_value": "umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+            }
+          }
+        ],
+        "dependent_outputs": [
+          "12"
+        ],
+        "class_type": "CLIPLoader"
+      }
+    }
+  }
+}

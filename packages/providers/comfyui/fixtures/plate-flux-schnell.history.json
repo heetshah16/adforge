@@ -1,0 +1,172 @@
+{
+  "5d1cefc6-5acf-4e07-aac8-21f640e47ad3": {
+    "prompt": [
+      3,
+      "5d1cefc6-5acf-4e07-aac8-21f640e47ad3",
+      {
+        "1": {
+          "class_type": "CheckpointLoaderSimple",
+          "inputs": {
+            "ckpt_name": "flux1-schnell-fp8.safetensors"
+          },
+          "_meta": {
+            "title": "checkpoint"
+          }
+        },
+        "2": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "text": "warm natural daylight, real lived-in kitchen interior, wooden countertop, shallow depth of field, candid editorial photography, empty surface in the foreground",
+            "clip": [
+              "1",
+              1
+            ]
+          },
+          "_meta": {
+            "title": "in:prompt"
+          }
+        },
+        "3": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "text": "",
+            "clip": [
+              "1",
+              1
+            ]
+          },
+          "_meta": {
+            "title": "negative (unused at cfg 1)"
+          }
+        },
+        "4": {
+          "class_type": "EmptySD3LatentImage",
+          "inputs": {
+            "width": 768,
+            "height": 1344,
+            "batch_size": 1
+          },
+          "_meta": {
+            "title": "in:size"
+          }
+        },
+        "5": {
+          "class_type": "KSampler",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "seed": 2,
+            "steps": 4,
+            "cfg": 1,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "positive": [
+              "2",
+              0
+            ],
+            "negative": [
+              "3",
+              0
+            ],
+            "latent_image": [
+              "4",
+              0
+            ],
+            "denoise": 1
+          },
+          "_meta": {
+            "title": "in:seed"
+          }
+        },
+        "6": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "5",
+              0
+            ],
+            "vae": [
+              "1",
+              2
+            ]
+          },
+          "_meta": {
+            "title": "decode"
+          }
+        },
+        "7": {
+          "class_type": "SaveImage",
+          "inputs": {
+            "images": [
+              "6",
+              0
+            ],
+            "filename_prefix": "adforge/plate"
+          },
+          "_meta": {
+            "title": "out:image"
+          }
+        }
+      },
+      {
+        "create_time": 1792044726227
+      },
+      [
+        "7"
+      ]
+    ],
+    "outputs": {
+      "7": {
+        "images": [
+          {
+            "filename": "plate_00002_.png",
+            "subfolder": "adforge",
+            "type": "output"
+          }
+        ]
+      }
+    },
+    "status": {
+      "status_str": "success",
+      "completed": true,
+      "messages": [
+        [
+          "execution_start",
+          {
+            "prompt_id": "5d1cefc6-5acf-4e07-aac8-21f640e47ad3",
+            "timestamp": 1792044726228
+          }
+        ],
+        [
+          "execution_cached",
+          {
+            "nodes": [
+              "1",
+              "3",
+              "4"
+            ],
+            "prompt_id": "5d1cefc6-5acf-4e07-aac8-21f640e47ad3",
+            "timestamp": 1792044726228
+          }
+        ],
+        [
+          "execution_success",
+          {
+            "prompt_id": "5d1cefc6-5acf-4e07-aac8-21f640e47ad3",
+            "timestamp": 1792044731145
+          }
+        ]
+      ]
+    },
+    "meta": {
+      "7": {
+        "node_id": "7",
+        "display_node": "7",
+        "parent_node": null,
+        "real_node_id": "7"
+      }
+    }
+  }
+}
