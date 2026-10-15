@@ -1,0 +1,24 @@
+{
+  "name": "@adforge/db",
+  "private": true,
+  "type": "module",
+  "exports": { "./*": "./src/*.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "generate": "drizzle-kit generate",
+    "seed": "tsx src/seed/run.ts"
+  },
+  "dependencies": {
+    "@adforge/core": "workspace:*",
+    "@electric-sql/pglite": "catalog:",
+    "drizzle-orm": "catalog:"
+  },
+  "devDependencies": {
+    "drizzle-kit": "catalog:",
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}
