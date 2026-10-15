@@ -152,3 +152,14 @@ describe('ComfyClient', () => {
     await expect(client.systemStats()).resolves.toEqual({});
   });
 });
+
+describe('ComfyClient.deleteHistory', () => {
+  it('posts the delete list and maps a 500 to UPSTREAM', async () => {
+    const f = fakeFetch({ 'POST /history': () => new Response(null, { status: 200 }) });
+    await new ComfyClient(BASE, f).deleteHistory('abc');
+    expect(f.bodies['POST /history']?.[0]).toEqual({ delete: ['abc'] });
+    const bad = fakeFetch({ 'POST /history': () => new Response('x', { status: 500 }) });
+    const err = await new ComfyClient(BASE, bad).deleteHistory('abc').catch((e: unknown) => e);
+    expect((err as ProviderError).code).toBe('UPSTREAM');
+  });
+});

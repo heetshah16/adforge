@@ -22,6 +22,7 @@ Shapes below come from (2) and are pinned to this version. Re-check them on any 
 | GET | `/models/{folder}` | Lists model files in a folder (e.g. `checkpoints`, `background_removal`) |
 | POST | `/upload/image` | Puts an input image into ComfyUI's `input` dir |
 | POST | `/prompt` | Queues a workflow |
+| POST | `/history` | `{delete:[id]}` - remove a stale failed entry before requeueing (empty 200 body) |
 | GET | `/history/{prompt_id}` | Polls for the result (the source of truth for completion) |
 | GET | `/queue` | Distinguishes "still queued or running" from "lost" |
 | GET | `/view` | Downloads an output file |

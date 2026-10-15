@@ -28,10 +28,21 @@ function failed(code: ProviderErrorCode, message: string, raw?: unknown): Provid
   return toFailed(new ProviderError(P, code, message, raw));
 }
 
-/** Queue under the key's deterministic id unless that id is already finished or queued. */
+/** Reuse a finished-OK or in-flight job for this key; requeue (same id) only when there is none or the last run failed. */
 export async function submitOnce(client: ComfyClient, workflow: ApiWorkflow, idempotencyKey: string): Promise<string> {
   const promptId = promptIdFor(idempotencyKey);
-  if ((await client.history(promptId)) || (await client.isQueued(promptId))) return promptId;
+  let entry = await client.history(promptId);
+  if (!entry) {
+    if (await client.isQueued(promptId)) return promptId;
+    entry = await client.history(promptId); // finished between the two calls
+    if (!entry) {
+      await client.queuePrompt(workflow, promptId);
+      return promptId;
+    }
+  }
+  if (entry.status?.status_str === 'success') return promptId;
+  // The key's previous run failed: clear it so the rerun's result is the one collect() reads.
+  await client.deleteHistory(promptId);
   await client.queuePrompt(workflow, promptId);
   return promptId;
 }

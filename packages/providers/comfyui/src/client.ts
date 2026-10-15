@@ -113,6 +113,16 @@ export class ComfyClient {
     throw new ProviderError(P, 'UPSTREAM', `POST /prompt -> HTTP ${res.status}`, body);
   }
 
+  /** Removes a stale entry so a rerun under the same prompt id is the one `history` reports. Empty 200 body. */
+  async deleteHistory(promptId: string): Promise<void> {
+    const res = await this.#request('/history', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ delete: [promptId] }),
+    });
+    if (!res.ok) throw new ProviderError(P, 'UPSTREAM', `POST /history -> HTTP ${res.status}`);
+  }
+
   async history(promptId: string): Promise<HistoryEntry | null> {
     const all = await this.#json(`/history/${promptId}`, z.record(z.string(), HistoryEntry));
     return all[promptId] ?? null;

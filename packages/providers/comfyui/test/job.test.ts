@@ -48,6 +48,33 @@ describe('submitOnce', () => {
   });
 });
 
+describe('submitOnce races and retries', () => {
+  it('does not queue again when the job finishes between the two checks', async () => {
+    const id = promptIdFor('k4');
+    let n = 0;
+    const f = fakeFetch({
+      [`GET /history/${id}`]: () => json(n++ === 0 ? {} : plateEntry(id)),
+      'GET /queue': () => json({ queue_running: [], queue_pending: [] }),
+    });
+    expect(await submitOnce(new ComfyClient(BASE, f), plate, 'k4')).toBe(id);
+    expect(f.calls).not.toContain('POST /prompt');
+  });
+
+  it('clears a failed previous run, then requeues under the same id', async () => {
+    const id = promptIdFor('k5');
+    const f = fakeFetch({
+      [`GET /history/${id}`]: () =>
+        json(plateEntry(id, [['execution_error', { node_id: '5', node_type: 'KSampler', exception_message: 'CUDA out of memory' }]])),
+      'POST /history': () => new Response(null, { status: 200 }),
+      'POST /prompt': () => json({ prompt_id: id, number: 1, node_errors: {} }),
+    });
+    expect(await submitOnce(new ComfyClient(BASE, f), plate, 'k5')).toBe(id);
+    expect(f.calls.indexOf('POST /history')).toBeGreaterThanOrEqual(0);
+    expect(f.calls.indexOf('POST /history')).toBeLessThan(f.calls.indexOf('POST /prompt'));
+    expect(f.bodies['POST /history']?.[0]).toEqual({ delete: [id] });
+  });
+});
+
 describe('collect', () => {
   it('downloads the output, stores it, and reports execution time', async () => {
     const id = 'p1';
