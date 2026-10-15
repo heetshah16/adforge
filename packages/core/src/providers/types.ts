@@ -35,6 +35,13 @@ export type ProviderErrorCode =
   | 'UPSTREAM'
   | 'UNKNOWN';
 
+const RETRYABLE: ReadonlySet<ProviderErrorCode> = new Set(['RATE_LIMIT', 'TIMEOUT', 'UPSTREAM']);
+
+/** One source of truth for retry policy, so `retryable` can't disagree with the error code. */
+export function isRetryable(code: ProviderErrorCode): boolean {
+  return RETRYABLE.has(code);
+}
+
 /** INVALID_INPUT is a bug in our adapter — it should have failed Zod validation locally. */
 export class ProviderError extends Error {
   constructor(
