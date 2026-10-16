@@ -73,9 +73,19 @@ export function checkDirection(
     ...offShortlist(picks, offered),
     ...assertVariantDiversity(picks, ctx.registry, cfg.diversity),
   ];
-  const third = out.variants.find((v) => v.variant_no === 3);
-  if (exp && third && (exp.kind === 'format' ? third.format : third.hook_archetype) !== exp.slug) {
-    violations.push({ rule: 'exploratory', message: `variant 3 must use the exploratory ${exp.kind} "${exp.slug}"` });
+  const nos = out.variants.map((v) => v.variant_no).sort((a, b) => a - b);
+  if (nos.join() !== '1,2,3') violations.push({ rule: 'variant_no', message: `variants must be numbered 1, 2, 3 exactly once each (got ${nos.join(', ')})` });
+  if (exp) {
+    const slugOf = (v: DirectorVariant) => (exp.kind === 'format' ? v.format : v.hook_archetype);
+    const third = out.variants.find((v) => v.variant_no === 3);
+    if (third && slugOf(third) !== exp.slug) {
+      violations.push({ rule: 'exploratory', message: `variant 3 must use the exploratory ${exp.kind} "${exp.slug}"` });
+    }
+    for (const v of out.variants) {
+      if (v.variant_no !== 3 && slugOf(v) === exp.slug) {
+        violations.push({ rule: 'exploratory', message: `variant ${v.variant_no}: the exploratory ${exp.kind} "${exp.slug}" is reserved for variant 3` });
+      }
+    }
   }
   return violations;
 }

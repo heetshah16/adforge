@@ -37,9 +37,25 @@ describe('buildOptions', () => {
   it('disables tools and settings, sets model/effort/schema and never sets sampling params', async () => {
     const o = buildOptions(req, new AbortController(), { maxTurns: 4, cwd: 'TMP' });
     expect(o).not.toHaveProperty('temperature');
-    const { abortController, ...rest } = o as Record<string, unknown>;
+    const { abortController, env, ...rest } = o as Record<string, unknown>; // env holds machine paths: kept out of the golden
     expect(abortController).toBeInstanceOf(AbortController);
+    expect(env).toBeTypeOf('object');
     await expect(JSON.stringify(rest, null, 2) + '\n').toMatchFileSnapshot('./golden/options.json');
+  });
+});
+
+describe('buildOptions env', () => {
+  it('keeps the environment but strips ANTHROPIC_API_KEY', () => {
+    const prev = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    try {
+      const o = buildOptions(req, new AbortController());
+      expect(o.env?.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(o.env?.PATH ?? o.env?.Path).toBeDefined();
+    } finally {
+      if (prev === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = prev;
+    }
   });
 });
 
@@ -81,6 +97,13 @@ describe('mapResult', () => {
     expect(r.status === 'failed' && r.error.message).toContain('could not satisfy schema');
   });
 
+  it('classifies subtype success with is_error true by its result text', () => {
+    const r = mapResult(result({ is_error: true, result: 'Claude AI usage limit reached|1792044000' }), Schema);
+    expect(r.status === 'failed' && r.error.code).toBe('RATE_LIMIT');
+    expect(r.status === 'failed' && r.retryable).toBe(true);
+    expect(r.status === 'failed' && r.error.message).toContain('usage limit');
+  });
+
   it('parses the recorded live result', () => {
     const live = JSON.parse(readFileSync(new URL('../fixtures/result-success.live.json', import.meta.url), 'utf8'));
     const r = mapResult(live, z.object({ verdict: z.enum(['yes', 'no']) }));
@@ -116,6 +139,18 @@ describe('ClaudeAgentProvider.generate', () => {
     const r = await p.generate(req);
     expect(r.status === 'failed' && r.error.code).toBe('RATE_LIMIT');
     expect(r.status === 'failed' && r.retryable).toBe(true);
+  });
+
+  it('prefers the assistant message error tag over regex classification', async () => {
+    const p = new ClaudeAgentProvider({
+      queryImpl: fakeQuery([
+        { type: 'assistant', error: 'authentication_failed', message: {} },
+        result({ is_error: true, result: 'API Error: something odd' }),
+      ]),
+    });
+    const r = await p.generate(req);
+    expect(r.status === 'failed' && r.error.code).toBe('AUTH');
+    expect(r.status === 'failed' && r.retryable).toBe(false);
   });
 
   it('maps an auth failure thrown before any result to non-retryable AUTH', async () => {

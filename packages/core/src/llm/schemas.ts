@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Language, Motion, ProductProminence, VisualTreatment } from '../vocab/enums';
+import { Language, type Language as LanguageT, Motion, ProductProminence, VisualTreatment } from '../vocab/enums';
 import type { Shortlist } from '../vocab/shortlist';
 
 const enumOf = (slugs: string[], what: string) => {
@@ -29,7 +29,7 @@ export function strategistOutput(archetypeSlugs: string[]) {
 export type StrategistOutput = z.infer<ReturnType<typeof strategistOutput>>;
 
 /** Built from the shortlist: format/hook enums contain only what the Director was offered. */
-export function directorOutput(shortlist: Shortlist, language: Language) {
+export function directorOutput(shortlist: Shortlist, _language?: LanguageT) {
   const exp = shortlist.experimental;
   const formats = [...shortlist.formats.map((f) => f.slug), ...(exp?.kind === 'format' ? [exp.slug] : [])];
   const hooks = [...shortlist.hooks.map((h) => h.slug), ...(exp?.kind === 'hook' ? [exp.slug] : [])];
@@ -50,7 +50,7 @@ export function directorOutput(shortlist: Shortlist, language: Language) {
     visual_treatment: VisualTreatment,
     strategic_bet: z.string().min(10).max(300),
     hook_text: z.string().min(1).max(120),
-    language: z.literal(language),
+    language: Language, // enum, not a per-job literal: keeps the schema (and the cached prefix) identical across languages
     scenes: z.array(Scene).min(3).max(6),
     cta: z.string().min(1).max(80),
     caption: z.string().min(1).max(300),

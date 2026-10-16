@@ -133,6 +133,25 @@ describe('checkDirection', () => {
     expect(rules).toContain('exploratory');
   });
 
+  it('requires variant numbers to be exactly 1, 2, 3', () => {
+    const dup = anchor();
+    dup.variants[1]!.variant_no = 1;
+    const m = checkDirection(dup, { ...ctx, shortlist: list }).find((x) => x.rule === 'variant_no');
+    expect(m?.message).toBe('variants must be numbered 1, 2, 3 exactly once each (got 1, 1, 3)');
+    const missing = anchor();
+    missing.variants[2]!.variant_no = 2;
+    expect(checkDirection(missing, { ...ctx, shortlist: list }).map((x) => x.rule)).toContain('variant_no');
+  });
+
+  it('accepts variant 3 using the exploratory format, and rejects variants 1 or 2 using it', () => {
+    const out = anchor();
+    const slug = out.variants[2]!.format;
+    const expFmt = { ...list, experimental: { kind: 'format' as const, slug, family: 'x', score: 0.5, reason: '' } };
+    expect(checkDirection(out, { ...ctx, shortlist: expFmt }).map((x) => x.rule)).not.toContain('exploratory');
+    out.variants[0]!.format = slug;
+    expect(checkDirection(out, { ...ctx, shortlist: expFmt }).some((x) => x.rule === 'exploratory' && x.message.startsWith('variant 1'))).toBe(true);
+  });
+
   it('requires variant 3 format to be the experimental format slug', () => {
     const expFmt = { ...list, experimental: { kind: 'format' as const, slug: 'listicle_3', family: 'rational', score: 0.5, reason: '' } };
     const out = anchor();

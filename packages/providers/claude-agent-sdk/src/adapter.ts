@@ -34,6 +34,8 @@ const fail = (code: ProviderErrorCode, message: string, raw?: unknown): Provider
 });
 
 export function buildOptions<T>(req: LLMRequest<T>, abort: AbortController, o: ClaudeAgentOptions = {}): Options {
+  // SDK `env` REPLACES the subprocess env, so copy process.env minus the API key: never fall back to API billing silently.
+  const { ANTHROPIC_API_KEY: _apiKey, ...env } = process.env;
   return {
     model: req.model,
     effort: req.effort,
@@ -47,9 +49,10 @@ export function buildOptions<T>(req: LLMRequest<T>, abort: AbortController, o: C
     skills: [],
     persistSession: false,
     cwd: o.cwd ?? tmpdir(),
+    env,
     abortController: abort,
     outputFormat: { type: 'json_schema', schema: z.toJSONSchema(req.schema, { target: 'draft-7' }) as Record<string, unknown> },
-  } as Options;
+  } satisfies Options;
 }
 
 export function toUserMessage<T>(req: LLMRequest<T>): SDKUserMessage {
@@ -69,6 +72,9 @@ export function toUserMessage<T>(req: LLMRequest<T>): SDKUserMessage {
 type ResultLike = {
   type: string;
   subtype: string;
+  is_error?: boolean;
+  result?: string;
+  api_error_status?: number | null;
   structured_output?: unknown;
   errors?: string[];
   duration_ms?: number;
@@ -76,10 +82,29 @@ type ResultLike = {
   usage?: Record<string, number | undefined>;
 };
 
-export function mapResult<T>(result: ResultLike, schema: ZodType<T>): ProviderResult<LLMResult<T>> {
+/** Assistant-message error tags (sdk.d.ts SDKAssistantMessageError) → our codes. */
+const ASSISTANT_ERROR: Record<string, ProviderErrorCode> = {
+  rate_limit: 'RATE_LIMIT',
+  overloaded: 'RATE_LIMIT',
+  authentication_failed: 'AUTH',
+  oauth_org_not_allowed: 'AUTH',
+  account_on_hold: 'AUTH',
+  billing_error: 'AUTH',
+  cloud_credential_error: 'AUTH',
+  model_not_found: 'INVALID_INPUT',
+  invalid_request: 'INVALID_INPUT',
+};
+
+export function mapResult<T>(result: ResultLike, schema: ZodType<T>, assistantError?: string): ProviderResult<LLMResult<T>> {
+  const mapped = assistantError ? ASSISTANT_ERROR[assistantError] : undefined;
+  if (result.is_error && result.subtype === 'success') {
+    // API errors can end the turn as subtype 'success' with is_error: true and the error text in `result`.
+    const text = `${result.result ?? ''} ${result.api_error_status ?? ''}`.trim();
+    return fail(mapped ?? classify(text), `Claude run ended with error: ${text}`, result);
+  }
   if (result.subtype !== 'success') {
     const text = `${result.subtype}: ${(result.errors ?? []).join('; ')}`;
-    return fail(classify(text), `Claude run ended with ${text}`, result);
+    return fail(mapped ?? classify(text), `Claude run ended with ${text}`, result);
   }
   if (result.structured_output === undefined) return fail('UPSTREAM', 'Claude run succeeded without structured_output', result);
   const parsed = schema.safeParse(result.structured_output);
@@ -110,6 +135,7 @@ export class ClaudeAgentProvider implements LLMProvider {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(new Error(`deadline ${req.timeoutMs}ms`)), req.timeoutMs);
     let result: ResultLike | undefined;
+    let assistantError: string | undefined;
     // Deadline independent of the SDK honouring the signal: every next() races against abort.
     const aborted = new Promise<never>((_, reject) => abort.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
     aborted.catch(() => {});
@@ -122,7 +148,9 @@ export class ClaudeAgentProvider implements LLMProvider {
       for (;;) {
         const n = await Promise.race([it.next(), aborted]);
         if (n.done) break;
-        if ((n.value as { type?: string }).type === 'result') result = n.value as unknown as ResultLike;
+        const m = n.value as { type?: string; error?: string };
+        if (m.type === 'assistant' && m.error) assistantError = m.error;
+        if (m.type === 'result') result = n.value as unknown as ResultLike;
       }
     } catch (e) {
       // A single-shot query throws AFTER yielding an error result; prefer the result when we have it.
@@ -137,6 +165,6 @@ export class ClaudeAgentProvider implements LLMProvider {
       if (abort.signal.aborted) void Promise.resolve(it?.return?.()).catch(() => {});
     }
     if (!result) return fail(abort.signal.aborted ? 'TIMEOUT' : 'UPSTREAM', `Claude call ${req.idempotencyKey} produced no result message`);
-    return mapResult(result, req.schema);
+    return mapResult(result, req.schema, assistantError);
   }
 }

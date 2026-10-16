@@ -3,7 +3,6 @@ import { extname, join } from 'node:path';
 import { REPO_ROOT, parseEnv } from '@adforge/core/config/env';
 import { direct } from '@adforge/core/llm/direct';
 import { strategize } from '@adforge/core/llm/strategize';
-import type { LLMProvider } from '@adforge/core/providers/types';
 import { Language } from '@adforge/core/vocab/enums';
 import { shortlist } from '@adforge/core/vocab/shortlist';
 import { openDb } from '@adforge/db/client';
@@ -26,19 +25,7 @@ if (products.length < 2) {
 
 const { db, close } = await openDb(env.ADFORGE_DATA_DIR);
 const registry = await loadRegistry(db).finally(close);
-const inner = new ClaudeAgentProvider();
-// Logs every call's usage (direct() does not surface it), so cache reads are visible for Director and repairs too.
-const llm: LLMProvider = {
-  id: inner.id,
-  async generate(req) {
-    const r = await inner.generate(req);
-    if (r.status === 'done') {
-      const u = r.value.usage;
-      console.log(`  [call ${req.idempotencyKey}] ${(r.latencyMs / 1000).toFixed(1)}s ~$${r.cost.amountUsd.toFixed(4)} in=${u.inputTokens} out=${u.outputTokens} cacheRead=${u.cacheReadTokens} cacheCreate=${u.cacheCreationTokens}`);
-    }
-    return r;
-  },
-};
+const llm = new ClaudeAgentProvider();
 let ok = true;
 
 for (const slug of products) {
@@ -71,6 +58,11 @@ for (const slug of products) {
     llm, model: env.ADFORGE_LLM_DIRECTOR, effort: env.ADFORGE_LLM_EFFORT_DIRECTOR, idempotencyKey: `e2e:${slug}:direct`,
   });
   console.log(`director ${((Date.now() - t1) / 1000).toFixed(1)}s status=${d.status}${'repairs' in d ? ` repairs=${d.repairs}` : ''}`);
+  for (const c of d.calls) {
+    if (c.result.status !== 'done') continue;
+    const u = c.result.value.usage;
+    console.log(`  [call ${c.idempotencyKey}] ${(c.result.latencyMs / 1000).toFixed(1)}s ~$${c.result.cost.amountUsd.toFixed(4)} in=${u.inputTokens} out=${u.outputTokens} cacheRead=${u.cacheReadTokens} cacheCreate=${u.cacheCreationTokens}`);
+  }
   if (d.status === 'failed') { console.error('  ', d.error.code, d.error.message); ok = false; continue; }
   for (const v of d.output.variants) {
     const fam = (slugs: { slug: string; family: string | null }[], s: string) => slugs.find((x) => x.slug === s)?.family;

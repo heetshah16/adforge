@@ -2,7 +2,7 @@ import { PIPELINE, type PipelineConfig } from '../config/pipeline';
 import { familyOf, type Registry } from './registry';
 
 export interface Violation {
-  rule: 'unknown_slug' | 'hook_family' | 'format_family' | 'off_shortlist' | 'hook_rule' | 'copy' | 'timing' | 'language' | 'beats' | 'exploratory';
+  rule: 'unknown_slug' | 'hook_family' | 'format_family' | 'off_shortlist' | 'hook_rule' | 'copy' | 'timing' | 'language' | 'beats' | 'variant_no' | 'exploratory';
   message: string;
 }
 export type VariantPick = { hookSlug: string; formatSlug: string };
