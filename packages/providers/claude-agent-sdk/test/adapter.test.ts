@@ -94,6 +94,14 @@ describe('classify', () => {
     expect(classify('API Error: 429 rate_limit_error')).toBe('RATE_LIMIT');
     expect(classify('authentication_failed: please run /login')).toBe('AUTH');
     expect(classify('socket hang up')).toBe('UPSTREAM');
+    expect(classify('API Error: 401 invalid key')).toBe('AUTH');
+    expect(classify('Please log in')).toBe('AUTH');
+  });
+
+  it('does not misread transient text as AUTH', () => {
+    expect(classify('catalog index failed')).toBe('UPSTREAM');
+    expect(classify('request took 403 ms')).toBe('UPSTREAM');
+    expect(classify('backlog increased')).toBe('UPSTREAM');
   });
 });
 
@@ -128,4 +136,13 @@ describe('ClaudeAgentProvider.generate', () => {
     expect(r.status === 'failed' && r.error.code).toBe('TIMEOUT');
     expect(r.status === 'failed' && r.retryable).toBe(true);
   });
+
+  it('times out even when the generator ignores the abort signal', async () => {
+    const stuck = (() => (async function* () { await new Promise(() => {}); })()) as unknown as typeof query;
+    const t0 = Date.now();
+    const r = await new ClaudeAgentProvider({ queryImpl: stuck }).generate({ ...req, timeoutMs: 30 });
+    expect(r.status === 'failed' && r.error.code).toBe('TIMEOUT');
+    expect(r.status === 'failed' && r.retryable).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(2_000);
+  }, 5_000);
 });

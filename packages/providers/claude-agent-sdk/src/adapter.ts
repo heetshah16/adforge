@@ -23,7 +23,7 @@ export interface ClaudeAgentOptions {
 
 export function classify(text: string): ProviderErrorCode {
   if (/usage limit|rate[ _-]?limit|\b429\b|too many requests|overloaded/i.test(text)) return 'RATE_LIMIT';
-  if (/authentication_failed|oauth|not logged in|log ?in|credential|unauthori[sz]ed|\b401\b|\b403\b/i.test(text)) return 'AUTH';
+  if (/authentication_failed|oauth|\bnot logged in\b|\blog[ _-]?in\b|credential|unauthori[sz]ed|\b(?:status|error|http|code)\D{0,3}40[13]\b/i.test(text)) return 'AUTH';
   return 'UPSTREAM';
 }
 
@@ -41,6 +41,10 @@ export function buildOptions<T>(req: LLMRequest<T>, abort: AbortController, o: C
     tools: [],
     maxTurns: o.maxTurns ?? 4,
     settingSources: [],
+    // Isolation: no user/plugin/claude.ai MCP servers, no skills (settingSources only covers settings files).
+    strictMcpConfig: true,
+    mcpServers: {},
+    skills: [],
     persistSession: false,
     cwd: o.cwd ?? tmpdir(),
     abortController: abort,
@@ -106,12 +110,19 @@ export class ClaudeAgentProvider implements LLMProvider {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(new Error(`deadline ${req.timeoutMs}ms`)), req.timeoutMs);
     let result: ResultLike | undefined;
+    // Deadline independent of the SDK honouring the signal: every next() races against abort.
+    const aborted = new Promise<never>((_, reject) => abort.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+    aborted.catch(() => {});
+    let it: AsyncIterator<unknown> | undefined;
     try {
       const prompt = (async function* () {
         yield toUserMessage(req);
       })();
-      for await (const m of (this.o.queryImpl ?? query)({ prompt, options: buildOptions(req, abort, this.o) })) {
-        if ((m as { type?: string }).type === 'result') result = m as unknown as ResultLike;
+      it = (this.o.queryImpl ?? query)({ prompt, options: buildOptions(req, abort, this.o) })[Symbol.asyncIterator]();
+      for (;;) {
+        const n = await Promise.race([it.next(), aborted]);
+        if (n.done) break;
+        if ((n.value as { type?: string }).type === 'result') result = n.value as unknown as ResultLike;
       }
     } catch (e) {
       // A single-shot query throws AFTER yielding an error result; prefer the result when we have it.
@@ -122,6 +133,8 @@ export class ClaudeAgentProvider implements LLMProvider {
       }
     } finally {
       clearTimeout(timer);
+      // Fire and forget: a generator that ignores abort must not block us.
+      if (abort.signal.aborted) void Promise.resolve(it?.return?.()).catch(() => {});
     }
     if (!result) return fail(abort.signal.aborted ? 'TIMEOUT' : 'UPSTREAM', `Claude call ${req.idempotencyKey} produced no result message`);
     return mapResult(result, req.schema);

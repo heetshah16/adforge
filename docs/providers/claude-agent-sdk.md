@@ -17,3 +17,4 @@
 - **Treat `subtype: 'success'` without `structured_output` as a failure.**
 - A single-shot `query()` **throws after yielding an error result**, so we capture the result before handling the throw.
 - **Auth:** the SDK uses the local Claude Code login (subscription) or `ANTHROPIC_API_KEY`. Assistant errors include `authentication_failed`, `oauth_org_not_allowed` and `cloud_credential_error`.
+- **Isolation:** `settingSources: []` covers only settings files and `tools: []` only built-ins. `strictMcpConfig: true` + `mcpServers: {}` ignore user/plugin/claude.ai MCP servers and `skills: []` loads no skills; without them ~31k tokens of harness context were injected. `stop_reason: tool_use` / `num_turns: 2` in a result is the internal structured-output tool, not real tool use.

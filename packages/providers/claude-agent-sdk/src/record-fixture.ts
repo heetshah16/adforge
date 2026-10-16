@@ -12,7 +12,7 @@ try {
     prompt: 'Is the sky usually blue on a clear day? Answer through the schema.',
     options: {
       model: 'claude-sonnet-5-5', effort: 'low', systemPrompt: 'Answer briefly.', tools: [], maxTurns: 4,
-      settingSources: [], persistSession: false, cwd: tmpdir(), abortController: abort,
+      settingSources: [], strictMcpConfig: true, mcpServers: {}, skills: [], persistSession: false, cwd: tmpdir(), abortController: abort,
       outputFormat: { type: 'json_schema', schema: schema as Record<string, unknown> },
     } as Parameters<typeof query>[0]['options'],
   })) {
