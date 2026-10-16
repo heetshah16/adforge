@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const PosInt = z.number().int().positive();
+const Engine = z.enum(['chatterbox', 'qwen']);
 const Range = z
   .tuple([z.number().positive(), z.number().positive()])
   .refine(([min, max]) => min <= max, 'range min must be <= max');
@@ -43,6 +44,8 @@ export const PipelineConfig = z.object({
     hinglishTtsLanguage: z.enum(['en', 'hi']),
     hinglishAsrLanguage: z.enum(['en', 'hi']),
     requestTimeoutMs: PosInt,
+    engineByLanguage: z.object({ en: Engine, hi: Engine, hinglish: Engine }),
+    qwen: z.object({ speaker: z.string().min(1), instructExpressiveAbove: z.number().min(0).max(1), expressiveInstruct: z.string().min(1).max(300), calmInstruct: z.string().min(1).max(300) }),
   }),
   composite: z.object({
     hero: z.object({ anchorX: z.number().min(0).max(1), anchorY: z.number().min(0).max(1), heightFrac: z.number().positive().max(1) }),
@@ -74,6 +77,13 @@ export const DEFAULT_PIPELINE: PipelineConfig = {
     hinglishTtsLanguage: 'hi',
     hinglishAsrLanguage: 'hi',
     requestTimeoutMs: 120_000,
+    engineByLanguage: { en: 'chatterbox', hi: 'chatterbox', hinglish: 'chatterbox' },
+    qwen: {
+      speaker: 'Ryan',
+      instructExpressiveAbove: 0.75,
+      expressiveInstruct: 'Speak with energy and conviction, like a confident ad voice-over.',
+      calmInstruct: 'Speak naturally and warmly, like a friendly ad voice-over.',
+    },
   },
   composite: {
     hero: { anchorX: 0.5, anchorY: 0.84, heightFrac: 0.46 },

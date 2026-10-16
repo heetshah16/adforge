@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { ProviderError } from '@adforge/core/providers/types';
-import type { SynthBody } from './params';
 
 const P = 'voice-service';
 const MAX_DETAIL = 500;
@@ -50,7 +49,7 @@ export class VoiceClient {
     return res;
   }
 
-  async #json<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+  protected async json<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
     const res = await this.#request(path, init);
     const body = await this.#read(path, () => res.json());
     const parsed = schema.safeParse(body);
@@ -59,10 +58,10 @@ export class VoiceClient {
   }
 
   health() {
-    return this.#json('/health', Health);
+    return this.json('/health', Health);
   }
 
-  async synthesize(body: SynthBody): Promise<{ bytes: Uint8Array; durationSec: number }> {
+  async synthesize(body: object): Promise<{ bytes: Uint8Array; durationSec: number }> {
     const res = await this.#request('/synthesize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const durationSec = Number(res.headers.get('x-duration-sec'));
     if (!Number.isFinite(durationSec) || durationSec <= 0) throw new ProviderError(P, 'UPSTREAM', 'voice service returned no X-Duration-Sec');
@@ -74,10 +73,10 @@ export class VoiceClient {
     const form = new FormData();
     form.append('audio', new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), 'voice.wav');
     form.append('language', language);
-    return this.#json('/align', Aligned, { method: 'POST', body: form });
+    return this.json('/align', Aligned, { method: 'POST', body: form });
   }
 
   unload() {
-    return this.#json('/unload', Unloaded, { method: 'POST' });
+    return this.json('/unload', Unloaded, { method: 'POST' });
   }
 }
