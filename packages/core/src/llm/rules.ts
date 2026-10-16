@@ -32,10 +32,14 @@ export function checkVariant(
       if (s.vo_tts !== undefined) add('language', `scene ${n}: vo_tts must be absent for "${ctx.language}"`);
       return;
     }
-    if (!s.vo_tts) return add('language', `scene ${n}: vo_tts is required for hinglish`);
+    if (!s.vo_tts) {
+      add('language', `scene ${n}: vo_tts is required for hinglish`);
+      return;
+    }
     const letters = s.vo_tts.match(/\p{L}/gu) ?? [];
     const dev = letters.filter((c) => c >= 'ऀ' && c <= 'ॿ').length;
-    if (letters.length === 0 || dev / letters.length < 0.8) add('language', `scene ${n}: vo_tts must be written in Devanagari (>=80% of letters)`);
+    const share = letters.length ? dev / letters.length : 0;
+    if (share < 0.8) add('language', `scene ${n}: vo_tts must be Devanagari (found ${Math.round(share * 100)}% Devanagari letters) — transliterate every word, brand names included`);
   });
 
   const first = v.scenes[0];
