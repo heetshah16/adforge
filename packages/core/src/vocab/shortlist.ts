@@ -30,7 +30,9 @@ function rank(e: RegistryEntry, b: Brief): Ranked {
   return { slug: e.slug, family: e.family, score, reason };
 }
 
-const byScoreThenSlug = (a: Ranked, b: Ranked) => b.score - a.score || a.slug.localeCompare(b.slug);
+// Code-unit comparison: localeCompare varies by machine ICU locale, which would make tie-breaks non-deterministic.
+const bySlug = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const byScoreThenSlug = (a: Ranked, b: Ranked) => b.score - a.score || bySlug(a.slug, b.slug);
 
 function rankKind(entries: readonly RegistryEntry[], b: Brief, cap: number, minFamilies: number): Ranked[] {
   const all = entries.filter((e) => e.status === 'active').map((e) => rank(e, b)).sort(byScoreThenSlug);
@@ -60,7 +62,7 @@ export function shortlist(
     const candidates = [
       ...registry.formats.filter((e) => e.status === 'experimental').map((e) => ({ ...rank(e, brief), kind: 'format' as const })),
       ...registry.hooks.filter((e) => e.status === 'experimental').map((e) => ({ ...rank(e, brief), kind: 'hook' as const })),
-    ].sort((a, b) => b.score - a.score || (a.kind === b.kind ? 0 : a.kind === 'format' ? -1 : 1) || a.slug.localeCompare(b.slug));
+    ].sort((a, b) => b.score - a.score || (a.kind === b.kind ? 0 : a.kind === 'format' ? -1 : 1) || bySlug(a.slug, b.slug));
     experimental = candidates[0] ?? null;
   }
   return { formats, hooks, experimental };

@@ -75,5 +75,7 @@ describe('shortlist', () => {
     const s = shortlist(brief('remedy', 'trust'), REGISTRY, { formats: 2, hooks: 3, reserveExperimentalSlot: true });
     expect(s.formats.length).toBeGreaterThanOrEqual(2); // may exceed only via family top-up
     expect(new Set(s.formats.map((f) => f.family)).size).toBeGreaterThanOrEqual(2);
+    expect(s.formats).toHaveLength(2);
+    expect(s.hooks).toHaveLength(3);
   });
 });

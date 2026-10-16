@@ -25,6 +25,17 @@ describe('assertVariantDiversity', () => {
     expect(out[0]!.message).toContain('confession');
   });
 
+  it('names a repeated slug once in the hook-family message', () => {
+    const out = assertVariantDiversity(
+      [v('curiosity_gap', 'problem_solution'), v('curiosity_gap', 'ugc_testimonial'), v('stat_shock', 'objection_kill')],
+      REGISTRY,
+    );
+    const hookViolation = out.find((x) => x.rule === 'hook_family');
+    expect(hookViolation).toBeDefined();
+    expect((hookViolation!.message.match(/curiosity_gap/g) ?? []).length).toBe(1);
+    expect(hookViolation!.message).toContain('tension');
+  });
+
   it('fails when every format is in one family, even with distinct format slugs', () => {
     const out = assertVariantDiversity(
       [v('pattern_break', 'problem_solution'), v('stat_shock', 'before_after'), v('curiosity_gap', 'problem_solution')],

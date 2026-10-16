@@ -16,6 +16,7 @@ describe('loadRegistry', () => {
       expect(r.hooks).toHaveLength(7);
       expect(r.formats.map((f) => f.slug)).toEqual([...r.formats.map((f) => f.slug)].sort());
       expect(r.hooks.find((h) => h.slug === 'confession')).toMatchObject({ family: 'contrarian', status: 'active' });
+      expect(r.hooks.find((h) => h.slug === 'objection_lead')).toMatchObject({ family: 'objection', status: 'active' });
       expect(r.formats.find((f) => f.slug === 'listicle_3')).toMatchObject({ family: 'rational', fitsArchetypes: [] });
       expect(r.formats.find((f) => f.slug === 'problem_solution')?.beats).toEqual(['pain', 'agitate', 'reveal', 'relief']);
       expect(r.archetypes.find((a) => a.slug === 'remedy')).toMatchObject({ family: null, status: 'active' });

@@ -5,7 +5,7 @@ export interface Violation {
   rule: 'unknown_slug' | 'hook_family' | 'format_family' | 'off_shortlist';
   message: string;
 }
-type Pick = { hookSlug: string; formatSlug: string };
+export type VariantPick = { hookSlug: string; formatSlug: string };
 
 function familyGroups(slugs: string[], entries: Registry['hooks'] | Registry['formats']) {
   const groups = new Map<string, string[]>();
@@ -22,7 +22,7 @@ function familyGroups(slugs: string[], entries: Registry['hooks'] | Registry['fo
  * formats from at least minFormatFamilies families. Messages are written to be quoted in the repair prompt.
  */
 export function assertVariantDiversity(
-  variants: Pick[],
+  variants: VariantPick[],
   registry: Registry,
   cfg: PipelineConfig['diversity'] = PIPELINE.diversity,
 ): Violation[] {
@@ -35,7 +35,14 @@ export function assertVariantDiversity(
   const hooks = familyGroups(variants.map((x) => x.hookSlug), registry.hooks);
   const shared = [...hooks].filter(([, slugs]) => slugs.length > 1);
   if (shared.length > 0 || hooks.size < Math.min(cfg.minHookFamilies, variants.length)) {
-    const detail = shared.map(([fam, slugs]) => `${slugs.map((s) => `"${s}"`).join(' and ')} share hook family "${fam}"`).join('; ');
+    const detail = shared
+      .map(([fam, slugs]) => {
+        const unique = [...new Set(slugs)];
+        return unique.length === 1
+          ? `"${unique[0]}" is used by more than one variant (hook family "${fam}")`
+          : `${unique.map((s) => `"${s}"`).join(' and ')} share hook family "${fam}"`;
+      })
+      .join('; ');
     out.push({
       rule: 'hook_family',
       message: `hooks must come from ${cfg.minHookFamilies} different families, found ${hooks.size}${detail ? `: ${detail}` : ''}`,
@@ -53,7 +60,7 @@ export function assertVariantDiversity(
   return out;
 }
 
-export function offShortlist(variants: Pick[], shortlist: { formats: string[]; hooks: string[] }): Violation[] {
+export function offShortlist(variants: VariantPick[], shortlist: { formats: string[]; hooks: string[] }): Violation[] {
   const out: Violation[] = [];
   for (const { hookSlug, formatSlug } of variants) {
     if (!shortlist.hooks.includes(hookSlug)) out.push({ rule: 'off_shortlist', message: `hook "${hookSlug}" was not on the shortlist` });
