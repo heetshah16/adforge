@@ -247,3 +247,20 @@ describe('video provider', () => {
     expect(r.status === 'done' && r.value.durationSec).toBeCloseTo(121 / 24, 5);
   });
 });
+
+describe('systemStats', () => {
+  it('reports only VRAM used/total, summed over devices', async () => {
+    const f = fakeFetch({
+      'GET /system_stats': () =>
+        json({ system: { os: 'nt' }, devices: [{ name: 'cuda:0', type: 'cuda', vram_total: 16_000, vram_free: 4_000 }, { name: 'cuda:1', type: 'cuda', vram_total: 8_000, vram_free: 8_000 }] }),
+    });
+    const { systemStats } = createComfyProviders({ ...opts, storage: memoryStorage(), fetchImpl: f });
+    await expect(systemStats()).resolves.toEqual({ vramUsedBytes: 12_000, vramTotalBytes: 24_000 });
+  });
+
+  it('is UPSTREAM when the response has no devices', async () => {
+    const f = fakeFetch({ 'GET /system_stats': () => json({}) });
+    const { systemStats } = createComfyProviders({ ...opts, storage: memoryStorage(), fetchImpl: f });
+    await expect(systemStats()).rejects.toMatchObject({ code: 'UPSTREAM' });
+  });
+});

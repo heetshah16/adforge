@@ -33,14 +33,14 @@ export const Env = z.object({
   ADFORGE_PROVIDER_CUTOUT: z.enum(['comfyui']).default('comfyui'),
   ADFORGE_PROVIDER_VIDEO: z.enum(['comfyui']).default('comfyui'),
   ADFORGE_PROVIDER_LLM: z.enum(['claude-agent-sdk']).default('claude-agent-sdk'),
-  ADFORGE_PROVIDER_TTS: z.enum(['kokoro']).default('kokoro'),
+  ADFORGE_PROVIDER_TTS: z.enum(['chatterbox']).default('chatterbox'),
+  ADFORGE_PROVIDER_ALIGNER: z.enum(['whisper']).default('whisper'),
+  ADFORGE_VOICE_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:8190').transform((u) => u.replace(/\/+$/, '')),
 
   COMFYUI_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:8188'),
   ADFORGE_COMFY_WORKFLOW_PLATE: WorkflowName.default('plate-flux-schnell'),
   ADFORGE_COMFY_WORKFLOW_BROLL: WorkflowName.default('broll-wan22-5b'),
   ADFORGE_COMFY_WORKFLOW_CUTOUT: WorkflowName.default('cutout-birefnet'),
-
-  ADFORGE_TTS_VOICE: z.string().min(1).default('af_heart'),
 
   ADFORGE_LLM_STRATEGIST: ClaudeModel.default('claude-sonnet-5-5'),
   ADFORGE_LLM_DIRECTOR: ClaudeModel.default('claude-opus-5-5'),

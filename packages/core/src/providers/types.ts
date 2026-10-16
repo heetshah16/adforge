@@ -1,5 +1,6 @@
 import type { ZodType } from 'zod';
 import type { VideoSpec } from '../spec/video-spec';
+import type { Language } from '../vocab/enums';
 
 /** Everything that crosses a provider boundary. Vendor SDK types never appear here. */
 
@@ -152,5 +153,10 @@ export interface LLMRequest<T> {
   timeoutMs: number;
 }
 export interface LLMUsage { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }
+export interface TTSRequest { text: string; language: Language; emotion: number; idempotencyKey: string }
+export interface TTSProvider { readonly id: string; synthesize(req: TTSRequest): Promise<ProviderResult<MediaRef>> }
+export interface AlignedWord { text: string; startSec: number; endSec: number }
+export interface AlignRequest { audio: MediaRef; text: string; language: Language; idempotencyKey: string }
+export interface CaptionAligner { readonly id: string; align(req: AlignRequest): Promise<ProviderResult<{ words: AlignedWord[] }>> }
 export interface LLMResult<T> { value: T; usage: LLMUsage }
 export interface LLMProvider { readonly id: string; generate<T>(req: LLMRequest<T>): Promise<ProviderResult<LLMResult<T>>> }

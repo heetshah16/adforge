@@ -1,0 +1,55 @@
+{
+  "text": "Nobody tells you how your cooking oil is made, that.",
+  "words": [
+    {
+      "text": "Nobody",
+      "start": 0,
+      "end": 0.24
+    },
+    {
+      "text": "tells",
+      "start": 0.24,
+      "end": 0.52
+    },
+    {
+      "text": "you",
+      "start": 0.52,
+      "end": 0.7
+    },
+    {
+      "text": "how",
+      "start": 0.7,
+      "end": 0.84
+    },
+    {
+      "text": "your",
+      "start": 0.84,
+      "end": 0.96
+    },
+    {
+      "text": "cooking",
+      "start": 0.96,
+      "end": 1.2
+    },
+    {
+      "text": "oil",
+      "start": 1.2,
+      "end": 1.48
+    },
+    {
+      "text": "is",
+      "start": 1.48,
+      "end": 1.68
+    },
+    {
+      "text": "made,",
+      "start": 1.68,
+      "end": 1.9
+    },
+    {
+      "text": "that.",
+      "start": 2.26,
+      "end": 2.46
+    }
+  ]
+}

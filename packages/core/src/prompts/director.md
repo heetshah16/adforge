@@ -34,7 +34,9 @@ Follow the NUMBERS section exactly: total length, scene 1 duration range, other 
 Write `vo` and `hook_text` in the LANGUAGE given in the user message:
 - en       : neutral English
 - hi       : Hindi in Devanagari script
-- hinglish : LATIN SCRIPT ONLY, Hindi words spelled phonetically ("bilkul", never "बिल्कुल"), code-switching naturally the way urban Indian ads speak.
+- hinglish : `vo` and `hook_text` in LATIN SCRIPT ONLY, Hindi words spelled phonetically ("bilkul", never "बिल्कुल"), code-switching naturally the way urban Indian ads speak.
+  hinglish also needs `vo_tts` on every scene: the SAME spoken line as `vo`, written entirely in Devanagari for the voice engine (never in `vo` or `hook_text`). Transliterate every word, English words and brand names included (cooking oil → कुकिंग ऑयल), keeping the word order and word count of `vo` where possible.
+- For `en` and `hi`, omit `vo_tts` entirely.
 `overlay`, `cta` and `caption` stay in Latin script for ALL languages — they are read at a glance. Set each variant's `language` field to the requested value.
 
 ## HARD RULES

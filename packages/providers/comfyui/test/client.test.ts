@@ -37,6 +37,12 @@ describe('ComfyClient', () => {
     expect(f.bodies['POST /prompt']?.[0]).toMatchObject({ prompt_id: promptIdFor('k') });
   });
 
+  it('asks ComfyUI to unload models and free memory', async () => {
+    const f = fakeFetch({ 'POST /free': () => new Response(null, { status: 200 }) });
+    await new ComfyClient(BASE, f).free();
+    expect(f.bodies['POST /free']?.[0]).toEqual({ unload_models: true, free_memory: true });
+  });
+
   for (const name of ['plate-flux-schnell', 'cutout-birefnet', 'broll-wan22-5b']) {
     it(`parses the recorded ${name} history entry`, async () => {
       const rec = fixture(`${name}.history.json`) as Record<string, unknown>;

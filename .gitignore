@@ -48,3 +48,7 @@ desktop.ini
 
 # User-provided eval products (local only; real brand photos)
 fixtures/eval-products/
+
+services/voice/.venv/
+services/voice/**/__pycache__/
+services/voice/.pytest_cache/

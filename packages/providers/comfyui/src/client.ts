@@ -113,6 +113,16 @@ export class ComfyClient {
     throw new ProviderError(P, 'UPSTREAM', `POST /prompt -> HTTP ${res.status}`, body);
   }
 
+  /** Hand VRAM/RAM back (heavy-lane hand-off). ComfyUI applies it when idle. */
+  async free(): Promise<void> {
+    const res = await this.#request('/free', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ unload_models: true, free_memory: true }),
+    });
+    if (!res.ok) throw new ProviderError(P, 'UPSTREAM', `POST /free -> HTTP ${res.status}`);
+  }
+
   /** Removes a stale entry so a rerun under the same prompt id is the one `history` reports. Empty 200 body. */
   async deleteHistory(promptId: string): Promise<void> {
     const res = await this.#request('/history', {
