@@ -77,8 +77,9 @@ export class HyperframesRenderer implements RendererProvider {
       if (/Render asset missing/.test((e as Error).message)) return failed('INVALID_INPUT', (e as Error).message, e);
       throw e;
     } finally {
+      // ponytail: drainBrowserPool is process-global — assumes renders are serialized (P7 heavy lane, concurrency 1); add an in-flight counter if renders ever run concurrently in one process.
       await drainBrowserPool().catch(() => {});
-      await rm(dir, { recursive: true, force: true });
+      await rm(dir, { recursive: true, force: true }).catch(() => {}); // EBUSY/EPERM on Windows must not mask the result
     }
   }
 }

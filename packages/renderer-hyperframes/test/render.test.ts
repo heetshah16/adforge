@@ -11,22 +11,22 @@ afterEach(() => {
   for (const d of cleanup.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-async function tiny() {
+async function tiny(n = 5) {
   const { root, storage } = tmpStorage();
   cleanup.push(root);
   const plate = await storage.put(solidPng(24, 42, [30, 90, 200]), { mime: 'image/png' });
-  const voice = await storage.put(silentWav(0.2), { mime: 'audio/wav' });
+  const voice = await storage.put(silentWav(n / 30), { mime: 'audio/wav' });
   const spec: VideoSpec = {
     id: 'tiny',
     width: 240,
     height: 426,
     fps: 30,
-    durationInFrames: 5,
+    durationInFrames: n,
     theme: { primary: '#000000', accent: '#ffffff' },
     scenes: [
       {
         startFrame: 0,
-        durationInFrames: 5,
+        durationInFrames: n,
         motion: 'slow_zoom_in',
         layers: [
           { type: 'plate', key: plate.id },
@@ -34,8 +34,8 @@ async function tiny() {
         ],
       },
     ],
-    audio: { voice: [{ key: voice.id, startFrame: 0, durationInFrames: 5 }] },
-    captions: { position: 'bottom_center', words: [{ text: 'असली', startFrame: 0, endFrame: 5 }] },
+    audio: { voice: [{ key: voice.id, startFrame: 0, durationInFrames: n }] },
+    captions: { position: 'bottom_center', words: [{ text: 'असली', startFrame: 0, endFrame: n }] },
   };
   return { storage, spec, workDir: join(root, 'work') };
 }
@@ -47,6 +47,9 @@ const frames = (file: string) =>
       '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', file,
     ]).toString().trim(),
   );
+
+const chromeCount = () =>
+  execFileSync('tasklist', ['/FI', 'IMAGENAME eq chrome-headless-shell.exe', '/NH']).toString().split(String.fromCharCode(10)).filter((l) => l.includes('chrome-headless-shell')).length;
 
 describe('HyperframesRenderer (real Chrome + FFmpeg, no GPU)', () => {
   it('renders a 240x426, 5-frame spec into storage and cleans up', async () => {
@@ -68,11 +71,25 @@ describe('HyperframesRenderer (real Chrome + FFmpeg, no GPU)', () => {
     expect(r.status === 'failed' && r.retryable).toBe(false);
   });
 
-  it('turns a render that overruns its deadline into a retryable TIMEOUT and cleans up', async () => {
+  it('turns a pre-aborted deadline (Chrome never launches) into a retryable TIMEOUT and cleans up', async () => {
     const { storage, spec, workDir } = await tiny();
     const r = await new HyperframesRenderer({ storage, workDir, renderTimeoutMs: 1 }).render({ spec, idempotencyKey: 'slow' });
     expect(r.status === 'failed' && r.error.code).toBe('TIMEOUT');
     expect(r.status === 'failed' && r.retryable).toBe(true);
     expect(existsSync(workDir) ? readdirSync(workDir) : []).toEqual([]);
+  }, 60_000);
+
+  it('kills a hung mid-render at the deadline: TIMEOUT, empty workDir, no Chrome left', async () => {
+    const { storage, spec, workDir } = await tiny(600);
+    const before = chromeCount();
+    const t0 = Date.now();
+    const r = await new HyperframesRenderer({ storage, workDir, renderTimeoutMs: 3000 }).render({ spec, idempotencyKey: 'hung' });
+    const took = Date.now() - t0;
+    expect(r.status === 'failed' && r.error.code).toBe('TIMEOUT');
+    expect(r.status === 'failed' && r.retryable).toBe(true);
+    expect(took).toBeLessThan(20_000);
+    expect(existsSync(workDir) ? readdirSync(workDir) : []).toEqual([]);
+    for (let i = 0; i < 25 && chromeCount() > before; i++) await new Promise((res) => setTimeout(res, 200));
+    expect(chromeCount()).toBe(before);
   }, 60_000);
 });
