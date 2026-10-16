@@ -12,17 +12,17 @@ export function strategistOutput(archetypeSlugs: string[]) {
   const A = enumOf(archetypeSlugs, 'archetypes');
   return z.object({
     product: z.object({
-      name: z.string().min(1),
-      one_liner: z.string().min(1),
+      name: z.string().min(1).max(120),
+      one_liner: z.string().min(1).max(200),
       price_signal: z.enum(['premium', 'mid', 'value']),
-      price_note: z.string(),
+      price_note: z.string().max(200),
     }),
     archetype_primary: A,
     archetype_secondary: A,
-    audience: z.string().min(1),
-    core_objection: z.string().min(1),
-    differentiators: z.array(z.string().min(1)).max(3),
-    rationale: z.string().min(1),
+    audience: z.string().min(1).max(300),
+    core_objection: z.string().min(1).max(300),
+    differentiators: z.array(z.string().min(1).max(200)).max(3),
+    rationale: z.string().min(1).max(800),
     confidence: z.enum(['high', 'medium', 'low']),
   });
 }
