@@ -1,0 +1,95 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { parseEnv } from '@adforge/core/config/env';
+import { loadPrompt } from '@adforge/core/llm/prompts';
+import type { DirectorOutput } from '@adforge/core/llm/schemas';
+import { ProviderError, type MediaRef, type ProviderResult } from '@adforge/core/providers/types';
+import { jobs } from '@adforge/db/schema';
+import { openDb } from '@adforge/db/client';
+import { seedLocalUser, seedVocabulary } from '@adforge/db/seed/seed';
+import { LocalDiskStorage } from '@adforge/provider-local-storage';
+import type { PipelineDeps } from '../src/types';
+
+export const anchor = (): DirectorOutput => {
+  const t = loadPrompt('director').text;
+  return JSON.parse(t.slice(t.indexOf('```json') + 7, t.lastIndexOf('```')));
+};
+export const BRIEF = {
+  product: { name: 'Sattvik Oil', one_liner: 'oil', price_signal: 'premium', price_note: '3x' },
+  archetype_primary: 'trust', archetype_secondary: 'indulgence', // makes all three anchor formats shortlist-eligible
+  audience: 'a', core_objection: 'b', differentiators: ['no hexane'], rationale: 'Bought as a trust purchase.', confidence: 'high',
+};
+
+const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 3, 0, 0, 0, 5, 64]);
+const fail = (code: ProviderError['code'], retryable: boolean): ProviderResult<never> => ({ status: 'failed', error: new ProviderError('fake', code, `fake ${code}`), retryable });
+
+export interface FakeControls {
+  failRender?: number[];      // variantNos whose render fails
+  failBroll?: boolean;        // every b-roll poll fails (retryable)
+  director?: unknown[];       // canned Director outputs (default: anchor)
+  voiceSm120?: boolean;
+  comfyDown?: boolean;
+}
+
+export async function makeDeps(ctl: FakeControls = {}) {
+  const { db, close } = await openDb();
+  await seedVocabulary(db);
+  const { userId, projectId } = await seedLocalUser(db);
+  const storage = new LocalDiskStorage(join(mkdtempSync(join(tmpdir(), 'adforge-pipe-')), 'media'), 'http://localhost:3000');
+  const calls = { image: 0, cutout: 0, videoSubmit: 0, videoPoll: 0, tts: 0, align: 0, render: 0, llm: 0, free: 0, unload: 0 };
+  let n = 0;
+  const put = async (mime: string, extra: Partial<MediaRef> = {}) =>
+    ({ ...(await storage.put(new Uint8Array([...PNG, n++]), { mime })), ...extra });
+  const done = <T>(value: T): ProviderResult<T> => ({ status: 'done', value, cost: { amountUsd: 0, estimated: false }, latencyMs: 1 });
+  const director = ctl.director ?? [anchor()];
+
+  const deps: PipelineDeps = {
+    db, storage, userId, projectId,
+    env: parseEnv({}),
+    sleep: async () => {},
+    comfy: {
+      workflowHashes: { 'plate-flux-schnell': 'p'.repeat(64) },
+      preflight: async () => { if (ctl.comfyDown) throw new ProviderError('comfyui', 'UPSTREAM', 'ComfyUI unreachable'); },
+      free: async () => { calls.free++; },
+      systemStats: async () => ({ vramUsedBytes: 0, vramTotalBytes: 16e9 }),
+      image: { id: 'fake', generate: async () => { calls.image++; return done(await put('image/png', { width: 768, height: 1344 })); } },
+      cutout: { id: 'fake', cutout: async () => { calls.cutout++; return done(await put('image/png')); } },
+      video: {
+        id: 'fake',
+        capabilities: { modes: ['image_to_video'], maxDurationSec: 5, resolutions: ['720p'], typicalLatencyMs: 1 },
+        submit: async (r) => { calls.videoSubmit++; return { provider: 'fake', externalId: r.idempotencyKey, pollAfterMs: 1 }; },
+        poll: async () => { calls.videoPoll++; return ctl.failBroll ? fail('UPSTREAM', true) : done(await put('video/mp4', { durationSec: 121 / 24 })); },
+      },
+    },
+    voice: {
+      health: async () => ({ ok: true, sm120: ctl.voiceSm120 ?? true }),
+      unload: async () => { calls.unload++; return { unloaded: [] }; },
+      tts: { id: 'fake', synthesize: async () => { calls.tts++; return done(await put('audio/wav', { durationSec: 3 })); } },
+      aligner: { id: 'fake', align: async () => { calls.align++; return done({ words: [{ text: 'w', startSec: 0.1, endSec: 0.4 }] }); } },
+    },
+    renderer: {
+      id: 'fake',
+      render: async (req) => {
+        calls.render++;
+        const v = Number(req.idempotencyKey.split(':').pop());
+        return ctl.failRender?.includes(v) ? fail('UPSTREAM', false) : done(await put('video/mp4', { durationSec: req.spec.durationInFrames / 30 }));
+      },
+    },
+    llm: {
+      id: 'fake',
+      async generate(req) {
+        calls.llm++;
+        const value = req.schema.parse(calls.llm === 1 ? BRIEF : director.shift() ?? anchor());
+        return { status: 'done', value: { value, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0 } }, cost: { amountUsd: 0.01, estimated: true }, latencyMs: 1 };
+      },
+    },
+  };
+  return { deps, calls, close };
+}
+
+/** A real jobs row (provider_calls.jobId is a foreign key). */
+export async function jobRow(deps: PipelineDeps): Promise<string> {
+  const [j] = await deps.db.insert(jobs).values({ projectId: deps.projectId, userId: deps.userId, inputSpec: {} }).returning();
+  return j!.id;
+}
