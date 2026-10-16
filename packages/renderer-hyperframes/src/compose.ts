@@ -42,7 +42,7 @@ video.clip { width: 100%; height: 100%; object-fit: cover; }
 .plate { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cutout { position: absolute; translate: -50% -100%; width: auto; }
 .cutout.shadow { filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.45)); }
-.overlay { position: absolute; left: 6%; right: 6%; text-align: center; color: #fff; line-height: 1.1; }
+.overlay { position: absolute; left: 6%; right: 6%; text-align: center; color: #fff; line-height: 1.1; overflow-wrap: anywhere; }
 .overlay.scrim { background: rgba(0, 0, 0, 0.45); padding: 0.4em 0.6em; border-radius: 0.3em; }
 .w-regular { font-weight: 600; font-size: 64px; }
 .w-bold { font-weight: 800; font-size: 72px; }
@@ -51,7 +51,7 @@ video.clip { width: 100%; height: 100%; object-fit: cover; }
 .pos-mid_lower { top: 58%; }
 .pos-bottom_center { top: 74%; }
 .cap { display: flex; justify-content: center; align-items: flex-start; }
-.cap > span { margin-top: 0; font-weight: 800; font-size: 76px; color: #fff; background: #000; padding: 0.1em 0.35em; border-radius: 0.2em; }
+.cap > span { margin-top: 0; font-weight: 800; font-size: 76px; color: #fff; background: #000; padding: 0.1em 0.35em; border-radius: 0.2em; max-width: 92%; overflow-wrap: anywhere; }
 .cap.pos-top_third > span { margin-top: 14%; }
 .cap.pos-mid_lower { top: 58%; }
 .cap.pos-bottom_center { top: 80%; }`;

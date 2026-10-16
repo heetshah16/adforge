@@ -6,7 +6,7 @@
 - `createRenderJob(config)` → `RenderJob`. Required: `fps` (`{ num: 30, den: 1 }` or a number) and `quality` (`'draft' | 'standard' | 'high'`). Optional: `format` (default `'mp4'`), `workers`, `crf`, `strictness`, `entryFile` (default `index.html`), `logger`.
 - `executeRenderJob(job, projectDir, outputPath, onProgress?, abortSignal?)` → `Promise<void>`. On return, `job.status` / `job.error` / `job.failedStage` describe the outcome.
 - `drainBrowserPool()` / `closeBrowserPool()` from `@hyperframes/engine` close pooled Chrome.
-- **Frame count:** `totalFrames = ceil(rootDurationSeconds × fps)`.
+- **Frame count:** `durationToFrameCount` (`producer/dist/index.js`): `raw = duration × fps`; returns `round(raw)` when `|raw − round(raw)| ≤ 1e-3`, otherwise `ceil(raw)`. The epsilon absorbs float noise such as `249/30 × 30 = 249.00000000000003`, which a plain `ceil` would turn into 250 frames.
 
 ## Environment
 - **FFmpeg / FFprobe:** found on `PATH`, or via `HYPERFRAMES_FFMPEG_PATH`.

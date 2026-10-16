@@ -7,6 +7,13 @@ import { FONT_FILES } from './compose';
 
 const require = createRequire(import.meta.url);
 
+export class MissingAssetError extends Error {
+  constructor(readonly key: string, cause: unknown) {
+    super(`Render asset missing from storage: ${key}`, { cause });
+    this.name = 'MissingAssetError';
+  }
+}
+
 export function specKeys(spec: VideoSpec): string[] {
   const keys = new Set<string>();
   for (const scene of spec.scenes) for (const l of scene.layers) if ('key' in l) keys.add(l.key);
@@ -22,7 +29,7 @@ export async function stageProject(spec: VideoSpec, storage: StorageProvider, di
     try {
       assets.push([key, await storage.read(key)]);
     } catch (e) {
-      throw new Error(`Render asset missing from storage: ${key} (${(e as Error).message})`);
+      throw new MissingAssetError(key, e);
     }
   }
 

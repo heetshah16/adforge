@@ -71,6 +71,19 @@ describe('HyperframesRenderer (real Chrome + FFmpeg, no GPU)', () => {
     expect(r.status === 'failed' && r.retryable).toBe(false);
   });
 
+  it('reports a missing asset key as a non-retryable INVALID_INPUT, never TIMEOUT, and leaves nothing behind', async () => {
+    const { storage, spec, workDir } = await tiny();
+    const missing = `99/${'9'.repeat(64)}.png`;
+    spec.scenes[0]!.layers[0] = { type: 'plate', key: missing };
+    const before = chromeCount();
+    const r = await new HyperframesRenderer({ storage, workDir, renderTimeoutMs: 60_000 }).render({ spec, idempotencyKey: 'missing' });
+    expect(r.status === 'failed' && r.error.code).toBe('INVALID_INPUT');
+    expect(r.status === 'failed' && r.retryable).toBe(false);
+    expect(r.status === 'failed' && r.error.message).toContain(missing);
+    expect(existsSync(workDir) ? readdirSync(workDir) : []).toEqual([]);
+    expect(chromeCount()).toBe(before);
+  }, 60_000);
+
   it('turns a pre-aborted deadline (Chrome never launches) into a retryable TIMEOUT and cleans up', async () => {
     const { storage, spec, workDir } = await tiny();
     const r = await new HyperframesRenderer({ storage, workDir, renderTimeoutMs: 1 }).render({ spec, idempotencyKey: 'slow' });

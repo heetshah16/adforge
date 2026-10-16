@@ -74,6 +74,12 @@ describe('VideoSpec', () => {
     expect(issues(s).join()).toMatch(/video/);
   });
 
+  it('requires a video-background scene to be static, since b-roll is not motion-staged', () => {
+    const s = valid();
+    s.scenes[1]!.motion = 'slow_zoom_in';
+    expect(issues(s).join()).toMatch(/static/);
+  });
+
   it('keeps voice and caption timing inside the video', () => {
     const v = valid();
     v.audio.voice[0]!.durationInFrames = 61;

@@ -73,6 +73,7 @@ export const VideoSpec = z
       const videos = scene.layers.filter((l) => l.type === 'video').length;
       const plates = scene.layers.filter((l) => l.type === 'plate').length;
       if (videos > 1 || (videos === 1 && plates > 0)) issue(`scene ${i}: at most one video layer, and never together with a plate`);
+      if (videos > 0 && scene.motion !== 'static') issue(`scene ${i}: a video-background scene must use motion 'static' (b-roll is not motion-staged)`);
     }
     if (cursor !== s.durationInFrames) issue(`scene durations sum to ${cursor}, expected durationInFrames ${s.durationInFrames}`);
 

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { drainBrowserPool } from '@hyperframes/engine';
-import { createRenderJob, executeRenderJob } from '@hyperframes/producer';
+import { RenderQualityError, createRenderJob, executeRenderJob } from '@hyperframes/producer';
 import {
   ProviderError,
   isRetryable,
@@ -13,7 +13,7 @@ import {
 } from '@adforge/core/providers/types';
 import { VideoSpec } from '@adforge/core/spec/video-spec';
 import { composeHtml } from './compose';
-import { stageProject } from './stage';
+import { MissingAssetError, stageProject } from './stage';
 
 const P = 'hyperframes';
 
@@ -24,6 +24,8 @@ export interface HyperframesOptions {
   /** Hard deadline per render; Chrome/FFmpeg are aborted when it passes. Default 15 min. */
   renderTimeoutMs?: number;
   quality?: 'draft' | 'standard' | 'high';
+  /** Caps parallel Chrome capture workers. HyperFrames otherwise auto-sizes from total RAM (6 on this machine). P7 sets it. */
+  workers?: number;
 }
 
 const failed = (code: ProviderError['code'], message: string, raw?: unknown): ProviderResult<never> => {
@@ -49,11 +51,21 @@ export class HyperframesRenderer implements RendererProvider {
       await writeFile(join(dir, 'index.html'), composeHtml(spec));
       const out = join(dir, 'out.mp4');
 
-      const job = createRenderJob({ fps: { num: spec.fps, den: 1 }, quality: this.o.quality ?? 'standard', format: 'mp4' });
+      const job = createRenderJob({
+        fps: { num: spec.fps, den: 1 },
+        quality: this.o.quality ?? 'standard',
+        format: 'mp4',
+        strictness: 'strict',
+        ...(this.o.workers !== undefined ? { workers: this.o.workers } : {}),
+      });
       try {
         await executeRenderJob(job, dir, out, undefined, deadline);
       } catch (e) {
         if (deadline.aborted) return failed('TIMEOUT', `Render ${req.idempotencyKey} exceeded ${this.o.renderTimeoutMs ?? 900_000}ms`, e);
+        if (e instanceof RenderQualityError) {
+          const detail = e.warnings.map((w) => `${w.code}: ${w.message}`).join('; ');
+          return failed('UPSTREAM', `Render ${req.idempotencyKey} blocked by media-readiness warnings: ${detail}`, e);
+        }
         return failed('UPSTREAM', `Render ${req.idempotencyKey} failed: ${(e as Error).message}`, e);
       }
       if (deadline.aborted) return failed('TIMEOUT', `Render ${req.idempotencyKey} exceeded its deadline`);
@@ -72,9 +84,9 @@ export class HyperframesRenderer implements RendererProvider {
       return { status: 'done', value: ref, cost: { amountUsd: 0, estimated: false }, latencyMs: Date.now() - started };
     } catch (e) {
       if (e instanceof ProviderError) return { status: 'failed', error: e, retryable: isRetryable(e.code) };
+      // Checked before the deadline: a missing key is a deterministic bad input, never a TIMEOUT.
+      if (e instanceof MissingAssetError) return failed('INVALID_INPUT', e.message, e);
       if (deadline.aborted) return failed('TIMEOUT', `Render ${req.idempotencyKey} exceeded its deadline`, e);
-      // Staging errors (missing asset key) are input problems, not transient ones.
-      if (/Render asset missing/.test((e as Error).message)) return failed('INVALID_INPUT', (e as Error).message, e);
       throw e;
     } finally {
       // ponytail: drainBrowserPool is process-global — assumes renders are serialized (P7 heavy lane, concurrency 1); add an in-flight counter if renders ever run concurrently in one process.

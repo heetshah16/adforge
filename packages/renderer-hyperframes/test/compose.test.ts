@@ -55,7 +55,7 @@ describe('secs', () => {
 
   it('matches HyperFrames frame semantics for every frame of a 20s video', () => {
     // A clip [startFrame, endFrame) emitted via secs() must contain frame f (sampled at f/fps)
-    // exactly when startFrame <= f < endFrame. ceil(duration*fps) must equal the frame count.
+    // exactly when startFrame <= f < endFrame. The producer's frame count must equal n.
     const fps = 30;
     for (let start = 0; start < 600; start += 7) {
       const end = start + 13;
@@ -66,7 +66,14 @@ describe('secs', () => {
         expect(t >= s && t < e).toBe(f >= start && f < end);
       }
     }
-    for (const n of [1, 5, 59, 600, 601, 899]) expect(Math.ceil(Number(secs(n, fps)) * fps)).toBe(n);
+    // Mirrors @hyperframes/producer durationToFrameCount: round when within 1e-3 frames, else ceil.
+    // Plain ceil(duration*fps) is wrong: secs(249,30)*30 is 249.00000000000003, so ceil gives 250.
+    const frameCount = (duration: number) => {
+      const raw = duration * fps;
+      const nearest = Math.round(raw);
+      return Math.abs(raw - nearest) <= 1e-3 ? nearest : Math.ceil(raw);
+    };
+    for (const n of [1, 5, 59, 249, 483, 600, 601, 899]) expect(frameCount(Number(secs(n, fps)))).toBe(n);
   });
 });
 
