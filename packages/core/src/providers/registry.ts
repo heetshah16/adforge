@@ -1,10 +1,11 @@
-import type { CutoutProvider, ImageProvider, StorageProvider, VideoProvider } from './types';
+import type { CutoutProvider, ImageProvider, RendererProvider, StorageProvider, VideoProvider } from './types';
 
 interface ProviderMap {
   storage: StorageProvider;
   image: ImageProvider;
   cutout: CutoutProvider;
   video: VideoProvider;
+  renderer: RendererProvider;
 }
 export type ProviderKind = keyof ProviderMap;
 
