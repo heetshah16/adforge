@@ -22,66 +22,66 @@ import { createVoiceProviders } from './providers';
 try {
   process.loadEnvFile(join(REPO_ROOT, '.env'));
 } catch (e) {
-if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
 }
 const env = parseEnv(process.env);
 const storage = new LocalDiskStorage(join(env.ADFORGE_DATA_DIR, 'media'), env.ADFORGE_PUBLIC_URL);
 const comfy = createComfyProviders({
-baseUrl: env.COMFYUI_URL, storage,
-plateWorkflow: env.ADFORGE_COMFY_WORKFLOW_PLATE, cutoutWorkflow: env.ADFORGE_COMFY_WORKFLOW_CUTOUT, brollWorkflow: env.ADFORGE_COMFY_WORKFLOW_BROLL,
+  baseUrl: env.COMFYUI_URL, storage,
+  plateWorkflow: env.ADFORGE_COMFY_WORKFLOW_PLATE, cutoutWorkflow: env.ADFORGE_COMFY_WORKFLOW_CUTOUT, brollWorkflow: env.ADFORGE_COMFY_WORKFLOW_BROLL,
 });
 const voice = createVoiceProviders({ baseUrl: env.ADFORGE_VOICE_URL, storage });
 const renderer = new HyperframesRenderer({ storage, workDir: join(env.ADFORGE_DATA_DIR, 'render-work') });
 const done = <T>(step: string, r: ProviderResult<T>): T => {
-if (r.status !== 'done') { throw new Error(`FAIL ${step}: ${r.status === 'failed' ? `${r.error.code} ${r.error.message}` : 'pending'}`); }
-return r.value;
+  if (r.status !== 'done') { throw new Error(`FAIL ${step}: ${r.status === 'failed' ? `${r.error.code} ${r.error.message}` : 'pending'}`); }
+  return r.value;
 };
 
 const t = loadPrompt('director').text;
 const base = (JSON.parse(t.slice(t.indexOf('```json') + 7, t.lastIndexOf('```'))) as DirectorOutput).variants[0]!;
 const VO: Record<'hi' | 'hinglish', string[]> = {
-hi: [
-  'कोई नहीं बताता कि आपका खाने का तेल कैसे बनता है।',
-  'ज़्यादातर तेल केमिकल सॉल्वेंट से निकाला जाता है, फिर ब्लीच होता है।',
-  'यह तेल लकड़ी की घानी में ठंडा पेरा गया है। बस इतना ही।',
-  'वही रसोई। एक ईमानदार बोतल।',
-],
-hinglish: [
-  'Koi nahi batata ki aapka cooking oil kaise banta hai.',
-  'Zyaadatar oil chemical solvent se nikaalte hain, phir bleach karte hain.',
-  'Yeh oil lakdi ki ghani mein thanda pressa gaya hai. Bas.',
-  'Wahi kitchen. Ek imaandaar bottle.',
-],
+  hi: [
+    'कोई नहीं बताता कि आपका खाने का तेल कैसे बनता है।',
+    'ज़्यादातर तेल केमिकल सॉल्वेंट से निकाला जाता है, फिर ब्लीच होता है।',
+    'यह तेल लकड़ी की घानी में ठंडा पेरा गया है। बस इतना ही।',
+    'वही रसोई। एक ईमानदार बोतल।',
+  ],
+  hinglish: [
+    'Koi nahi batata ki aapka cooking oil kaise banta hai.',
+    'Zyaadatar oil chemical solvent se nikaalte hain, phir bleach karte hain.',
+    'Yeh oil lakdi ki ghani mein thanda pressa gaya hai. Bas.',
+    'Wahi kitchen. Ek imaandaar bottle.',
+  ],
 };
 interface Item { slug: string; variant: DirectorVariant }
 const dirsPath = join(env.ADFORGE_DATA_DIR, 'e2e', 'directions');
 const saved = existsSync(dirsPath) ? readdirSync(dirsPath).filter((f) => f.endsWith('.json')) : [];
 // Only the fields this script reads are checked; the rest passes through untouched.
 const SavedDirection = z.object({
-slug: z.string().min(1),
-language: Language,
-output: z.object({
-  variants: z.array(z.looseObject({
-    visual_treatment: VisualTreatment,
-    scenes: z.array(z.looseObject({
-      vo: z.string().min(1), vo_tts: z.string().min(1).optional(), scene: z.string().min(1),
-      product_prominence: ProductProminence, duration: z.number().positive(), motion: Motion, emotion: z.number().min(0).max(1),
+  slug: z.string().min(1),
+  language: Language,
+  output: z.object({
+    variants: z.array(z.looseObject({
+      visual_treatment: VisualTreatment,
+      scenes: z.array(z.looseObject({
+        vo: z.string().min(1), vo_tts: z.string().min(1).optional(), scene: z.string().min(1),
+        product_prominence: ProductProminence, duration: z.number().positive(), motion: Motion, emotion: z.number().min(0).max(1),
+      })).min(1),
     })).min(1),
-  })).min(1),
-}),
+  }),
 });
 const items: Item[] = [];
 for (const f of saved) {
-const r = SavedDirection.safeParse(JSON.parse(readFileSync(join(dirsPath, f), 'utf8')));
-if (!r.success) { console.warn(`skipping ${f}: ${z.prettifyError(r.error)}`); continue; }
-items.push({ slug: r.data.slug, variant: { ...(r.data.output.variants[0] as unknown as DirectorVariant), language: r.data.language } });
+  const r = SavedDirection.safeParse(JSON.parse(readFileSync(join(dirsPath, f), 'utf8')));
+  if (!r.success) { console.warn(`skipping ${f}: ${z.prettifyError(r.error)}`); continue; }
+  items.push({ slug: r.data.slug, variant: { ...(r.data.output.variants[0] as unknown as DirectorVariant), language: r.data.language } });
 }
 if (items.length === 0) {
-items.push(
-  { slug: 'anchor-en', variant: base },
-  { slug: 'anchor-hi', variant: { ...base, language: 'hi', scenes: base.scenes.map((s, i) => ({ ...s, vo: VO.hi[i]! })) } },
-  { slug: 'anchor-hinglish', variant: { ...base, language: 'hinglish', scenes: base.scenes.map((s, i) => ({ ...s, vo: VO.hinglish[i]!, vo_tts: VO.hi[i]! })) } },
-);
+  items.push(
+    { slug: 'anchor-en', variant: base },
+    { slug: 'anchor-hi', variant: { ...base, language: 'hi', scenes: base.scenes.map((s, i) => ({ ...s, vo: VO.hi[i]! })) } },
+    { slug: 'anchor-hinglish', variant: { ...base, language: 'hinglish', scenes: base.scenes.map((s, i) => ({ ...s, vo: VO.hinglish[i]!, vo_tts: VO.hi[i]! })) } },
+  );
 }
 console.log('voicing:', items.map((i) => `${i.slug}(${i.variant.language})`).join(', '));
 

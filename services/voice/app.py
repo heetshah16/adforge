@@ -22,6 +22,7 @@ from voice_core import ModelSlot, Watchdog, decode_wav, encode_wav
 DEVICE = os.environ.get("VOICE_DEVICE", "cuda")
 IDLE_TTL_S = float(os.environ.get("VOICE_IDLE_TTL_S", "120"))
 CALL_TIMEOUT_S = float(os.environ.get("VOICE_CALL_TIMEOUT_S", "300"))
+LOAD_TIMEOUT_S = float(os.environ.get("VOICE_LOAD_TIMEOUT_S", "1800"))  # first-ever weight download took 4m44s
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 WHISPER_MODEL = os.environ.get("VOICE_WHISPER_MODEL", "small")
 
@@ -46,11 +47,16 @@ asr = ModelSlot("whisper", _load_whisper)
 
 def _free(slots) -> list[str]:
     freed = [s.name for s in slots if s.unload()]
-    if freed:
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+    gc.collect()  # always: a failed load (CUDA OOM) leaves partial weights cached though nothing was "loaded"
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     return freed
+
+
+def _get(slot: ModelSlot):
+    """Model load under its own, larger watchdog budget (first run downloads weights)."""
+    with Watchdog(LOAD_TIMEOUT_S):
+        return slot.get()
 
 
 def _janitor() -> None:
@@ -87,12 +93,13 @@ def health():
 
 @app.post("/synthesize")
 def synthesize(req: SynthReq):
-    with gpu, Watchdog(CALL_TIMEOUT_S):
-        model = tts.get()
-        wav = model.generate(req.text, language_id=req.language_id, exaggeration=req.exaggeration, cfg_weight=req.cfg_weight)
-        samples = wav.detach().float().cpu().numpy().reshape(-1)
-        sr = int(model.sr)
-        tts.touch()
+    with gpu:
+        model = _get(tts)
+        with Watchdog(CALL_TIMEOUT_S):
+            wav = model.generate(req.text, language_id=req.language_id, exaggeration=req.exaggeration, cfg_weight=req.cfg_weight)
+            samples = wav.detach().float().cpu().numpy().reshape(-1)
+            sr = int(model.sr)
+            tts.touch()
     return Response(
         encode_wav(samples, sr),
         media_type="audio/wav",
@@ -101,10 +108,10 @@ def synthesize(req: SynthReq):
 
 
 @app.post("/align")
-async def align(audio: UploadFile = File(...), language: Literal["en", "hi"] = Form(...)):
+def align(audio: UploadFile = File(...), language: Literal["en", "hi"] = Form(...)):
     if audio.size is not None and audio.size > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "audio upload exceeds 8 MB")
-    data = await audio.read(MAX_UPLOAD_BYTES + 1)
+    data = audio.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "audio upload exceeds 8 MB")
     try:
@@ -113,15 +120,16 @@ async def align(audio: UploadFile = File(...), language: Literal["en", "hi"] = F
         raise HTTPException(422, f"invalid audio: expected a 16-bit PCM WAV file ({e})")
     if sr != 16000:
         samples = AF.resample(torch.from_numpy(samples), sr, 16000).numpy()
-    with gpu, Watchdog(CALL_TIMEOUT_S):
-        model = asr.get()
-        result = model.transcribe(
-            samples.astype(np.float32),
-            language=language,
-            word_timestamps=True,
-            fp16=DEVICE == "cuda",
-            condition_on_previous_text=False,
-        )
+    with gpu:
+        model = _get(asr)
+        with Watchdog(CALL_TIMEOUT_S):
+            result = model.transcribe(
+                samples.astype(np.float32),
+                language=language,
+                word_timestamps=True,
+                fp16=DEVICE == "cuda",
+                condition_on_previous_text=False,
+            )
         asr.touch()
     words = [
         {"text": w["word"].strip(), "start": float(w["start"]), "end": float(w["end"])}

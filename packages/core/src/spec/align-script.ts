@@ -56,7 +56,7 @@ export function alignScript(script: string, asr: AlignedWord[], durationSec: num
     }
   }
 
-  // Clamp to the clip and enforce monotonic, non-empty words.
+  // Clamp to the clip and enforce monotonic order. Zero-length tail words are emitted deliberately; buildSpec drops them.
   let prev = 0;
   return out.map((x) => {
     const startSec = Math.min(Math.max(x.startSec, prev), durationSec);

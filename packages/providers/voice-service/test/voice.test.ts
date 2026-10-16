@@ -144,6 +144,29 @@ describe('createVoiceProviders', () => {
     expect(r.status === 'failed' && r.error.code).toBe('INVALID_INPUT');
   });
 
+  it('rejects an invalid align request with non-retryable INVALID_INPUT', async () => {
+    const { aligner } = createVoiceProviders({ baseUrl: BASE, storage: memStorage(), fetchImpl: fake({}) });
+    const r = await aligner.align({ audio: { id: '' }, text: 'a', language: 'en', idempotencyKey: 'k' } as never);
+    expect(r).toMatchObject({ status: 'failed', retryable: false, error: { code: 'INVALID_INPUT' } });
+  });
+
+  it('sends the golden multipart form to /align (hinglish -> hi)', async () => {
+    const storage = memStorage();
+    const ref = await storage.put(new Uint8Array([1, 2]), { mime: 'audio/wav', durationSec: 1 });
+    const forms: Record<string, unknown>[] = [];
+    const f = fake({
+      'POST /align': async (req) => {
+        const fd = await req.formData();
+        const a = fd.get('audio') as File;
+        forms.push({ language: fd.get('language'), audio: { name: a.name, type: a.type } });
+        return json({ text: '', words: [] });
+      },
+    });
+    const { aligner } = createVoiceProviders({ baseUrl: BASE, storage, fetchImpl: f });
+    for (const language of ['hinglish', 'en'] as const) await aligner.align({ audio: ref, text: 'a', language, idempotencyKey: 'k' });
+    await expect(JSON.stringify(forms, null, 2)).toMatchFileSnapshot('./golden/align-form.json');
+  });
+
   it('aligns stored audio and converts to AlignedWord seconds', async () => {
     const storage = memStorage();
     const ref = await storage.put(new Uint8Array([9]), { mime: 'audio/wav' });

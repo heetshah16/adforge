@@ -5,6 +5,9 @@ import type { AlignedWord } from '../providers/types';
 import { secondsToFrames } from './frames';
 import { VideoSpec, type Layer, type Scene } from './video-spec';
 
+/** Word.text is max 40; a long token (e.g. a URL in vo) must not kill the job. Code-point safe. */
+const clip = (s: string) => { const c = [...s]; return c.length > 40 ? c.slice(0, 39).join('') + '…' : s; };
+
 export interface BeatAssets {
   plate: string;
   cutout?: string;
@@ -62,7 +65,7 @@ export function buildSpec(input: BuildSpecInput): VideoSpec {
       const start = Math.max(prevEnd, cursor + secondsToFrames(w.startSec, fps));
       const end = Math.min(cursor + frames, Math.max(start + 1, cursor + secondsToFrames(w.endSec, fps)));
       if (start >= cursor + frames || end <= start) continue;
-      words.push({ text: w.text, startFrame: start, endFrame: end });
+      words.push({ text: clip(w.text), startFrame: start, endFrame: end });
     }
     cursor += frames;
   });

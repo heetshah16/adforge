@@ -13,6 +13,7 @@ import { VoiceClient } from './client';
 import { asrLanguage, voiceParams } from './params';
 
 const TtsReq = z.object({ text: z.string().min(1).max(500), language: Language, emotion: z.number().min(0).max(1), idempotencyKey: z.string().min(1) });
+const AlignReq = z.object({ audio: z.object({ id: z.string().min(1) }).passthrough(), text: z.string(), language: Language, idempotencyKey: z.string().min(1) });
 
 /** Every failure becomes a ProviderResult. Non-provider errors (storage read/put) are UPSTREAM and retryable. */
 const asFailed = (e: unknown): ProviderResult<never> => {
@@ -42,6 +43,8 @@ export function createVoiceProviders(o: { baseUrl: string; storage: StorageProvi
   const aligner: CaptionAligner = {
     id: 'whisper',
     async align(req) {
+      const parsed = AlignReq.safeParse(req);
+      if (!parsed.success) return { status: 'failed', error: new ProviderError('whisper', 'INVALID_INPUT', z.prettifyError(parsed.error)), retryable: false };
       const started = Date.now();
       try {
         const r = await client.align(await o.storage.read(req.audio.id), asrLanguage(req.language));

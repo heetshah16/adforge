@@ -24,6 +24,12 @@ describe('buildSpec', () => {
     expect(spec.scenes.map((s) => s.durationInFrames)).toEqual([120, 150, 180, 150]); // planned 4,5,6,5 s; VO fits
   });
 
+  it('truncates a caption token over 40 chars instead of failing the spec', () => {
+    const long = 'x'.repeat(60);
+    const spec = buildSpec({ id: 'v1', variant: variant(), beats: [beat(1, 3, { words: [{ text: long, startSec: 0.1, endSec: 0.5 }] }), beat(2, 4), beat(3, 5), beat(4, 4)] });
+    expect(spec.captions.words[0]!.text).toBe('x'.repeat(39) + '…');
+  });
+
   it('stretches a beat to fit a long voice clip plus the tail', () => {
     const spec = buildSpec({ id: 'v1', variant: variant(), beats: [beat(1, 4.5), beat(2, 4), beat(3, 5), beat(4, 4)] });
     expect(spec.scenes[0]!.durationInFrames).toBe(135 + 6);
