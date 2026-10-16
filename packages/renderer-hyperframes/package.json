@@ -2,7 +2,9 @@
   "name": "@adforge/renderer-hyperframes",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p .",
@@ -17,6 +19,7 @@
     "gsap": "catalog:"
   },
   "devDependencies": {
+    "@adforge/provider-comfyui": "workspace:*",
     "@adforge/provider-local-storage": "workspace:*",
     "vitest": "catalog:",
     "tsx": "catalog:",
