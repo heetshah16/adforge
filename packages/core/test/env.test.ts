@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { REPO_ROOT, dataDirWarnings, parseEnv } from '../src/config/env';
 
 describe('parseEnv', () => {
+  it('defaults the voice providers and URL', () => {
+    const env = parseEnv({});
+    expect(env.ADFORGE_PROVIDER_TTS).toBe('chatterbox');
+    expect(env.ADFORGE_PROVIDER_ALIGNER).toBe('whisper');
+    expect(env.ADFORGE_VOICE_URL).toBe('http://127.0.0.1:8190');
+    expect(() => parseEnv({ ADFORGE_PROVIDER_TTS: 'kokoro' })).toThrow(/ADFORGE_PROVIDER_TTS/);
+  });
+
   it('applies defaults to an empty environment', () => {
     const env = parseEnv({});
     expect(env.COMFYUI_URL).toBe('http://127.0.0.1:8188');

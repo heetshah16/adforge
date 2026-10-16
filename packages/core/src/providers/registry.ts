@@ -1,4 +1,13 @@
-import type { CutoutProvider, ImageProvider, LLMProvider, RendererProvider, StorageProvider, VideoProvider } from './types';
+import type {
+  CaptionAligner,
+  CutoutProvider,
+  ImageProvider,
+  LLMProvider,
+  RendererProvider,
+  StorageProvider,
+  TTSProvider,
+  VideoProvider,
+} from './types';
 
 interface ProviderMap {
   storage: StorageProvider;
@@ -7,6 +16,8 @@ interface ProviderMap {
   video: VideoProvider;
   renderer: RendererProvider;
   llm: LLMProvider;
+  tts: TTSProvider;
+  aligner: CaptionAligner;
 }
 export type ProviderKind = keyof ProviderMap;
 

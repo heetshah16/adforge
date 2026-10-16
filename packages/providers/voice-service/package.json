@@ -1,0 +1,22 @@
+{
+  "name": "@adforge/provider-voice-service",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "record": "tsx src/record-fixtures.ts",
+    "e2e": "tsx src/e2e.ts"
+  },
+  "dependencies": { "@adforge/core": "workspace:*", "zod": "catalog:" },
+  "devDependencies": {
+    "@adforge/provider-local-storage": "workspace:*",
+    "@adforge/provider-comfyui": "workspace:*",
+    "@adforge/renderer-hyperframes": "workspace:*",
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}

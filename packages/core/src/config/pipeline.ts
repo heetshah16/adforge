@@ -35,6 +35,19 @@ export const PipelineConfig = z.object({
   captions: z.object({ mode: z.enum(['proportional']) }),
   retries: z.object({ provider: z.number().int().nonnegative() }),
   llm: z.object({ timeoutMs: PosInt }),
+  voice: z.object({
+    exaggeration: Range,
+    cfgWeight: z.number().min(0).max(1),
+    expressiveCfgWeight: z.number().min(0).max(1),
+    expressiveAbove: z.number().min(0).max(1),
+    hinglishTtsLanguage: z.enum(['en', 'hi']),
+    hinglishAsrLanguage: z.enum(['en', 'hi']),
+    requestTimeoutMs: PosInt,
+  }),
+  composite: z.object({
+    hero: z.object({ anchorX: z.number().min(0).max(1), anchorY: z.number().min(0).max(1), heightFrac: z.number().positive().max(1) }),
+    supporting: z.object({ anchorX: z.number().min(0).max(1), anchorY: z.number().min(0).max(1), heightFrac: z.number().positive().max(1) }),
+  }),
 });
 export type PipelineConfig = z.infer<typeof PipelineConfig>;
 
@@ -53,6 +66,19 @@ export const DEFAULT_PIPELINE: PipelineConfig = {
   captions: { mode: 'proportional' },
   retries: { provider: 2 },
   llm: { timeoutMs: 300_000 },
+  voice: {
+    exaggeration: [0.3, 0.9],
+    cfgWeight: 0.5,
+    expressiveCfgWeight: 0.3,
+    expressiveAbove: 0.7,
+    hinglishTtsLanguage: 'hi',
+    hinglishAsrLanguage: 'hi',
+    requestTimeoutMs: 120_000,
+  },
+  composite: {
+    hero: { anchorX: 0.5, anchorY: 0.84, heightFrac: 0.46 },
+    supporting: { anchorX: 0.72, anchorY: 0.9, heightFrac: 0.3 },
+  },
 };
 
 export const PIPELINE: PipelineConfig = PipelineConfig.parse(DEFAULT_PIPELINE);
