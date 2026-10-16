@@ -34,7 +34,7 @@ const fail = (code: ProviderErrorCode, message: string, raw?: unknown): Provider
 });
 
 // Any variable that can route the CLI to API/cloud billing or another endpoint. CLAUDE_CODE_OAUTH_TOKEN and HOME/PATH/etc. are deliberately NOT matched.
-const AUTH_SWITCH_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_)|^AWS_BEARER_TOKEN_BEDROCK$/;
+const AUTH_SWITCH_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_)|^AWS_BEARER_TOKEN_BEDROCK$/i; // i: Windows env names are case-insensitive
 
 export function buildOptions<T>(req: LLMRequest<T>, abort: AbortController, o: ClaudeAgentOptions = {}): Options {
   // SDK `env` REPLACES the subprocess env, so pass a filtered copy of process.env (never mutate it): the subprocess must stay on the subscription login, never silently switch to API/cloud billing or another endpoint.
