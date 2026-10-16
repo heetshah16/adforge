@@ -14,6 +14,8 @@ import { asrLanguage, voiceParams } from './params';
 
 const AlignReq = z.object({ audio: z.object({ id: z.string().min(1) }).passthrough(), text: z.string(), language: Language, idempotencyKey: z.string().min(1) });
 
+export type RoutedTTSProvider = TTSProvider & { /** Id of the engine that serves this language ('chatterbox' | 'qwen-tts') — use for provider_calls attribution. */ idFor(l: Language): string };
+
 export function createVoiceProviders(o: { baseUrl: string; qwenBaseUrl?: string; cfg?: PipelineConfig; storage: StorageProvider; fetchImpl?: typeof fetch; timeoutMs?: number }) {
   const cfg = o.cfg ?? PIPELINE;
   const client = new VoiceClient(o.baseUrl, o.fetchImpl, o.timeoutMs ?? cfg.voice.requestTimeoutMs);
@@ -39,7 +41,8 @@ export function createVoiceProviders(o: { baseUrl: string; qwenBaseUrl?: string;
 
   /** Routes each request to cfg.voice.engineByLanguage[language]. id is deterministic per config: 'chatterbox' while every language is chatterbox (the default). */
   const engines = cfg.voice.engineByLanguage;
-  const tts: TTSProvider = {
+  const tts: RoutedTTSProvider = {
+    idFor: (l) => (engines[l] === 'qwen' ? 'qwen-tts' : 'chatterbox'),
     id: Object.values(engines).every((e) => e === 'chatterbox') ? 'chatterbox' : `routed(${Object.entries(engines).map(([l, e]) => `${l}=${e}`).join(',')})`,
     async synthesize(req) {
       const lang = Language.safeParse(req?.language);
@@ -77,9 +80,9 @@ export function createVoiceProviders(o: { baseUrl: string; qwenBaseUrl?: string;
     health: async () => ({ ...(await client.health()), ...(qwenClient ? { qwen: await qwenClient.ttsHealth().catch(() => null) } : {}) }),
     /** Unloads both engines; the Qwen unload is best-effort. */
     unload: async () => {
-      const r = await client.unload();
-      if (qwenClient) await qwenClient.unload().catch(() => undefined);
-      return r;
+      const [r] = await Promise.allSettled([client.unload(), qwenClient?.unload()]);
+      if (r.status === 'rejected') throw r.reason;
+      return r.value;
     },
   };
 }

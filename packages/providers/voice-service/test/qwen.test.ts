@@ -134,4 +134,21 @@ describe('engine routing', () => {
     expect(f.calls).toContain('POST 8191 /unload');
     expect(await v.health()).toMatchObject({ ok: true, qwen: { loaded: { tts: false } } });
   });
+  it('idFor names the serving engine per language', () => {
+    const d = createVoiceProviders({ baseUrl: BASE, storage: memStorage(), fetchImpl: fake({}) }).tts;
+    expect(d.idFor('en')).toBe('chatterbox');
+    const r = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: fake({}) }).tts;
+    expect([r.idFor('en'), r.idFor('hi')]).toEqual(['qwen-tts', 'chatterbox']);
+  });
+  it('unload still unloads qwen when chatterbox unload fails, and rethrows', async () => {
+    const f = fake({ 'POST 8190 /unload': () => new Response('x', { status: 500 }), 'POST 8191 /unload': () => jsonRes({ unloaded: ['tts'] }) });
+    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
+    await expect(v.unload()).rejects.toThrow();
+    expect(f.calls).toContain('POST 8191 /unload');
+  });
+  it('health returns qwen: null when qwen is unreachable', async () => {
+    const f = fake({ 'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }), 'GET 8191 /health': () => new Response('x', { status: 503 }) });
+    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
+    expect(await v.health()).toMatchObject({ ok: true, qwen: null });
+  });
 });

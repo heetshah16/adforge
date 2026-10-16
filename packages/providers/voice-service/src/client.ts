@@ -49,7 +49,7 @@ export class VoiceClient {
     return res;
   }
 
-  protected async json<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+  async #json<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
     const res = await this.#request(path, init);
     const body = await this.#read(path, () => res.json());
     const parsed = schema.safeParse(body);
@@ -57,8 +57,10 @@ export class VoiceClient {
     return parsed.data;
   }
 
-  health() {
-    return this.json('/health', Health);
+  health(): Promise<z.infer<typeof Health>>;
+  health<T>(schema: z.ZodType<T>): Promise<T>;
+  health(schema: z.ZodType<unknown> = Health) {
+    return this.#json('/health', schema);
   }
 
   async synthesize(body: object): Promise<{ bytes: Uint8Array; durationSec: number }> {
@@ -73,10 +75,10 @@ export class VoiceClient {
     const form = new FormData();
     form.append('audio', new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), 'voice.wav');
     form.append('language', language);
-    return this.json('/align', Aligned, { method: 'POST', body: form });
+    return this.#json('/align', Aligned, { method: 'POST', body: form });
   }
 
   unload() {
-    return this.json('/unload', Unloaded, { method: 'POST' });
+    return this.#json('/unload', Unloaded, { method: 'POST' });
   }
 }
