@@ -73,5 +73,9 @@ while (r.status === 'pending' && Date.now() < deadline) {
   r = await comfy.video.poll(handle);
 }
 const clip = expectDone('broll', r);
-console.log(`     broll duration ${clip.durationSec?.toFixed(2)}s`);
+if (clip.durationSec === undefined) {
+  console.error('FAIL broll: missing durationSec');
+  process.exit(1);
+}
+console.log(`     broll duration ${clip.durationSec.toFixed(2)}s`);
 console.log('SMOKE OK');

@@ -7,8 +7,11 @@ ComfyUI has no notion of our idempotency keys, keeps history only in memory, and
 
 ## Decision
 - **Idempotency:**
-  - The `prompt_id` is a canonical UUID derived from the idempotency key. Before queueing, the adapter checks `/history` and `/queue` for that id and queues only when it is in neither.
+  - The `prompt_id` is a canonical UUID derived from the idempotency key. `submitOnce` reuses an existing job for that id only when its `/history` entry succeeded or it is still queued/running.
+  - On a history miss and a queue miss, it checks `/history` a second time (the job may have just finished) before queueing.
+  - If the key's previous run failed (a non-success history entry), the adapter deletes that entry (`POST /history {"delete":[id]}`) and requeues under the same `prompt_id`. A retry therefore re-runs instead of returning the old error.
   - A missing seed is derived from the key the same way, so retries reproduce identical pixels.
+- **Request timeout:** every HTTP request (headers and body) made by `ComfyClient` is bounded by `timeoutMs` (default 30s, constructor param). A breach is an `UPSTREAM` error, "timed out after <n>ms". This is distinct from `syncTimeoutMs` (default 120s), which bounds the image and cutout providers' overall wait for a job to finish.
 - **Sync vs async:**
   - `ImageProvider.generate` and `CutoutProvider.cutout` wait for the result, bounded by `syncTimeoutMs` (default 120s).
   - `VideoProvider` is submit/poll with a 15s poll hint.
@@ -18,6 +21,6 @@ ComfyUI has no notion of our idempotency keys, keeps history only in memory, and
 - **Video duration:** read back from the `length` input in the history's own copy of the workflow, so the reported duration is what actually ran.
 
 ## Consequences
-- A timed-out image call can be retried safely: it re-finds the same job.
+- A timed-out image call can be retried safely: it re-finds the same job. A retry after a failed run clears the old history entry and requeues under the same id, so it genuinely re-runs.
 - Workflow JSON hashes are exposed for `jobs.configSnapshot`. The hash covers bytes on disk, so the CRLF/LF checkout style changes it across OSes.
 - Swapping to a hosted provider later means implementing the same three core interfaces. Callers stay unchanged.
