@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PIPELINE } from '../src/config/pipeline';
 import { loadPrompt } from '../src/llm/prompts';
 import { checkDirection, checkVariant } from '../src/llm/rules';
 import type { DirectorOutput, DirectorVariant } from '../src/llm/schemas';
@@ -23,6 +24,35 @@ describe('checkVariant', () => {
     const v = v1();
     v.hook_text = 'SATTVIK oil is different.';
     expect(checkVariant(v, ctx).map((x) => x.rule)).toContain('hook_rule');
+  });
+
+  it('matches the brand as a whole word, Unicode-aware', () => {
+    // Scene 1 of the anchor contains "oil" as a real word, so neutralise it to test hook_text alone.
+    const brandMsgs = (c: typeof ctx, text: string) => {
+      const v = v1();
+      v.hook_text = text;
+      v.scenes[0]!.vo = 'Plain words here.';
+      v.scenes[0]!.overlay = 'Plain';
+      return checkVariant(v, c).filter((x) => x.message.includes('names the brand')).map((x) => x.message);
+    };
+    const oil = { ...ctx, brandName: 'Oil' };
+    expect(brandMsgs(oil, 'No more toil in the kitchen')).toEqual([]);
+    expect(brandMsgs(oil, 'Oil that tastes real')).toHaveLength(1);
+    expect(brandMsgs({ ...ctx, brandName: 'सत्त्विक' }, 'असली सत्त्विक स्वाद')).toHaveLength(1);
+    const meta = { ...ctx, brandName: 'C++' };
+    expect(() => brandMsgs(meta, 'Try C++ today')).not.toThrow();
+    expect(brandMsgs(meta, 'Try C++ today')).toHaveLength(1);
+  });
+
+  it('matches banned openers only as whole words at the start', () => {
+    const cfg = { ...PIPELINE, hook: { ...PIPELINE.hook, bannedOpeners: ['Did'] } };
+    const openerMsgs = (text: string) => {
+      const v = v1();
+      v.hook_text = text;
+      return checkVariant(v, { ...ctx, cfg }).filter((x) => /banned opener/.test(x.message));
+    };
+    expect(openerMsgs("Didn't know oil could do that")).toEqual([]);
+    expect(openerMsgs('Did you know this oil works?')).toHaveLength(1);
   });
 
   it('rejects banned openers and over-long hooks', () => {
@@ -88,5 +118,12 @@ describe('checkDirection', () => {
     const withExp = { ...list, experimental: { kind: 'hook' as const, slug: 'stat_shock', family: 'evidence', score: 0.5, reason: '' } };
     const rules = checkDirection(anchor(), { ...ctx, shortlist: withExp }).map((x) => x.rule);
     expect(rules).toContain('exploratory');
+  });
+
+  it('requires variant 3 format to be the experimental format slug', () => {
+    const expFmt = { ...list, experimental: { kind: 'format' as const, slug: 'listicle_3', family: 'rational', score: 0.5, reason: '' } };
+    const out = anchor();
+    expect(out.variants[2]!.format).not.toBe('listicle_3');
+    expect(checkDirection(out, { ...ctx, shortlist: expFmt }).map((x) => x.rule)).toContain('exploratory');
   });
 });

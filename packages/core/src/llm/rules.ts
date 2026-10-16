@@ -7,6 +7,10 @@ import type { DirectorOutput, DirectorVariant } from './schemas';
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
 const chars = (s: string) => [...s].length;
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Unicode-aware word boundary: \b is ASCII-only and breaks Devanagari (combining marks are \p{M}).
+const WORD = '[\\p{L}\\p{M}\\p{N}]';
+const wordRe = (w: string) => new RegExp(`(?<!${WORD})${esc(w)}(?!${WORD})`, 'iu');
 
 export function checkVariant(
   v: DirectorVariant,
@@ -27,13 +31,14 @@ export function checkVariant(
     if (words(v.hook_text) > maxWords) add('hook_rule', `hook_text has ${words(v.hook_text)} words, max ${maxWords} words`);
     if (chars(first.overlay) > maxChars) add('hook_rule', `on-screen hook has ${chars(first.overlay)} characters, max ${maxChars}`);
     for (const [label, text] of [['hook_text', v.hook_text], ['scene 1 VO', first.vo]] as const) {
-      const opener = bannedOpeners.find((b) => text.trim().toLowerCase().startsWith(b.toLowerCase()));
+      const opener = bannedOpeners.find((b) => new RegExp(`^${esc(b)}(?!${WORD})`, 'iu').test(text.trim()));
       if (opener) add('hook_rule', `${label} starts with banned opener "${opener}"`);
     }
-    const brand = ctx.brandName.trim().toLowerCase();
+    const brand = ctx.brandName.trim();
     if (brand) {
+      const re = wordRe(brand);
       for (const [label, text] of [['hook_text', v.hook_text], ['scene 1 VO', first.vo], ['scene 1 overlay', first.overlay]] as const) {
-        if (text.toLowerCase().includes(brand)) add('hook_rule', `${label} names the brand "${ctx.brandName}"`);
+        if (re.test(text)) add('hook_rule', `${label} names the brand "${ctx.brandName}"`);
       }
     }
   }
