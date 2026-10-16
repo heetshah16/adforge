@@ -1,3 +1,4 @@
+import type { ZodType } from 'zod';
 import type { VideoSpec } from '../spec/video-spec';
 
 /** Everything that crosses a provider boundary. Vendor SDK types never appear here. */
@@ -136,3 +137,20 @@ export interface RendererProvider {
   readonly id: string;
   render(req: RenderRequest): Promise<ProviderResult<MediaRef>>;
 }
+
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type LLMContent =
+  | { type: 'text'; text: string }
+  | { type: 'image'; mime: 'image/png' | 'image/jpeg' | 'image/webp'; data: Uint8Array };
+export interface LLMRequest<T> {
+  system: string;
+  user: LLMContent[];
+  schema: ZodType<T>;
+  model: string;
+  effort: Effort;
+  idempotencyKey: string;
+  timeoutMs: number;
+}
+export interface LLMUsage { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }
+export interface LLMResult<T> { value: T; usage: LLMUsage }
+export interface LLMProvider { readonly id: string; generate<T>(req: LLMRequest<T>): Promise<ProviderResult<LLMResult<T>>> }

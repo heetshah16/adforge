@@ -21,6 +21,9 @@ catalog:
   gsap: 3.15.0
   "@fontsource/inter": 5.3.0
   "@fontsource/noto-sans-devanagari": 5.3.0
+  "@anthropic-ai/claude-agent-sdk": 0.3.287
+  "@anthropic-ai/sdk": 0.131.0
+  "@modelcontextprotocol/sdk": 1.31.0
 
 allowBuilds:
   esbuild: true

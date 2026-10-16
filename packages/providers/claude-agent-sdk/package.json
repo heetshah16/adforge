@@ -1,0 +1,26 @@
+{
+  "name": "@adforge/provider-claude-agent-sdk",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "record": "tsx src/record-fixture.ts",
+    "e2e": "tsx src/e2e.ts"
+  },
+  "dependencies": {
+    "@adforge/core": "workspace:*",
+    "@anthropic-ai/claude-agent-sdk": "catalog:",
+    "@anthropic-ai/sdk": "catalog:",
+    "@modelcontextprotocol/sdk": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@adforge/db": "workspace:*",
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}
