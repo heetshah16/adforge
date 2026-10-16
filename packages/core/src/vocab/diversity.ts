@@ -44,9 +44,10 @@ export function assertVariantDiversity(
 
   const formats = familyGroups(variants.map((x) => x.formatSlug), registry.formats);
   if (formats.size < cfg.minFormatFamilies) {
+    const detail = [...formats].map(([fam, slugs]) => `"${fam}" (${[...new Set(slugs)].join(', ')})`).join(', ');
     out.push({
       rule: 'format_family',
-      message: `formats must span at least ${cfg.minFormatFamilies} families, found ${formats.size}: ${[...formats.keys()].map((f) => `"${f}"`).join(', ')}`,
+      message: `formats must span at least ${cfg.minFormatFamilies} families, found ${formats.size}: ${detail}`,
     });
   }
   return out;

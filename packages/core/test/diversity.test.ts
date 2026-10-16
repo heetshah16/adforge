@@ -32,6 +32,8 @@ describe('assertVariantDiversity', () => {
     );
     expect(out.map((x) => x.rule)).toEqual(['format_family']);
     expect(out[0]!.message).toContain('narrative_arc');
+    expect(out[0]!.message).toContain('problem_solution');
+    expect(out[0]!.message).toContain('before_after');
   });
 
   it('reports unknown slugs instead of throwing', () => {
