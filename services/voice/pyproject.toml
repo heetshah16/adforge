@@ -1,0 +1,33 @@
+[project]
+name = "adforge-voice"
+version = "0.1.0"
+description = "AdForge local voice service: Chatterbox Multilingual TTS + Whisper word alignment"
+requires-python = "==3.13.*"
+dependencies = [
+  "chatterbox-tts==0.1.7",
+  "openai-whisper==20250625",
+  "fastapi==0.142.2",
+  "uvicorn==0.54.0",
+  "python-multipart==0.0.32",
+  "torch==2.12.1",
+  "torchaudio==2.11.0",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "httpx==0.28.1"]
+
+[tool.uv]
+# chatterbox-tts 0.1.7 pins torch==2.6.0 (no sm_120 kernels for the RTX 5070 Ti). Use the build ComfyUI already runs on this GPU.
+override-dependencies = ["torch==2.12.1", "torchaudio==2.11.0"]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+
+[tool.pytest.ini_options]
+markers = ["live: loads models on the GPU (needs --live)"]
