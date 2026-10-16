@@ -27,6 +27,10 @@ export class LocalDiskStorage implements StorageProvider {
     return join(this.root, key);
   }
 
+  urlFor(key: string): string {
+    return `${this.publicBaseUrl}/media/${key}`;
+  }
+
   async put(bytes: Uint8Array, opts: PutOptions): Promise<MediaRef> {
     const ext = EXT[opts.mime];
     if (!ext) throw new Error(`Unsupported mime type: ${opts.mime}`);
@@ -45,7 +49,7 @@ export class LocalDiskStorage implements StorageProvider {
 
     return {
       id: key,
-      url: `${this.publicBaseUrl}/media/${key}`,
+      url: this.urlFor(key),
       mime: opts.mime,
       sha256,
       bytes: bytes.byteLength,

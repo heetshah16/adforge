@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { MediaRef, ProviderResult, StorageProvider } from '@adforge/core/providers/types';
 import type { Db } from '@adforge/db/client';
 import { assets, providerCalls } from '@adforge/db/schema';
@@ -16,22 +16,31 @@ export async function recordCall(
   },
 ): Promise<void> {
   const w = isWire(row.result) ? row.result : toWire(row.result);
+  const fields = {
+    jobId: row.jobId,
+    variantId: row.variantId,
+    kind: row.kind,
+    provider: row.provider,
+    model: row.model,
+    latencyMs: row.latencyMs,
+    costUsd: row.costUsd ?? 0,
+    status: w.ok ? ('done' as const) : ('failed' as const),
+    error: w.ok ? null : { code: w.code, message: w.message, retryable: w.retryable },
+  };
+  // A retry re-entering with the same key may now succeed: a later success replaces a
+  // failure. A 'done' row is never overwritten, so a late duplicate failure can't undo it.
   await db
     .insert(providerCalls)
     .values({
-      jobId: row.jobId,
-      variantId: row.variantId,
-      kind: row.kind,
-      provider: row.provider,
-      model: row.model,
+      ...fields,
       requestHash: createHash('sha256').update(row.idempotencyKey).digest('hex'),
       idempotencyKey: row.idempotencyKey,
-      latencyMs: row.latencyMs,
-      costUsd: row.costUsd ?? 0,
-      status: w.ok ? 'done' : 'failed',
-      error: w.ok ? null : { code: w.code, message: w.message, retryable: w.retryable },
     })
-    .onConflictDoNothing({ target: providerCalls.idempotencyKey });
+    .onConflictDoUpdate({
+      target: providerCalls.idempotencyKey,
+      set: fields,
+      setWhere: sql`${providerCalls.status} <> 'done'`,
+    });
 }
 
 export async function saveAsset(db: Db, projectId: string, kind: string, ref: MediaRef): Promise<string> {
@@ -44,8 +53,8 @@ export async function saveAsset(db: Db, projectId: string, kind: string, ref: Me
 }
 
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp4: 'video/mp4', wav: 'audio/wav' };
-export async function refFromKey(storage: StorageProvider & { pathFor?(k: string): string }, key: string): Promise<MediaRef> {
+export async function refFromKey(storage: StorageProvider, key: string): Promise<MediaRef> {
   const bytes = await storage.read(key);
   const ext = key.split('.').pop()!;
-  return { id: key, url: key, mime: MIME[ext] ?? 'application/octet-stream', sha256: key.slice(3, 67), bytes: bytes.byteLength };
+  return { id: key, url: storage.urlFor(key), mime: MIME[ext] ?? 'application/octet-stream', sha256: key.slice(3, 67), bytes: bytes.byteLength };
 }

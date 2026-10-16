@@ -6,6 +6,7 @@ const fake = (id: string): StorageProvider => ({
   id,
   put: async () => { throw new Error('unused'); },
   read: async () => new Uint8Array(),
+  urlFor: (key) => `http://test.local/media/${key}`,
 });
 
 describe('ProviderRegistry', () => {

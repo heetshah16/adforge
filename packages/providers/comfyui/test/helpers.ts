@@ -56,6 +56,7 @@ export function memoryStorage() {
       if (!b) throw new Error(`no such key ${key}`);
       return b;
     },
+    urlFor: (key) => `http://localhost:3000/media/${key}`,
   };
   return Object.assign(storage, { files, puts });
 }

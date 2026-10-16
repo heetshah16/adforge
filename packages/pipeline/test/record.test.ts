@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openDb } from '@adforge/db/client';
-import { providerCalls } from '@adforge/db/schema';
+import { jobs, providerCalls } from '@adforge/db/schema';
 import { seedLocalUser } from '@adforge/db/seed/seed';
-import { jobs } from '@adforge/db/schema';
+import { LocalDiskStorage } from '@adforge/provider-local-storage';
 import { buildConfigSnapshot } from '../src/snapshot';
-import { recordCall } from '../src/record';
+import { recordCall, refFromKey } from '../src/record';
 import { markProgress } from '../src/progress';
 import { parseEnv } from '@adforge/core/config/env';
 import { eq } from 'drizzle-orm';
@@ -27,6 +30,72 @@ describe('recordCall', () => {
       expect(j!.progress.map((p) => `${p.stage}:${p.status}`)).toEqual(['plates:running', 'plates:done']);
     } finally {
       await close();
+    }
+  });
+});
+
+describe('recordCall upsert', () => {
+  const ok = { ok: true as const, value: 'x' };
+  const fail = { ok: false as const, code: 'TIMEOUT' as const, message: 'still pending', retryable: true };
+
+  it('a later success replaces an earlier failure with the same key', async () => {
+    const { db, close } = await openDb();
+    try {
+      const { userId, projectId } = await seedLocalUser(db);
+      const [job] = await db.insert(jobs).values({ projectId, userId, inputSpec: {} }).returning();
+      const base = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'k:retry' };
+      await recordCall(db, { ...base, result: fail });
+      await recordCall(db, { ...base, result: ok, costUsd: 0.02 });
+      const rows = await db.select().from(providerCalls);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'done', error: null, costUsd: 0.02 });
+    } finally {
+      await close();
+    }
+  });
+
+  it('a late failure never overwrites a done row', async () => {
+    const { db, close } = await openDb();
+    try {
+      const { userId, projectId } = await seedLocalUser(db);
+      const [job] = await db.insert(jobs).values({ projectId, userId, inputSpec: {} }).returning();
+      const base = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'k:late' };
+      await recordCall(db, { ...base, result: ok });
+      await recordCall(db, { ...base, result: fail });
+      const rows = await db.select().from(providerCalls);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'done', error: null });
+    } finally {
+      await close();
+    }
+  });
+
+  it('two successes with the same key leave one row', async () => {
+    const { db, close } = await openDb();
+    try {
+      const { userId, projectId } = await seedLocalUser(db);
+      const [job] = await db.insert(jobs).values({ projectId, userId, inputSpec: {} }).returning();
+      const base = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'k:twice' };
+      await recordCall(db, { ...base, result: ok });
+      await recordCall(db, { ...base, result: ok });
+      expect(await db.select().from(providerCalls)).toHaveLength(1);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('refFromKey', () => {
+  it('takes the MediaRef url from storage.urlFor, never the bare key', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'adforge-ref-'));
+    try {
+      const storage = new LocalDiskStorage(root, 'http://localhost:3000');
+      const ref = await storage.put(new TextEncoder().encode('png bytes'), { mime: 'image/png' });
+      const got = await refFromKey(storage, ref.id);
+      expect(got.url).toBe(`http://localhost:3000/media/${ref.id}`);
+      expect(got.sha256).toBe(ref.sha256);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
