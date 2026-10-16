@@ -81,6 +81,48 @@ describe('VoiceClient', () => {
     const err = await new VoiceClient(BASE, hung, 25).synthesize(voiceParams('x', 'en', 0.5)).catch((e: unknown) => e);
     expect((err as ProviderError).code).toBe('TIMEOUT');
   });
+
+  it.each([
+    [400, 'INVALID_INPUT'],
+    [404, 'INVALID_INPUT'],
+    [413, 'INVALID_INPUT'],
+    [422, 'INVALID_INPUT'],
+    [503, 'UPSTREAM'],
+  ] as const)('maps HTTP %i to %s', async (status, code) => {
+    const f = fake({ 'POST /synthesize': () => new Response('nope', { status }) });
+    const err = await new VoiceClient(BASE, f).synthesize(voiceParams('x', 'en', 0.5)).catch((e: unknown) => e);
+    expect((err as ProviderError).code).toBe(code);
+  });
+
+  it('truncates the echoed response detail to 500 characters', async () => {
+    const f = fake({ 'POST /synthesize': () => new Response('x'.repeat(2000), { status: 422 }) });
+    const err = (await new VoiceClient(BASE, f).synthesize(voiceParams('x', 'en', 0.5)).catch((e: unknown) => e)) as ProviderError;
+    expect(err.message.length).toBeLessThan(600);
+  });
+
+  it('classifies a body stream that resets after headers as UPSTREAM, not a raw rejection', async () => {
+    const reset = (async () => {
+      const body = new ReadableStream({ start(c) { c.error(new TypeError('socket reset')); } });
+      return new Response(body, { status: 200, headers: { 'x-duration-sec': '1' } });
+    }) as typeof fetch;
+    const err = await new VoiceClient(BASE, reset).synthesize(voiceParams('x', 'en', 0.5)).catch((e: unknown) => e);
+    expect((err as ProviderError).code).toBe('UPSTREAM');
+  });
+
+  it('classifies a body that never ends as a retryable TIMEOUT within the deadline', async () => {
+    const stalls = (async (_: unknown, init?: RequestInit) => {
+      const body = new ReadableStream({
+        start(c) {
+          init?.signal?.addEventListener('abort', () => c.error(init.signal!.reason));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'x-duration-sec': '1' } });
+    }) as typeof fetch;
+    const started = Date.now();
+    const err = await new VoiceClient(BASE, stalls, 25).synthesize(voiceParams('x', 'en', 0.5)).catch((e: unknown) => e);
+    expect((err as ProviderError).code).toBe('TIMEOUT');
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
 });
 
 describe('createVoiceProviders', () => {
@@ -107,5 +149,15 @@ describe('createVoiceProviders', () => {
     const { aligner } = createVoiceProviders({ baseUrl: BASE, storage, fetchImpl: f });
     const r = await aligner.align({ audio: ref, text: 'a b', language: 'en', idempotencyKey: 'k' });
     expect(r.status === 'done' && r.value.words).toEqual([{ text: 'a', startSec: 0.1, endSec: 0.3 }, { text: 'b', startSec: 0.3, endSec: 0.6 }]);
+  });
+
+  it('returns a retryable failed result, never a rejection, when the body stream resets', async () => {
+    const reset = (async () => {
+      const body = new ReadableStream({ start(c) { c.error(new TypeError('socket reset')); } });
+      return new Response(body, { status: 200, headers: { 'x-duration-sec': '1' } });
+    }) as typeof fetch;
+    const { tts } = createVoiceProviders({ baseUrl: BASE, storage: memStorage(), fetchImpl: reset });
+    const r = await tts.synthesize({ text: 'hello', language: 'en', emotion: 0.4, idempotencyKey: 'k' });
+    expect(r.status === 'failed' && [r.error.code, r.retryable]).toEqual(['UPSTREAM', true]);
   });
 });

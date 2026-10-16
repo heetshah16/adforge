@@ -14,9 +14,10 @@ import { asrLanguage, voiceParams } from './params';
 
 const TtsReq = z.object({ text: z.string().min(1).max(500), language: Language, emotion: z.number().min(0).max(1), idempotencyKey: z.string().min(1) });
 
+/** Every failure becomes a ProviderResult. Non-provider errors (storage read/put) are UPSTREAM and retryable. */
 const asFailed = (e: unknown): ProviderResult<never> => {
-  if (e instanceof ProviderError) return { status: 'failed', error: e, retryable: isRetryable(e.code) };
-  throw e;
+  const error = e instanceof ProviderError ? e : new ProviderError('voice-service', 'UPSTREAM', `voice adapter failed: ${(e as Error | undefined)?.message ?? String(e)}`, e);
+  return { status: 'failed', error, retryable: isRetryable(error.code) };
 };
 
 export function createVoiceProviders(o: { baseUrl: string; storage: StorageProvider; fetchImpl?: typeof fetch; timeoutMs?: number }) {
