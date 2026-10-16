@@ -57,6 +57,30 @@ describe('buildOptions env', () => {
       else process.env.ANTHROPIC_API_KEY = prev;
     }
   });
+
+  it('strips every auth-switching variable but keeps the subscription token and PATH', () => {
+    const stripped = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'AWS_BEARER_TOKEN_BEDROCK'];
+    const kept = ['CLAUDE_CODE_OAUTH_TOKEN', 'PATH'];
+    const names = [...stripped, ...kept];
+    const prev = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+    const values: Record<string, string> = {
+      ANTHROPIC_API_KEY: 'sk-test', ANTHROPIC_AUTH_TOKEN: 'tok-test', ANTHROPIC_BASE_URL: 'https://example.invalid',
+      CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'bearer-test', CLAUDE_CODE_OAUTH_TOKEN: 'oauth-test',
+    };
+    try {
+      for (const [k, v] of Object.entries(values)) process.env[k] = v;
+      const o = buildOptions(req, new AbortController());
+      for (const k of stripped) expect(o.env?.[k], k).toBeUndefined();
+      expect(o.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-test');
+      expect(o.env?.PATH ?? o.env?.Path).toBeDefined();
+      expect(process.env.ANTHROPIC_API_KEY).toBe('sk-test'); // copy, never mutate
+    } finally {
+      for (const k of names) {
+        if (prev[k] === undefined) delete process.env[k];
+        else process.env[k] = prev[k];
+      }
+    }
+  });
 });
 
 describe('toUserMessage', () => {
