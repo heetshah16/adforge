@@ -73,6 +73,8 @@ Shapes below come from (2) and are pinned to this version. Re-check them on any 
 
 `{ "queue_running": [[number, prompt_id, ...]], "queue_pending": [[...]] }`. Sensitive extra_data is stripped.
 
+The adapter's `ComfyClient.queueState(id)` maps this to `running` | `pending` | `absent`. ComfyUI executes one job at a time, so `pending` means waiting behind other work and does not count against the running-time timeout.
+
 ## POST /upload/image (multipart)
 
 **Fields:**

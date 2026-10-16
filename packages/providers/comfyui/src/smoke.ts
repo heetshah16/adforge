@@ -33,7 +33,7 @@ function expectDone(step: string, r: ProviderResult<MediaRef>): MediaRef {
   return r.value;
 }
 
-await comfy.client.systemStats();
+await comfy.preflight();
 console.log(`ComfyUI up at ${env.COMFYUI_URL}; storage ${join(env.ADFORGE_DATA_DIR, 'media')}; run ${runId}`);
 
 const plate = expectDone(

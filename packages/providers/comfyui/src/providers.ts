@@ -11,7 +11,7 @@ import {
   type VideoProvider,
 } from '@adforge/core/providers/types';
 import { ComfyClient, promptIdFor, type Fetch, type HistoryEntry } from './client';
-import { collect, submitOnce, toFailed, waitFor, type OutputSpec } from './job';
+import { collect, submitOnce, toFailed, waitFor, waitWhileQueued, type OutputSpec } from './job';
 import { nodeIdByTitle, patchWorkflow, type ApiWorkflow } from './patch';
 import {
   BROLL_WORKFLOWS,
@@ -36,8 +36,12 @@ export interface ComfyOptions {
   cutoutWorkflow: string;
   brollWorkflow: string;
   fetchImpl?: Fetch;
-  /** How long image/cutout calls wait for their result. Default 120s. */
+  /** How long image/cutout calls wait for their job to RUN to completion, queue wait excluded. Default 120s. */
   syncTimeoutMs?: number;
+  /** How long image/cutout calls wait for a job that is merely queued behind others. Default 30 min. */
+  queueTimeoutMs?: number;
+  /** Per-HTTP-request timeout. Default 30s. */
+  requestTimeoutMs?: number;
   /** Poll interval for image/cutout waits. Default 1s. */
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -63,10 +67,11 @@ export function createComfyProviders(o: ComfyOptions): {
   image: ImageProvider;
   cutout: CutoutProvider;
   video: VideoProvider;
-  client: ComfyClient;
+  /** Throws a ProviderError if ComfyUI is unreachable. */
+  preflight(): Promise<void>;
   workflowHashes: Record<string, string>;
 } {
-  const client = new ComfyClient(o.baseUrl, o.fetchImpl);
+  const client = new ComfyClient(o.baseUrl, o.fetchImpl, o.requestTimeoutMs);
   const plate = load(PLATE_WORKFLOWS, o.plateWorkflow, 'plate');
   const cut = load(CUTOUT_WORKFLOWS, o.cutoutWorkflow, 'cutout');
   const broll = load(BROLL_WORKFLOWS, o.brollWorkflow, 'broll');
@@ -75,6 +80,12 @@ export function createComfyProviders(o: ComfyOptions): {
   const runSync = async (wf: ApiWorkflow, key: string, output: OutputSpec): Promise<ProviderResult<MediaRef>> => {
     try {
       const promptId = await submitOnce(client, wf, key);
+      const queued = await waitWhileQueued(client, promptId, {
+        maxMs: o.queueTimeoutMs ?? 30 * 60_000,
+        intervalMs: wait.intervalMs,
+        sleep: o.sleep,
+      });
+      if (queued) return queued;
       return await waitFor(() => collect(client, o.storage, wf, promptId, output), wait);
     } catch (e) {
       return toFailed(e);
@@ -120,6 +131,7 @@ export function createComfyProviders(o: ComfyOptions): {
   const brollOutput: OutputSpec = {
     ...broll.manifest.output,
     ...size,
+    pollAfterMs: 15_000,
     durationSec: (entry: HistoryEntry) => {
       const workflow = entry.prompt[2] as ApiWorkflow | undefined;
       const length = workflow?.[sizeNodeId]?.inputs.length;
@@ -165,7 +177,9 @@ export function createComfyProviders(o: ComfyOptions): {
     image,
     cutout,
     video,
-    client,
+    async preflight() {
+      await client.systemStats();
+    },
     workflowHashes: {
       [plate.manifest.name]: plate.sha256,
       [cut.manifest.name]: cut.sha256,

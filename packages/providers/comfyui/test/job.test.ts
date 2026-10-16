@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ProviderError } from '@adforge/core/providers/types';
 import { ComfyClient, promptIdFor, type HistoryEntry } from '../src/client';
-import { collect, pngSize, submitOnce, waitFor } from '../src/job';
+import { collect, pngSize, submitOnce, waitFor, waitWhileQueued } from '../src/job';
 import { loadWorkflow } from '../src/workflows';
 import { fakeFetch, fixture, json, memoryStorage, pngBytes } from './helpers';
 
@@ -190,6 +190,32 @@ describe('waitFor', () => {
     const r = await waitFor(async () => pending, { timeoutMs: 0, intervalMs: 1, sleep: async () => {} });
     expect(r.status === 'failed' && r.error.code).toBe('TIMEOUT');
     expect(r.status === 'failed' && r.retryable).toBe(true);
+  });
+});
+
+describe('waitWhileQueued', () => {
+  const q = (running: string[], pending: string[]) =>
+    json({ queue_running: running.map((id) => [1, id, {}]), queue_pending: pending.map((id) => [2, id, {}]) });
+
+  it('returns null once the job starts running', async () => {
+    let n = 0;
+    let slept = 0;
+    const f = fakeFetch({ 'GET /queue': () => (n++ < 2 ? q(['other'], ['me']) : q(['me'], [])) });
+    const r = await waitWhileQueued(new ComfyClient(BASE, f), 'me', {
+      maxMs: 60_000,
+      intervalMs: 1,
+      sleep: async () => void slept++,
+    });
+    expect(r).toBeNull();
+    expect(slept).toBe(2);
+  });
+
+  it('times out as a retryable TIMEOUT when still pending past maxMs', async () => {
+    const f = fakeFetch({ 'GET /queue': () => q([], ['me']) });
+    const r = await waitWhileQueued(new ComfyClient(BASE, f), 'me', { maxMs: 0, intervalMs: 1, sleep: async () => {} });
+    expect(r?.status === 'failed' && r.error.code).toBe('TIMEOUT');
+    expect(r?.status === 'failed' && r.retryable).toBe(true);
+    expect(r?.status === 'failed' && r.error.message).toBe('ComfyUI job me still queued after 0ms');
   });
 });
 

@@ -66,10 +66,11 @@ export function pickWorkflow<P>(table: Record<string, Manifest<P>>, name: string
 
 export function loadWorkflow(name: string): { json: ApiWorkflow; sha256: string } {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error(`Invalid workflow name: ${name}`);
-  const raw = readFileSync(new URL(`../workflows/${name}.json`, import.meta.url));
+  // Hash LF-normalized text so CRLF and LF checkouts record the same workflow hash.
+  const text = readFileSync(new URL(`../workflows/${name}.json`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
   return {
-    json: JSON.parse(raw.toString('utf8')) as ApiWorkflow,
-    sha256: createHash('sha256').update(raw).digest('hex'),
+    json: JSON.parse(text) as ApiWorkflow,
+    sha256: createHash('sha256').update(text).digest('hex'),
   };
 }
 

@@ -1,2 +1,2 @@
-export { ComfyClient, promptIdFor } from './client';
+export { promptIdFor } from './client';
 export { createComfyProviders, type ComfyOptions } from './providers';

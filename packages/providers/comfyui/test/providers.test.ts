@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ProviderError, type VideoGenRequest } from '@adforge/core/providers/types';
 import { promptIdFor } from '../src/client';
@@ -43,6 +45,20 @@ describe('createComfyProviders', () => {
     expect(Object.keys(workflowHashes).sort()).toEqual(['broll-wan22-5b', 'cutout-birefnet', 'plate-flux-schnell']);
     expect(workflowHashes['plate-flux-schnell']).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it('hashes line-ending-normalized text, so CRLF and LF checkouts agree', () => {
+    const text = readFileSync(new URL('../workflows/plate-flux-schnell.json', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+    const { workflowHashes } = createComfyProviders({ ...opts, storage: memoryStorage() });
+    expect(workflowHashes['plate-flux-schnell']).toBe(createHash('sha256').update(text).digest('hex'));
+  });
+
+  it('preflight propagates ProviderError when ComfyUI is down', async () => {
+    const down = (async () => {
+      throw new TypeError('fetch failed');
+    }) as typeof fetch;
+    const { preflight } = createComfyProviders({ ...opts, storage: memoryStorage(), fetchImpl: down });
+    await expect(preflight()).rejects.toBeInstanceOf(ProviderError);
+  });
 });
 
 describe('image provider', () => {
@@ -56,6 +72,31 @@ describe('image provider', () => {
     const byTitle = (t: string) => Object.values(body.prompt).find((n) => n._meta.title === t)!.inputs;
     expect(byTitle('in:prompt').text).toBe('a kitchen');
     expect(byTitle('in:size')).toMatchObject({ width: 768, height: 1344 });
+  });
+
+  it('patches a requested 512x896 size into in:size', async () => {
+    const f = fakeFetch(jobRoutes('img-size', 'plate-flux-schnell', pngBytes(512, 896)));
+    const { image } = createComfyProviders({ ...opts, storage: memoryStorage(), fetchImpl: f });
+    await image.generate({ prompt: 'p', width: 512, height: 896, idempotencyKey: 'img-size' });
+    const body = f.bodies['POST /prompt']?.[0] as { prompt: Record<string, { inputs: Record<string, unknown>; _meta: { title: string } }> };
+    expect(Object.values(body.prompt).find((n) => n._meta.title === 'in:size')!.inputs).toMatchObject({ width: 512, height: 896 });
+  });
+
+  it('does not count time spent queued against syncTimeoutMs', async () => {
+    const id = promptIdFor('img-q');
+    const inner = jobRoutes('img-q', 'plate-flux-schnell', pngBytes(768, 1344));
+    const rec = Object.values(fixture('plate-flux-schnell.history.json') as Record<string, unknown>)[0];
+    let queueCalls = 0;
+    const f = fakeFetch({
+      ...inner,
+      // Call 1 is submitOnce's check; calls 2-4 are the queue wait; the job finishes once it leaves the queue.
+      'GET /queue': () => (++queueCalls >= 2 && queueCalls <= 4 ? json({ queue_running: [], queue_pending: [[1, id, {}]] }) : json(empty)),
+      [`GET /history/${id}`]: () => json(queueCalls >= 5 ? { [id]: rec } : {}),
+    });
+    const { image } = createComfyProviders({ ...opts, storage: memoryStorage(), fetchImpl: f, syncTimeoutMs: 0 });
+    const r = await image.generate({ prompt: 'p', width: 768, height: 1344, idempotencyKey: 'img-q' });
+    expect(r.status).toBe('done');
+    expect(queueCalls).toBeGreaterThanOrEqual(5);
   });
 
   it('derives the same seed from the same key when none is given', async () => {
@@ -160,6 +201,30 @@ describe('video provider', () => {
       expect(f.calls).toEqual([]);
     });
   }
+
+  it('submits 49 frames for a 2s clip', async () => {
+    const storage = memoryStorage();
+    const ref = await storage.put(pngBytes(768, 1344), { mime: 'image/png' });
+    const f = fakeFetch({
+      ...jobRoutes('vid-2s', 'broll-wan22-5b', new Uint8Array([0])),
+      'POST /upload/image': () => json({ name: 'frame.png', subfolder: '', type: 'input' }),
+    });
+    const { video } = createComfyProviders({ ...opts, storage, fetchImpl: f });
+    await video.submit({ ...valid, firstFrame: ref, durationSec: 2, idempotencyKey: 'vid-2s' });
+    const body = f.bodies['POST /prompt']?.[0] as { prompt: Record<string, { inputs: Record<string, unknown>; _meta: { title: string } }> };
+    expect(Object.values(body.prompt).find((n) => n._meta.title === 'in:size')!.inputs.length).toBe(49);
+  });
+
+  it('polls a still-queued job as pending with a 15s hint', async () => {
+    const id = promptIdFor('vid-q');
+    const f = fakeFetch({
+      [`GET /history/${id}`]: () => json({}),
+      'GET /queue': () => json({ queue_running: [], queue_pending: [[1, id, {}]] }),
+    });
+    const { video } = createComfyProviders({ ...opts, storage: memoryStorage(), fetchImpl: f });
+    const r = await video.poll({ provider: 'comfyui', externalId: id, pollAfterMs: 15_000 });
+    expect(r.status === 'pending' && r.handle.pollAfterMs).toBe(15000);
+  });
 
   it('submits 121 frames at 704x1280 for 5s and polls to a stored mp4', async () => {
     const storage = memoryStorage();

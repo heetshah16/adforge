@@ -13,6 +13,10 @@ describe('promptIdFor', () => {
     expect(promptIdFor('job1:plate:0')).toBe(promptIdFor('job1:plate:0'));
     expect(promptIdFor('job1:plate:0')).not.toBe(promptIdFor('job1:plate:1'));
   });
+
+  it('is pinned: a hash or salt change would orphan in-flight jobs', () => {
+    expect(promptIdFor('k')).toBe('879b785d-42d9-e6c7-6d91-47ee3bedbef7');
+  });
 });
 
 describe('ComfyClient', () => {
@@ -73,6 +77,16 @@ describe('ComfyClient', () => {
     expect(await client.isQueued('run-id')).toBe(true);
     expect(await client.isQueued('wait-id')).toBe(true);
     expect(await client.isQueued('other')).toBe(false);
+  });
+
+  it('reports running, pending or absent', async () => {
+    const client = new ComfyClient(
+      BASE,
+      fakeFetch({ 'GET /queue': () => json({ queue_running: [[1, 'run-id', {}]], queue_pending: [[2, 'wait-id', {}]] }) }),
+    );
+    expect(await client.queueState('run-id')).toBe('running');
+    expect(await client.queueState('wait-id')).toBe('pending');
+    expect(await client.queueState('other')).toBe('absent');
   });
 
   it('uploads multipart and returns the name the server chose', async () => {

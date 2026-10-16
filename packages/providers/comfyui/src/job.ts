@@ -17,6 +17,8 @@ export interface OutputSpec {
   width?: number;
   height?: number;
   durationSec?: (entry: HistoryEntry) => number | undefined;
+  /** Poll hint on pending results. Default 2000. */
+  pollAfterMs?: number;
 }
 
 export function toFailed(e: unknown): ProviderResult<never> {
@@ -59,7 +61,7 @@ export async function collect(
     let entry = await client.history(promptId);
     if (!entry) {
       if (await client.isQueued(promptId)) {
-        return { status: 'pending', handle: { provider: P, externalId: promptId, pollAfterMs: 2000 } };
+        return { status: 'pending', handle: { provider: P, externalId: promptId, pollAfterMs: output.pollAfterMs ?? 2000 } };
       }
       // It may have finished between the two calls; only a second miss means it is truly lost.
       entry = await client.history(promptId);
@@ -111,6 +113,27 @@ export async function waitFor(
       return failed('TIMEOUT', `ComfyUI job ${r.handle.externalId} still running after ${opts.timeoutMs}ms`);
     }
     await sleep(opts.intervalMs);
+  }
+}
+
+/** Waits out the time a job spends behind other jobs; null once it is running, finished or gone. */
+export async function waitWhileQueued(
+  client: ComfyClient,
+  promptId: string,
+  opts: { maxMs: number; intervalMs: number; sleep?: (ms: number) => Promise<void> },
+): Promise<ProviderResult<never> | null> {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const deadline = Date.now() + opts.maxMs;
+  try {
+    while ((await client.queueState(promptId)) === 'pending') {
+      if (Date.now() >= deadline) {
+        return failed('TIMEOUT', `ComfyUI job ${promptId} still queued after ${opts.maxMs}ms`);
+      }
+      await sleep(opts.intervalMs);
+    }
+    return null;
+  } catch (e) {
+    return toFailed(e);
   }
 }
 

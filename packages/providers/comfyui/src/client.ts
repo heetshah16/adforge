@@ -128,9 +128,15 @@ export class ComfyClient {
     return all[promptId] ?? null;
   }
 
-  async isQueued(promptId: string): Promise<boolean> {
+  /** `pending` = waiting behind other jobs; `running` = executing now (ComfyUI runs one at a time). */
+  async queueState(promptId: string): Promise<'running' | 'pending' | 'absent'> {
     const q = await this.#json('/queue', Queue);
-    return [...q.queue_running, ...q.queue_pending].some((item) => item[1] === promptId);
+    const has = (items: unknown[][]) => items.some((item) => item[1] === promptId);
+    return has(q.queue_running) ? 'running' : has(q.queue_pending) ? 'pending' : 'absent';
+  }
+
+  async isQueued(promptId: string): Promise<boolean> {
+    return (await this.queueState(promptId)) !== 'absent';
   }
 
   async view(file: FileRef): Promise<Uint8Array> {
