@@ -13,12 +13,12 @@ if (!existsSync(join(REPO_ROOT, 'pnpm-workspace.yaml'))) {
 
 const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const WorkflowName = z.string().regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and dashes only');
-const OpenRouterModel = z.string().regex(/^[a-z0-9-]+\/[a-z0-9.:-]+$/, 'expected "vendor/model"');
+const ClaudeModel = z.string().regex(/^[a-z0-9][a-z0-9.-]*$/, 'expected a Claude model id or alias, e.g. claude-opus-5-5');
 
 /**
  * Infrastructure and provider choice. Provider ids are closed lists of what is
  * actually registered — adding a provider adds its id here.
- * LLM vars become required in P5.
+ * LLM calls go through the Claude Agent SDK on the user's subscription (ADR 0009).
  */
 export const Env = z.object({
   ADFORGE_DATA_DIR: z
@@ -32,6 +32,7 @@ export const Env = z.object({
   ADFORGE_PROVIDER_IMAGE: z.enum(['comfyui']).default('comfyui'),
   ADFORGE_PROVIDER_CUTOUT: z.enum(['comfyui']).default('comfyui'),
   ADFORGE_PROVIDER_VIDEO: z.enum(['comfyui']).default('comfyui'),
+  ADFORGE_PROVIDER_LLM: z.enum(['claude-agent-sdk']).default('claude-agent-sdk'),
   ADFORGE_PROVIDER_TTS: z.enum(['kokoro']).default('kokoro'),
 
   COMFYUI_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:8188'),
@@ -41,9 +42,8 @@ export const Env = z.object({
 
   ADFORGE_TTS_VOICE: z.string().min(1).default('af_heart'),
 
-  OPENROUTER_API_KEY: z.string().min(1).optional(),
-  ADFORGE_LLM_STRATEGIST: OpenRouterModel.optional(),
-  ADFORGE_LLM_DIRECTOR: OpenRouterModel.optional(),
+  ADFORGE_LLM_STRATEGIST: ClaudeModel.default('claude-sonnet-5-5'),
+  ADFORGE_LLM_DIRECTOR: ClaudeModel.default('claude-opus-5-5'),
   ADFORGE_LLM_EFFORT_STRATEGIST: Effort.default('medium'),
   ADFORGE_LLM_EFFORT_DIRECTOR: Effort.default('high'),
 });

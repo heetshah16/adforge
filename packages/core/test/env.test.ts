@@ -23,12 +23,16 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ COMFYUI_URL: 'localhost:8188' })).toThrow(/COMFYUI_URL/);
   });
 
-  it('fails on a malformed LLM model id', () => {
+  it('defaults the LLM provider and Claude model ids, and rejects malformed ids', () => {
+    const env = parseEnv({});
+    expect(env.ADFORGE_PROVIDER_LLM).toBe('claude-agent-sdk');
+    expect(env.ADFORGE_LLM_STRATEGIST).toBe('claude-sonnet-5-5');
+    expect(env.ADFORGE_LLM_DIRECTOR).toBe('claude-opus-5-5');
     expect(() => parseEnv({ ADFORGE_LLM_DIRECTOR: 'claude opus' })).toThrow(/ADFORGE_LLM_DIRECTOR/);
-    expect(parseEnv({ ADFORGE_LLM_DIRECTOR: 'anthropic/claude-opus-5' }).ADFORGE_LLM_DIRECTOR).toBe(
-      'anthropic/claude-opus-5',
-    );
+    expect(() => parseEnv({ ADFORGE_LLM_DIRECTOR: 'anthropic/claude-opus-5' })).toThrow(/ADFORGE_LLM_DIRECTOR/);
+    expect(parseEnv({ ADFORGE_LLM_DIRECTOR: 'sonnet' }).ADFORGE_LLM_DIRECTOR).toBe('sonnet');
   });
+
   it('default data dir resolves under the repo root', () => {
     expect(parseEnv({}).ADFORGE_DATA_DIR).toBe(join(REPO_ROOT, '.data'));
   });

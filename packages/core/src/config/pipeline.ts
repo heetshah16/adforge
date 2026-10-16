@@ -34,6 +34,7 @@ export const PipelineConfig = z.object({
   }),
   captions: z.object({ mode: z.enum(['proportional']) }),
   retries: z.object({ provider: z.number().int().nonnegative() }),
+  llm: z.object({ timeoutMs: PosInt }),
 });
 export type PipelineConfig = z.infer<typeof PipelineConfig>;
 
@@ -51,6 +52,7 @@ export const DEFAULT_PIPELINE: PipelineConfig = {
   diversity: { minHookFamilies: 3, minFormatFamilies: 2, repairPasses: 1 },
   captions: { mode: 'proportional' },
   retries: { provider: 2 },
+  llm: { timeoutMs: 300_000 },
 };
 
 export const PIPELINE: PipelineConfig = PipelineConfig.parse(DEFAULT_PIPELINE);

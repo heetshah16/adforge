@@ -20,3 +20,7 @@ export type Motion = z.infer<typeof Motion>;
 /** Drives fidelityTier in code: hero|supporting → T0 cutout overlay; absent → T2. */
 export const ProductProminence = z.enum(['hero', 'supporting', 'absent']);
 export type ProductProminence = z.infer<typeof ProductProminence>;
+
+/** Voice-over language per job (spec �11). On-screen claim text stays Latin script for all. */
+export const Language = z.enum(['en', 'hi', 'hinglish']);
+export type Language = z.infer<typeof Language>;
