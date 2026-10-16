@@ -24,4 +24,25 @@ Anchor variant 1 voiced in three languages (`pnpm e2e:voice`; ComfyUI plates, th
 - hi: 4.60, 5.64, 6.32, 4.88
 - hinglish (TTS language `hi`): 4.20, 5.40, 3.64, 3.28
 
-Peak VRAM sampled every 2 s over the run: 15.6 GB of 16 GB (the peak fell about 70 s in, during the ComfyUI plate batch). The GPU returned to 1.3 GB once both services were stopped. Rendered frame counts (1080x1920, 30 fps, video + audio): en 692, hi 667, hinglish 630, each equal to the spec's `durationInFrames`. The first English beat took 37.9 s because it included the cold TTS and Whisper loads; warm beats took 3 to 7 s. The listening verdict is pending the user's review.
+Peak VRAM sampled every 2 s over the run: 15.6 GB of 16 GB (the peak fell about 70 s in, during the ComfyUI plate batch). The GPU returned to 1.3 GB once both services were stopped. Rendered frame counts (1080x1920, 30 fps, video + audio): en 692, hi 667, hinglish 630, each equal to the spec's `durationInFrames`. The first English beat took 37.9 s because it included the cold TTS and Whisper loads; warm beats took 3 to 7 s.
+
+## Listening check 1 (user, 2026-10-17): failed all three
+- **en:** not natural; only a slight emotional rise. The exaggeration range was 0.3–0.9, with cfg 0.3 above emotion 0.7, which is the README's "dramatic" setting.
+- **hi:** pronunciation was correct, but the meaning was off. The Hindi lines were hand-written plan fixtures, not Director output.
+- **hinglish:** unacceptable. The user described the pronunciation as "downright racist and humorous". Latin-script Hindi was sent to Chatterbox's Hindi model, which is trained on Devanagari.
+
+**Decision (P6b):**
+- **Hinglish:** the Director also writes `vo_tts`, the same line fully in Devanagari (English words and brand names transliterated). TTS speaks `vo_tts` with the `hi` model. Captions keep the Latin `vo`, timed through `alignCaptions`. **Never send Latin-script Hindi to the TTS.**
+- **English:** the exaggeration range was narrowed to 0.4–0.7, with cfg 0.5 (0.45 only above emotion 0.8).
+
+## Listening check 2 (user, 2026-10-17): Hindi and Hinglish accepted; English still a known gap
+The run voiced real Director copy for the Krishna Hing eval products (`pnpm e2e:llm`, then `pnpm e2e:voice`).
+- **hi:** fine.
+- **hinglish:** fine, voiced from the Devanagari `vo_tts`.
+- **en:** at emotional or dramatic moments the voice produces gibberish instead of a dramatic read. The user deferred this ("maybe we will need something else; we can work on that later").
+
+Candidate fixes, not yet started:
+- Chatterbox's English-only model (`ChatterboxTTS`) for `en`, instead of the multilingual one.
+- Capping exaggeration for `en`.
+- A reference voice clip (`audio_prompt_path`).
+- A hosted `TTSProvider`.
