@@ -10,7 +10,9 @@ const chars = (s: string) => [...s].length;
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Unicode-aware word boundary: \b is ASCII-only and breaks Devanagari (combining marks are \p{M}).
 const WORD = '[\\p{L}\\p{M}\\p{N}]';
-const wordRe = (w: string) => new RegExp(`(?<!${WORD})${esc(w)}(?!${WORD})`, 'iu');
+// Leading boundary always, so glued tokens ("SattvikOil", "#sattvikoil") still match. Trailing boundary only for
+// brands under 5 code points, so "Oil" does not flag "oily"; longer brands are distinctive enough to match as prefixes.
+const brandRe = (w: string) => new RegExp(`(?<!${WORD})${esc(w)}${[...w].length < 5 ? `(?!${WORD})` : ''}`, 'iu');
 
 export function checkVariant(
   v: DirectorVariant,
@@ -36,7 +38,7 @@ export function checkVariant(
     }
     const brand = ctx.brandName.trim();
     if (brand) {
-      const re = wordRe(brand);
+      const re = brandRe(brand);
       for (const [label, text] of [['hook_text', v.hook_text], ['scene 1 VO', first.vo], ['scene 1 overlay', first.overlay]] as const) {
         if (re.test(text)) add('hook_rule', `${label} names the brand "${ctx.brandName}"`);
       }

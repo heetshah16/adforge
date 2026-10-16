@@ -3,7 +3,7 @@ import { direct } from '../src/llm/direct';
 import { loadPrompt } from '../src/llm/prompts';
 import type { DirectorOutput } from '../src/llm/schemas';
 import type { Shortlist } from '../src/vocab/shortlist';
-import { fakeLLM } from './fake-llm';
+import { failed, fakeLLM } from './fake-llm';
 import { REGISTRY } from './vocab-fixture';
 
 const anchor = (): DirectorOutput => {
@@ -60,6 +60,21 @@ describe('direct', () => {
     expect(r.status).toBe('violations');
     expect(r.status === 'violations' && r.violations.map((v) => v.rule)).toContain('hook_family');
     expect(llm.calls).toHaveLength(2);
+  });
+
+  it('returns the provider failure when the repair call fails, after exactly two calls', async () => {
+    const llm = fakeLLM([collide(), failed('RATE_LIMIT')]);
+    const r = await direct(input, deps(llm));
+    expect(r).toMatchObject({ status: 'failed', retryable: true, error: { code: 'RATE_LIMIT' } });
+    expect(llm.calls).toHaveLength(2);
+  });
+
+  it('catches the brand when the product name has leading whitespace', async () => {
+    const hook = anchor();
+    hook.variants[0]!.hook_text = 'Sattvik oil is different.';
+    const llm = fakeLLM([hook, hook]);
+    const r = await direct({ ...input, product: { ...input.product, name: '  Sattvik Oil' } }, deps(llm));
+    expect(r.status === 'violations' && r.violations.some((v) => v.rule === 'hook_rule' && v.message.includes('names the brand'))).toBe(true);
   });
 
   it('propagates a provider failure without retrying it itself', async () => {

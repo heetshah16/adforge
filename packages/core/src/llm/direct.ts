@@ -27,7 +27,7 @@ export async function direct(
     text: renderDirectorUser(input.product, input.brief, input.shortlist, input.registry, input.language, cfg),
   };
   // ponytail: first word of the product name is the brand; add a brand field to the upload form if this misses
-  const ctx = { registry: input.registry, shortlist: input.shortlist, brandName: input.product.name.split(/\s+/)[0] ?? '', language: input.language, cfg };
+  const ctx = { registry: input.registry, shortlist: input.shortlist, brandName: input.product.name.trim().split(/\s+/)[0] ?? '', language: input.language, cfg };
 
   let user: LLMContent[] = [base];
   for (let attempt = 0; ; attempt++) {

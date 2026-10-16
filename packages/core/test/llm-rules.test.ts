@@ -44,6 +44,19 @@ describe('checkVariant', () => {
     expect(brandMsgs(meta, 'Try C++ today')).toHaveLength(1);
   });
 
+  it('catches brands glued into a token, but not short brands inside a longer word', () => {
+    const brandMsgs = (c: typeof ctx, text: string) => {
+      const v = v1();
+      v.hook_text = text;
+      v.scenes[0]!.vo = 'Plain words here.';
+      v.scenes[0]!.overlay = 'Plain';
+      return checkVariant(v, c).filter((x) => x.message.includes('names the brand'));
+    };
+    expect(brandMsgs(ctx, 'Try SattvikOil today')).toHaveLength(1);
+    expect(brandMsgs(ctx, '#sattvikoil is here')).toHaveLength(1);
+    expect(brandMsgs({ ...ctx, brandName: 'Oil' }, 'Not oily at all')).toEqual([]);
+  });
+
   it('matches banned openers only as whole words at the start', () => {
     const cfg = { ...PIPELINE, hook: { ...PIPELINE.hook, bannedOpeners: ['Did'] } };
     const openerMsgs = (text: string) => {
