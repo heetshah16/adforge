@@ -33,6 +33,9 @@ describe('strategistOutput', () => {
     expect(s.safeParse(brief).success).toBe(true);
     expect(s.safeParse({ ...brief, archetype_primary: 'luxury' }).success).toBe(false);
   });
+  it('throws at build time on an empty slug list', () => {
+    expect(() => strategistOutput([])).toThrow(/archetypes/);
+  });
 });
 
 describe('renderStrategistUser', () => {

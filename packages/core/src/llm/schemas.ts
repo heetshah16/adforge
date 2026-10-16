@@ -2,11 +2,14 @@ import { z } from 'zod';
 import { Language, Motion, ProductProminence, VisualTreatment } from '../vocab/enums';
 import type { Shortlist } from '../vocab/shortlist';
 
-const enumOf = (slugs: string[]) => z.enum(slugs as [string, ...string[]]);
+const enumOf = (slugs: string[], what: string) => {
+  if (slugs.length === 0) throw new Error(`${what}: cannot build an output schema from an empty slug list`);
+  return z.enum(slugs as [string, ...string[]]);
+};
 
 /** Built from the live registry so constrained decoding can only emit real archetype slugs. */
 export function strategistOutput(archetypeSlugs: string[]) {
-  const A = enumOf(archetypeSlugs);
+  const A = enumOf(archetypeSlugs, 'archetypes');
   return z.object({
     product: z.object({
       name: z.string().min(1),
@@ -42,8 +45,8 @@ export function directorOutput(shortlist: Shortlist, language: Language) {
   });
   const Variant = z.object({
     variant_no: z.number().int().min(1).max(3),
-    format: enumOf(formats),
-    hook_archetype: enumOf(hooks),
+    format: enumOf(formats, 'formats'),
+    hook_archetype: enumOf(hooks, 'hooks'),
     visual_treatment: VisualTreatment,
     strategic_bet: z.string().min(10).max(300),
     hook_text: z.string().min(1).max(120),
