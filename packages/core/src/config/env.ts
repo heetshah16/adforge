@@ -36,6 +36,7 @@ export const Env = z.object({
   ADFORGE_PROVIDER_TTS: z.enum(['chatterbox']).default('chatterbox'),
   ADFORGE_PROVIDER_ALIGNER: z.enum(['whisper']).default('whisper'),
   ADFORGE_VOICE_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:8190').transform((u) => u.replace(/\/+$/, '')),
+  ADFORGE_QWEN_TTS_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:8191').transform((u) => u.replace(/\/+$/, '')),
 
   COMFYUI_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:8188'),
   ADFORGE_COMFY_WORKFLOW_PLATE: WorkflowName.default('plate-flux-schnell'),

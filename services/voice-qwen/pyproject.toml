@@ -1,0 +1,30 @@
+[project]
+name = "adforge-voice-qwen"
+version = "0.1.0"
+description = "AdForge local Qwen3-TTS English engine (spike, separate from services/voice: transformers pin conflict)"
+requires-python = "==3.13.*"
+dependencies = [
+  "qwen-tts==0.1.1",
+  "fastapi==0.142.2",
+  "uvicorn==0.54.0",
+  "torch==2.12.1",
+  "torchaudio==2.11.0",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "httpx==0.28.1"]
+
+[tool.uv]
+override-dependencies = ["torch==2.12.1", "torchaudio==2.11.0"]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+
+[tool.pytest.ini_options]
+markers = ["live: loads models on the GPU (needs --live)"]

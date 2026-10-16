@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ProviderError } from '@adforge/core/providers/types';
+import type { QwenBody } from './qwen';
 import type { SynthBody } from './params';
 
 const P = 'voice-service';
@@ -58,11 +59,13 @@ export class VoiceClient {
     return parsed.data;
   }
 
-  health() {
-    return this.#json('/health', Health);
+  health(): Promise<z.infer<typeof Health>>;
+  health<T>(schema: z.ZodType<T>): Promise<T>;
+  health(schema: z.ZodType<unknown> = Health) {
+    return this.#json('/health', schema);
   }
 
-  async synthesize(body: SynthBody): Promise<{ bytes: Uint8Array; durationSec: number }> {
+  async synthesize(body: SynthBody | QwenBody): Promise<{ bytes: Uint8Array; durationSec: number }> {
     const res = await this.#request('/synthesize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const durationSec = Number(res.headers.get('x-duration-sec'));
     if (!Number.isFinite(durationSec) || durationSec <= 0) throw new ProviderError(P, 'UPSTREAM', 'voice service returned no X-Duration-Sec');
