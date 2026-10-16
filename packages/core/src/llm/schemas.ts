@@ -36,6 +36,7 @@ export function directorOutput(shortlist: Shortlist, _language?: LanguageT) {
   const Scene = z.object({
     beat: z.string().min(1),
     vo: z.string().min(1).max(240),
+    vo_tts: z.string().min(1).max(400).optional(), // Devanagari voice line, hinglish only
     overlay: z.string().min(1).max(60),
     scene: z.string().min(10).max(400),
     product_prominence: ProductProminence,

@@ -26,6 +26,18 @@ export function checkVariant(
   if (beats && v.scenes.length !== beats.length) add('beats', `format "${v.format}" has ${beats.length} beats (${beats.join(' → ')}), got ${v.scenes.length} scenes`);
   if (v.language !== ctx.language) add('language', `language must be "${ctx.language}", got "${v.language}"`);
 
+  v.scenes.forEach((s, i) => {
+    const n = i + 1;
+    if (ctx.language !== 'hinglish') {
+      if (s.vo_tts !== undefined) add('language', `scene ${n}: vo_tts must be absent for "${ctx.language}"`);
+      return;
+    }
+    if (!s.vo_tts) return add('language', `scene ${n}: vo_tts is required for hinglish`);
+    const letters = s.vo_tts.match(/\p{L}/gu) ?? [];
+    const dev = letters.filter((c) => c >= 'ऀ' && c <= 'ॿ').length;
+    if (letters.length === 0 || dev / letters.length < 0.8) add('language', `scene ${n}: vo_tts must be written in Devanagari (>=80% of letters)`);
+  });
+
   const first = v.scenes[0];
   if (first) {
     const { maxWords, maxChars, bannedOpeners } = cfg.hook;
