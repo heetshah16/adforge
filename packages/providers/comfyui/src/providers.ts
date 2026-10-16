@@ -47,6 +47,8 @@ export interface ComfyOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+const SystemStats = z.object({ devices: z.array(z.object({ vram_total: z.number(), vram_free: z.number() })) });
+
 const invalid = (message: string): ProviderResult<never> => ({
   status: 'failed',
   error: new ProviderError(P, 'INVALID_INPUT', message),
@@ -71,6 +73,8 @@ export function createComfyProviders(o: ComfyOptions): {
   preflight(): Promise<void>;
   /** Unload models and free memory so another GPU service can run. */
   free(): Promise<void>;
+  /** VRAM in use / total across devices, to verify a `free()` hand-off took effect. */
+  systemStats(): Promise<{ vramUsedBytes: number; vramTotalBytes: number }>;
   workflowHashes: Record<string, string>;
 } {
   const client = new ComfyClient(o.baseUrl, o.fetchImpl, o.requestTimeoutMs);
@@ -180,6 +184,13 @@ export function createComfyProviders(o: ComfyOptions): {
     cutout,
     video,
     free: () => client.free(),
+    async systemStats() {
+      const parsed = SystemStats.safeParse(await client.systemStats());
+      if (!parsed.success) throw new ProviderError(P, 'UPSTREAM', `Unexpected /system_stats response: ${z.prettifyError(parsed.error)}`);
+      const devices = parsed.data.devices;
+      const total = devices.reduce((n, d) => n + d.vram_total, 0);
+      return { vramTotalBytes: total, vramUsedBytes: total - devices.reduce((n, d) => n + d.vram_free, 0) };
+    },
     async preflight() {
       await client.systemStats();
     },

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { REPO_ROOT, parseEnv } from '@adforge/core/config/env';
 import { direct } from '@adforge/core/llm/direct';
@@ -68,6 +68,12 @@ for (const slug of products) {
     const fam = (slugs: { slug: string; family: string | null }[], s: string) => slugs.find((x) => x.slug === s)?.family;
     console.log(`  V${v.variant_no} ${v.format}(${fam(registry.formats, v.format)}) + ${v.hook_archetype}(${fam(registry.hooks, v.hook_archetype)}) [${v.visual_treatment}]`);
     console.log(`     hook: "${v.hook_text}"  bet: ${v.strategic_bet}`);
+  }
+  if (d.status === 'ok') {
+    // Saved outside the repo so the P6 voice e2e can voice real Director output.
+    const outDir = join(env.ADFORGE_DATA_DIR, 'e2e', 'directions');
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, `${slug}.json`), JSON.stringify({ slug, language, output: d.output }, null, 2));
   }
   if (d.status === 'violations') { console.error('  VIOLATIONS:', d.violations.map((x) => x.message)); ok = false; }
 }
