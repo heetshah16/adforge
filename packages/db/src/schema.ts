@@ -116,6 +116,8 @@ export const jobs = pgTable('jobs', {
   shortlist: jsonb(),
   /** Resolved config, treatment params, workflow names, model ids and prompt hashes this job ran with. */
   configSnapshot: jsonb(),
+  /** Append-only stage log for the UI. */
+  progress: jsonb().$type<{ stage: string; status: 'running' | 'done' | 'failed' | 'skipped'; at: string; detail?: string }[]>().notNull().default([]),
   costUsd: doublePrecision().notNull().default(0),
   error: jsonb(),
   createdAt: createdAt(),

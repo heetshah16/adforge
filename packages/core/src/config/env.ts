@@ -26,6 +26,7 @@ export const Env = z.object({
     .min(1)
     .default('.data')
     .transform((p) => resolve(REPO_ROOT, p)),
+  ADFORGE_WORKER_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   ADFORGE_PUBLIC_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:3000').transform((u) => u.replace(/\/+$/, '')),
 
   ADFORGE_PROVIDER_STORAGE: z.enum(['local']).default('local'),

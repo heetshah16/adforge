@@ -1,0 +1,20 @@
+{
+  "name": "@adforge/pipeline",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc -p ." },
+  "dependencies": {
+    "@adforge/core": "workspace:*",
+    "@adforge/db": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "inngest": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@adforge/provider-local-storage": "workspace:*",
+    "vitest": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}
