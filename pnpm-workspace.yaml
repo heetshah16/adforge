@@ -32,6 +32,8 @@ allowBuilds:
   puppeteer: true
   # Transitive via inngest's OpenTelemetry gRPC exporters; its postinstall is a banner only.
   protobufjs: false
+  # Postinstall fetches the Inngest dev-server binary.
+  inngest-cli: true
 
 overrides:
   "@hyperframes/core": 0.8.106
