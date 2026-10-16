@@ -6,7 +6,9 @@ const valid = (out: { startSec: number; endSec: number }[], dur: number) => {
   let prev = 0;
   for (const x of out) {
     expect(x.startSec).toBeGreaterThanOrEqual(prev - 1e-9);
-    expect(x.endSec).toBeGreaterThan(x.startSec);
+    // words squeezed out at the clip end may collapse to zero length at durationSec (buildSpec drops them)
+    if (x.startSec < dur - 1e-9) expect(x.endSec).toBeGreaterThan(x.startSec);
+    else expect(x.endSec).toBeGreaterThanOrEqual(x.startSec);
     expect(x.endSec).toBeLessThanOrEqual(dur + 1e-9);
     prev = x.endSec;
   }
@@ -70,5 +72,24 @@ describe('alignScript', () => {
     const out = alignScript('a b', [], 0);
     expect(out).toHaveLength(2);
     for (const x of out) expect(Number.isFinite(x.startSec) && Number.isFinite(x.endSec)).toBe(true);
+  });
+
+  it('never overlaps when speech crowds the clip end', () => {
+    valid(alignScript('a b', [w('a', 0.9, 1), w('b', 0.98, 1)], 1), 1);
+  });
+
+  it('never overlaps on a clip shorter than the minimum word', () => {
+    valid(alignScript('a b c', [], 0.03), 0.03);
+  });
+
+  it('keeps combining marks so है and हो do not collide', () => {
+    const out = alignScript('है हो', [w('हो', 0.1, 0.4), w('है', 0.4, 0.8)], 1);
+    expect(out[0]).toEqual(w('है', 0.4, 0.8)); // not the 'हो' timing 0.1-0.4
+  });
+
+  it('bounds unmatched leading words to the speech start', () => {
+    const out = alignScript('um one two', [w('one', 1, 1.4), w('two', 1.4, 1.8)], 3);
+    expect(out[0]!.startSec).toBeGreaterThanOrEqual(1 - 1e-9);
+    valid(out, 3);
   });
 });

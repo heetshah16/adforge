@@ -1,6 +1,6 @@
 import type { AlignedWord } from '../providers/types';
 
-const norm = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const norm = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '');
 const MIN_WORD = 0.05;
 
 function proportional(tokens: string[], from: number, to: number): AlignedWord[] {
@@ -46,8 +46,8 @@ export function alignScript(script: string, asr: AlignedWord[], durationSec: num
         }
         let end = i;
         while (end < tokens.length && !timing[end]) end++;
-        const from = out.at(-1)?.endSec ?? 0;
-        const to = end < tokens.length ? timing[end]!.startSec : durationSec;
+        const from = out.at(-1)?.endSec ?? Math.min(Math.max(asr[0]!.startSec, 0), durationSec);
+        const to = end < tokens.length ? timing[end]!.startSec : Math.min(Math.max(asr.at(-1)!.endSec, 0), durationSec);
         out.push(...proportional(tokens.slice(i, end), from, Math.max(from, to)));
         i = end;
       }
@@ -59,7 +59,7 @@ export function alignScript(script: string, asr: AlignedWord[], durationSec: num
   // Clamp to the clip and enforce monotonic, non-empty words.
   let prev = 0;
   return out.map((x) => {
-    const startSec = Math.min(Math.max(x.startSec, prev), Math.max(0, durationSec - MIN_WORD));
+    const startSec = Math.min(Math.max(x.startSec, prev), durationSec);
     const endSec = Math.min(durationSec, Math.max(x.endSec, startSec + MIN_WORD));
     prev = endSec;
     return { text: x.text, startSec, endSec };
