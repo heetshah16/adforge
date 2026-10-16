@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@adforge/core": "workspace:*",
+    "@hyperframes/engine": "catalog:",
+    "@hyperframes/producer": "catalog:",
     "@fontsource/inter": "catalog:",
     "@fontsource/noto-sans-devanagari": "catalog:",
     "gsap": "catalog:"

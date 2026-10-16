@@ -24,3 +24,11 @@ catalog:
 
 allowBuilds:
   esbuild: true
+  puppeteer: true
+
+overrides:
+  "@hyperframes/core": 0.8.106
+  "@hyperframes/engine": 0.8.106
+  "@hyperframes/lint": 0.8.106
+  "@hyperframes/parsers": 0.8.106
+  "@hyperframes/studio-server": 0.8.106
