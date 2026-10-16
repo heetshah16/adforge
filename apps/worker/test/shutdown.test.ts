@@ -30,6 +30,14 @@ describe('makeShutdown', () => {
     expect(s.exits).toEqual([0]);
   });
 
+  it('still closes the db and exits 0 when server.close throws synchronously', async () => {
+    const s = setup(async () => {});
+    s.server.close = () => { throw new Error('not running'); };
+    await s.shutdown('SIGINT');
+    expect(s.order).toContain('db.close');
+    expect(s.exits).toEqual([0]);
+  });
+
   it('hard timeout exits 1 when db close hangs', async () => {
     const s = setup(() => new Promise(() => {}));
     void s.shutdown('SIGINT');

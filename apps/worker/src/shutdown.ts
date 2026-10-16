@@ -12,19 +12,25 @@ export function makeShutdown(o: { server: Closable; close(): Promise<void>; exit
     if (stopping) return o.exit(1); // second signal: stop waiting
     stopping = true;
     log(`${signal}: closing`);
-    setTimeout(() => o.exit(1), o.hardMs ?? 10_000).unref(); // armed first: nothing below may keep the process alive
-    await new Promise<void>((done) => {
-      const grace = setTimeout(() => o.server.closeAllConnections(), o.graceMs ?? 5_000);
-      grace.unref();
-      o.server.close(() => { clearTimeout(grace); done(); });
-      o.server.closeIdleConnections();
-    });
+    // Ref'd on purpose: a hung close() must not let the process drain and exit 0 with the lock held. process.exit ends a clean shutdown at once.
+    setTimeout(() => o.exit(1), o.hardMs ?? 10_000);
     try {
-      await o.close(); // releases the PGlite lock
+      await new Promise<void>((done) => {
+        const grace = setTimeout(() => o.server.closeAllConnections(), o.graceMs ?? 5_000);
+        grace.unref();
+        o.server.close(() => { clearTimeout(grace); done(); });
+        o.server.closeIdleConnections();
+      });
     } catch (e) {
-      log('db close failed', e);
+      log('server close failed', e);
     } finally {
-      o.exit(0);
+      try {
+        await o.close(); // releases the PGlite lock
+      } catch (e) {
+        log('db close failed', e);
+      } finally {
+        o.exit(0);
+      }
     }
   };
 }

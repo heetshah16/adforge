@@ -25,6 +25,7 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', base);
     if (url.pathname.startsWith('/api/inngest')) {
+      // inngest/node's serve() listener is async at runtime (node.js), so await observes its rejections even though the type says void.
       await inngestHandler(req, res);
       return;
     }
@@ -43,7 +44,8 @@ const server = createServer(async (req, res) => {
     await send(res, handler ? await handler(r) : new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } }));
   } catch (e) {
     console.error(e);
-    if (!res.headersSent) res.writeHead(500).end('internal error');
+    if (res.headersSent) res.end();
+    else res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'internal error' }));
   }
 });
 server.requestTimeout = 120_000; // liveness: no request may hang the worker
