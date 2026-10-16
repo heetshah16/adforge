@@ -1249,7 +1249,8 @@ export function buildSpec(input: BuildSpecInput): VideoSpec {
     }
     layers.push({ type: 'text', content: scene.overlay, position: overlayPosition, weight: t.captionWeight, scrim: t.scrim });
 
-    scenes.push({ startFrame: cursor, durationInFrames: frames, motion: scene.motion, layers });
+    // VideoSpec requires video-background scenes to be static (P3 final review, ADR 0008).
+    scenes.push({ startFrame: cursor, durationInFrames: frames, motion: layers[0]!.type === 'video' ? 'static' : scene.motion, layers });
     voice.push({ key: a.voice.key, startFrame: cursor, durationInFrames: voiceFrames });
 
     for (const w of a.words) {
