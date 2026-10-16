@@ -67,10 +67,10 @@ export const DEFAULT_PIPELINE: PipelineConfig = {
   retries: { provider: 2 },
   llm: { timeoutMs: 300_000 },
   voice: {
-    exaggeration: [0.3, 0.9],
+    exaggeration: [0.4, 0.7],
     cfgWeight: 0.5,
-    expressiveCfgWeight: 0.3,
-    expressiveAbove: 0.7,
+    expressiveCfgWeight: 0.45,
+    expressiveAbove: 0.8,
     hinglishTtsLanguage: 'hi',
     hinglishAsrLanguage: 'hi',
     requestTimeoutMs: 120_000,

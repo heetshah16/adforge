@@ -39,9 +39,11 @@ function memStorage() {
 
 describe('voiceParams', () => {
   it('maps emotion linearly onto the exaggeration range and lowers cfg when expressive', () => {
-    expect(voiceParams('hi there', 'en', 0)).toEqual({ text: 'hi there', language_id: 'en', exaggeration: 0.3, cfg_weight: 0.5 });
-    expect(voiceParams('x', 'en', 1)).toMatchObject({ exaggeration: 0.9, cfg_weight: 0.3 });
-    expect(voiceParams('x', 'en', 0.5).exaggeration).toBeCloseTo(0.6, 6);
+    expect(voiceParams('hi there', 'en', 0)).toEqual({ text: 'hi there', language_id: 'en', exaggeration: 0.4, cfg_weight: 0.5 });
+    expect(voiceParams('x', 'en', 0.5).exaggeration).toBeCloseTo(0.55, 6);
+  });
+  it('caps the expressive peak at exaggeration 0.7 and lowers cfg above the threshold', () => {
+    expect(voiceParams('x', 'en', 1.0)).toMatchObject({ exaggeration: 0.7, cfg_weight: 0.45 });
   });
   it('routes Hinglish through the configured TTS and ASR language ids', () => {
     expect(voiceParams('Bilkul sahi', 'hinglish', 0.5).language_id).toBe('hi');
