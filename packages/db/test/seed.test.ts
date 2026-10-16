@@ -8,13 +8,13 @@ import { VOCAB, type VocabSeed } from '../src/seed/vocabulary';
 const clone = (): VocabSeed => structuredClone(VOCAB);
 
 describe('seedVocabulary', () => {
-  it('seeds 7 archetypes, 8 formats, 7 hooks, 9 families — all active', async () => {
+  it('seeds 7 archetypes, 8 formats, 7 hooks, 10 families — all active', async () => {
     const { db, close } = await openDb();
     await seedVocabulary(db);
     expect(await db.$count(archetypes)).toBe(7);
     expect(await db.$count(formats)).toBe(8);
     expect(await db.$count(hookArchetypes)).toBe(7);
-    expect(await db.$count(vocabFamilies)).toBe(9);
+    expect(await db.$count(vocabFamilies)).toBe(10);
     expect(await db.$count(hookArchetypes, eq(hookArchetypes.status, 'active'))).toBe(7);
     await close();
   });
