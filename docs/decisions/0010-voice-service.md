@@ -17,3 +17,11 @@ RTX 5070 Ti, torch 2.12.1+cu130, warm HF cache: cold synth incl. model load 16.0
 ## Consequences
 - The pipeline must serialize voice work with ComfyUI on the GPU (P7 heavy lane) and free ComfyUI before a voice batch.
 - Swapping to a hosted TTS later is a new `TTSProvider` adapter. The service stays for alignment, or Whisper moves too.
+
+## Measured (e2e, 2026-10-16)
+Anchor variant 1 voiced in three languages (`pnpm e2e:voice`; ComfyUI plates, then `comfy.free()`, then voice, then `voice.unload()`, then render). Per-beat voice durations (s):
+- en: 2.56, 3.72, 8.88, 3.72
+- hi: 4.60, 5.64, 6.32, 4.88
+- hinglish (TTS language `hi`): 4.20, 5.40, 3.64, 3.28
+
+Peak VRAM sampled every 2 s over the run: 15.6 GB of 16 GB (the peak fell about 70 s in, during the ComfyUI plate batch). The GPU returned to 1.3 GB once both services were stopped. Rendered frame counts (1080x1920, 30 fps, video + audio): en 692, hi 667, hinglish 630, each equal to the spec's `durationInFrames`. The first English beat took 37.9 s because it included the cold TTS and Whisper loads; warm beats took 3 to 7 s. The listening verdict is pending the user's review.

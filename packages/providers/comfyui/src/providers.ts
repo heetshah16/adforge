@@ -69,6 +69,8 @@ export function createComfyProviders(o: ComfyOptions): {
   video: VideoProvider;
   /** Throws a ProviderError if ComfyUI is unreachable. */
   preflight(): Promise<void>;
+  /** Unload models and free memory so another GPU service can run. */
+  free(): Promise<void>;
   workflowHashes: Record<string, string>;
 } {
   const client = new ComfyClient(o.baseUrl, o.fetchImpl, o.requestTimeoutMs);
@@ -177,6 +179,7 @@ export function createComfyProviders(o: ComfyOptions): {
     image,
     cutout,
     video,
+    free: () => client.free(),
     async preflight() {
       await client.systemStats();
     },
