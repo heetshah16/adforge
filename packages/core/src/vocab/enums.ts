@@ -21,6 +21,6 @@ export type Motion = z.infer<typeof Motion>;
 export const ProductProminence = z.enum(['hero', 'supporting', 'absent']);
 export type ProductProminence = z.infer<typeof ProductProminence>;
 
-/** Voice-over language per job (spec ง11). On-screen claim text stays Latin script for all. */
+/** Voice-over language per job (spec ยง11). On-screen claim text stays Latin script for all. */
 export const Language = z.enum(['en', 'hi', 'hinglish']);
 export type Language = z.infer<typeof Language>;
