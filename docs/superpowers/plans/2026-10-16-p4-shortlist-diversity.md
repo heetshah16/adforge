@@ -58,6 +58,7 @@ packages/db/src/e2e-shortlist.ts         pnpm e2e:shortlist
 **Files:**
 - Create: `packages/core/src/vocab/registry.ts`
 - Create: `packages/db/src/registry.ts`
+- Modify: `packages/db/src/seed/vocabulary.ts`, `packages/db/test/seed.test.ts`, `docs/decisions/0005-seeded-vocab-families.md` (Step 0)
 - Test: `packages/db/test/registry.test.ts`
 
 **Interfaces:**
@@ -69,6 +70,19 @@ packages/db/src/e2e-shortlist.ts         pnpm e2e:shortlist
   - `interface Registry { archetypes: RegistryEntry[]; formats: FormatEntry[]; hooks: HookEntry[] }`
   - `familyOf(entries, slug): string | null | undefined`: `undefined` for an unknown slug, `null` for no family.
 - Produces (`@adforge/db/registry`): `loadRegistry(db: Db): Promise<Registry>`. It returns **all** statuses (historical slugs stay resolvable); callers filter. Entries are sorted by slug.
+
+- [ ] **Step 0: Regroup `objection_lead` into its own hook family (data change)**
+
+Both of the build spec's worked Director outputs (§7.1 oil, §7.2 mug) pair `curiosity_gap` with `objection_lead`. In the seeded families both are `tension`, so the domain's own anchor outputs would fail family-level diversity and teach the model to break the rule. Families are regroupable data (ADR 0005), so:
+
+- In `packages/db/src/seed/vocabulary.ts`, add the family `{ kind: 'hook', slug: 'objection', name: 'Objection' }` and change `objection_lead`'s `family` from `'tension'` to `'objection'`. Do not change its slug or status.
+- In `packages/db/test/seed.test.ts`, the family count assertion becomes 10 (5 hook + 5 format).
+- Append to `docs/decisions/0005-seeded-vocab-families.md`:
+  ```markdown
+  ## Amendment 2026-10-16
+  `objection_lead` moved from `tension` to a new `objection` family (5 hook families). The build spec's own worked outputs pair `curiosity_gap` with `objection_lead` as two genuinely different bets (§7.1, §7.2); under the old grouping they would fail family-level diversity. `tension` now holds only `curiosity_gap`.
+  ```
+- Run `pnpm --filter @adforge/db test` → PASS, then `pnpm db:seed` once (it updates `family_id` in place; statuses untouched).
 
 - [ ] **Step 1: Write the core types**
 
@@ -274,7 +288,7 @@ export const REGISTRY: Registry = {
     hook('curiosity_gap', 'tension'),
     hook('demonstration', 'evidence'),
     hook('direct_call', 'targeting'),
-    hook('objection_lead', 'tension'),
+    hook('objection_lead', 'objection'),
     hook('pattern_break', 'contrarian'),
     hook('stat_shock', 'evidence'),
   ],
