@@ -8,6 +8,7 @@
 - **Whisper is in the same service,** not transformers.js in Node. It uses the same torch, needs no audio resampling in Node, and has proven multilingual DTW word timestamps. Captions show the **script's** words, re-timed onto Whisper's word timings by `alignScript` in core.
 - **WAV I/O uses the stdlib `wave` module.** torchaudio's file I/O moved to torchcodec in recent releases.
 - **Liveness:** a GPU lock, lazy model slots, an idle TTL unload (`VOICE_IDLE_TTL_S`, default 120 s), `POST /unload` and `GET /health`.
+- **Watchdog:** every model call made under the GPU lock (load, generate, transcribe) runs inside `Watchdog(VOICE_CALL_TIMEOUT_S, default 300)`. Torch calls cannot be interrupted, so on expiry the process logs and `os._exit(3)` rather than hold the lock forever; the supervisor restarts it. `/align` rejects uploads over 8 MB (413) and non-WAV input (422).
 - **Checkpoint:** chatterbox-tts 0.1.7 has no `t3_model` argument; `from_pretrained(device)` loads the `t3_mtl23ls_v2` multilingual checkpoint. The "v3" option in the reference notes does not exist in this release.
 
 ## Measured

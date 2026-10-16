@@ -1,5 +1,7 @@
 """Pure helpers for the voice service: lazy model slots and stdlib WAV I/O (no torchaudio/torchcodec I/O)."""
 import io
+import logging
+import os
 import threading
 import time
 import wave
@@ -28,6 +30,11 @@ class ModelSlot:
                 self._model = self._loader()
             self._last_used = time.monotonic()
             return self._model
+
+    def touch(self) -> None:
+        """Stamp last-used again when a call finishes, so a long generate is not seen as idle."""
+        with self._lock:
+            self._last_used = time.monotonic()
 
     def idle_for(self) -> float:
         """Seconds since last use; 0.0 when not loaded (nothing to evict)."""
@@ -64,3 +71,26 @@ def decode_wav(data: bytes) -> tuple[np.ndarray, int]:
     if channels > 1:
         pcm = pcm.reshape(-1, channels).mean(axis=1)
     return pcm, rate
+
+
+class Watchdog:
+    """Context manager: if the block runs longer than `seconds`, call on_expire (default: hard-exit the process).
+    Torch calls cannot be interrupted, so a hung one would hold the GPU lock forever; exiting lets the supervisor restart us."""
+
+    def __init__(self, seconds: float, on_expire: Callable[[], None] | None = None):
+        self.seconds = seconds
+        self._on_expire = on_expire or (lambda: os._exit(3))
+        self._timer: threading.Timer | None = None
+
+    def _fire(self) -> None:
+        logging.getLogger("voice").error("voice: GPU call exceeded %ss — exiting so the lock is not held forever", self.seconds)
+        self._on_expire()
+
+    def __enter__(self) -> "Watchdog":
+        self._timer = threading.Timer(self.seconds, self._fire)
+        self._timer.daemon = True
+        self._timer.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._timer.cancel()

@@ -1,6 +1,7 @@
 import threading
+import time
 import numpy as np
-from voice_core import ModelSlot, decode_wav, encode_wav
+from voice_core import ModelSlot, Watchdog, decode_wav, encode_wav
 
 
 def test_wav_round_trip_preserves_rate_and_duration():
@@ -47,3 +48,26 @@ def test_model_slot_is_thread_safe_under_concurrent_get():
     for t in threads:
         t.join()
     assert calls == [1]
+
+
+def test_touch_restarts_idle_clock():
+    slot = ModelSlot("m", object)
+    slot.get()
+    time.sleep(0.05)
+    assert slot.idle_for() >= 0.05
+    slot.touch()
+    assert slot.idle_for() < 0.05
+
+
+def test_watchdog_fires_on_hang():
+    fired = threading.Event()
+    with Watchdog(0.05, fired.set):
+        assert fired.wait(1.0)
+
+
+def test_watchdog_silent_for_fast_block():
+    fired = threading.Event()
+    with Watchdog(0.2, fired.set):
+        pass
+    time.sleep(0.3)
+    assert not fired.is_set()
