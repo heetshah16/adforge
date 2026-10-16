@@ -33,9 +33,12 @@ const fail = (code: ProviderErrorCode, message: string, raw?: unknown): Provider
   retryable: isRetryable(code),
 });
 
+// Any variable that can route the CLI to API/cloud billing or another endpoint. CLAUDE_CODE_OAUTH_TOKEN and HOME/PATH/etc. are deliberately NOT matched.
+const AUTH_SWITCH_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_)|^AWS_BEARER_TOKEN_BEDROCK$/;
+
 export function buildOptions<T>(req: LLMRequest<T>, abort: AbortController, o: ClaudeAgentOptions = {}): Options {
-  // SDK `env` REPLACES the subprocess env, so copy process.env minus the API key: never fall back to API billing silently.
-  const { ANTHROPIC_API_KEY: _apiKey, ...env } = process.env;
+  // SDK `env` REPLACES the subprocess env, so pass a filtered copy of process.env (never mutate it): the subprocess must stay on the subscription login, never silently switch to API/cloud billing or another endpoint.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !AUTH_SWITCH_ENV.test(k)));
   return {
     model: req.model,
     effort: req.effort,
