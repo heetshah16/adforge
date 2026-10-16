@@ -7,7 +7,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p .",
     "generate": "drizzle-kit generate",
-    "seed": "tsx src/seed/run.ts"
+    "seed": "tsx src/seed/run.ts",
+    "e2e:shortlist": "tsx src/e2e-shortlist.ts"
   },
   "dependencies": {
     "@adforge/core": "workspace:*",

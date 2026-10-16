@@ -35,6 +35,7 @@ export const VOCAB: VocabSeed = {
     { kind: 'hook', slug: 'targeting', name: 'Targeting' },
     { kind: 'hook', slug: 'evidence', name: 'Evidence' },
     { kind: 'hook', slug: 'tension', name: 'Tension' },
+    { kind: 'hook', slug: 'objection', name: 'Objection' },
     { kind: 'format', slug: 'narrative_arc', name: 'Narrative arc' },
     { kind: 'format', slug: 'social_proof', name: 'Social proof' },
     { kind: 'format', slug: 'rational', name: 'Rational' },
@@ -67,6 +68,6 @@ export const VOCAB: VocabSeed = {
     { status: 'active', slug: 'confession', family: 'contrarian', name: 'Confession', shape: 'Admits something', skeleton: 'I was wrong about [category].', fitsArchetypes: [] },
     { status: 'active', slug: 'curiosity_gap', family: 'tension', name: 'Curiosity gap', shape: 'Withholds the payoff', skeleton: "Nobody checks what's inside [X].", fitsArchetypes: [] },
     { status: 'active', slug: 'demonstration', family: 'evidence', name: 'Demonstration', shape: 'Opens mid-action, no preamble', skeleton: 'Product already doing the thing.', fitsArchetypes: [] },
-    { status: 'active', slug: 'objection_lead', family: 'tension', name: 'Objection lead', shape: 'Voices the doubt first', skeleton: "Yes, it's 3x the price. Here's why.", fitsArchetypes: [] },
+    { status: 'active', slug: 'objection_lead', family: 'objection', name: 'Objection lead', shape: 'Voices the doubt first', skeleton: "Yes, it's 3x the price. Here's why.", fitsArchetypes: [] },
   ],
 };
