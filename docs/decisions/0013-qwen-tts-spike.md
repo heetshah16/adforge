@@ -16,3 +16,12 @@
 ## Consequences
 - **Default unchanged pending the user's A/B listening check.** Every language keeps `engineByLanguage = 'chatterbox'`.
 - Roughly 4 GB more VRAM when resident; it must be unloaded before ComfyUI work, like voice.
+
+## A/B pair ready for listening check
+Same Director English copy (`krishna-special-hing`, variant 1, 4 beats), same plates and cutout; Whisper on the voice service aligns both. No winner is picked here.
+- A (Chatterbox): `C:\adforge-data\media\94\94aa11766a4d7602ba710ed0abc301d465b9febada43b12c0bef6201066666ec.mp4` (756 frames, 25.2 s)
+- B (Qwen, Ryan): `C:\adforge-data\media\02\022a3a468179c20262918adcf8748a3e79106294c9caac6c8734368f91a585a1.mp4` (663 frames, 22.1 s)
+- Voice duration per beat (s): Chatterbox 9.00 / 2.92 / 5.24 / 4.64; Qwen 4.16 / 4.96 / 6.00 / 6.16.
+- Generation time (TTS+align, 4 beats): Chatterbox 48.9 s (40.4 s of it was beat 1, cold load); Qwen 55.4 s (29.6 s beat 1, cold load).
+- Peak VRAM: Chatterbox + Whisper about 6.0 GB; Qwen + Whisper about 7.35 GB (the voice service was unloaded between engines). The 15.7 GB peak in the same run was the ComfyUI plate phase, before the hand-off.
+- Run with `pnpm e2e:voice-ab` (needs ComfyUI, voice and voice-qwen up). Chatterbox beat 1 at 9.0 s for a short line is worth listening for.

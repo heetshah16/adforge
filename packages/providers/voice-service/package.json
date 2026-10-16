@@ -8,7 +8,8 @@
     "typecheck": "tsc -p .",
     "record": "tsx src/record-fixtures.ts",
     "record:qwen": "tsx src/record-fixtures-qwen.ts",
-    "e2e": "tsx src/e2e.ts"
+    "e2e": "tsx src/e2e.ts",
+    "e2e:ab": "tsx src/e2e-ab.ts"
   },
   "dependencies": { "@adforge/core": "workspace:*", "zod": "catalog:" },
   "devDependencies": {
