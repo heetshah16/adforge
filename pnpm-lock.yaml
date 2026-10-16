@@ -167,6 +167,12 @@ catalogs:
     '@electric-sql/pglite':
       specifier: 0.5.8
       version: 0.5.8
+    '@fontsource/inter':
+      specifier: 5.3.0
+      version: 5.3.0
+    '@fontsource/noto-sans-devanagari':
+      specifier: 5.3.0
+      version: 5.3.0
     '@types/node':
       specifier: 26.6.5
       version: 26.6.5
@@ -176,6 +182,9 @@ catalogs:
     drizzle-orm:
       specifier: 0.45.4
       version: 0.45.4
+    gsap:
+      specifier: 3.15.0
+      version: 3.15.0
     tsx:
       specifier: 4.23.15
       version: 4.23.15
@@ -287,6 +296,37 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.5
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.4(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(tsx@4.23.15))
+
+  packages/renderer-hyperframes:
+    dependencies:
+      '@adforge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fontsource/inter':
+        specifier: 'catalog:'
+        version: 5.3.0
+      '@fontsource/noto-sans-devanagari':
+        specifier: 'catalog:'
+        version: 5.3.0
+      gsap:
+        specifier: 'catalog:'
+        version: 3.15.0
+    devDependencies:
+      '@adforge/provider-local-storage':
+        specifier: workspace:*
+        version: link:../providers/local-storage
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.5
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.15
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -754,6 +794,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@fontsource/inter@5.3.0':
+    resolution: {integrity: sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==}
+
+  '@fontsource/noto-sans-devanagari@5.3.0':
+    resolution: {integrity: sha512-7khYmipS/5KAUUmrO1DKir8yL8XI00d0+ZE9BqbS8XF1jzObv6CpPOk3UeYxF+Pvi8bx9bBvprBCOcbx/eQWTQ==}
+
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
     engines: {node: '>=6.0.0'}
@@ -1197,6 +1243,9 @@ packages:
 
   get-tsconfig@4.14.3:
     resolution: {integrity: sha512-++QEw4DIY7WGoukz+/+A/8dGYPT9l9yIadnmSgZ8Rjr3YVSVDipQSO9CdnJo9ePqFqUUqh+wk9uIaoiAwsiPkA==}
+
+  gsap@3.15.0:
+    resolution: {integrity: sha512-dMW4CWBTUK1AEEDeZc1g4xpPGIrSf9fJF960qbTZmN/QwZIWY5wgliS6JWl9/25fpTGJrMRtSjGtOmPnfjZB+A==}
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
@@ -1676,6 +1725,10 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
+  '@fontsource/inter@5.3.0': {}
+
+  '@fontsource/noto-sans-devanagari@5.3.0': {}
+
   '@jridgewell/resolve-uri@3.1.2': {}
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
@@ -1956,6 +2009,8 @@ snapshots:
   get-tsconfig@4.14.3:
     dependencies:
       resolve-pkg-maps: 1.0.0
+
+  gsap@3.15.0: {}
 
   lightningcss-android-arm64@1.33.0:
     optional: true
