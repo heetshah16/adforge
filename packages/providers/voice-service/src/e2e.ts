@@ -86,8 +86,8 @@ items.push(
 console.log('voicing:', items.map((i) => `${i.slug}(${i.variant.language})`).join(', '));
 
 try {
-await comfy.preflight();
-console.log('voice health:', await voice.health());
+  await comfy.preflight();
+  console.log('voice health:', await voice.health());
 
   const assets: BeatAssets[][] = [];
   // Batch 1 — ComfyUI: each variant's own plates + one product cutout.
