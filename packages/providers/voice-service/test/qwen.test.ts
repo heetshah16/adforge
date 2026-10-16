@@ -4,7 +4,7 @@ import { ProviderError } from '@adforge/core/providers/types';
 import { DEFAULT_PIPELINE, PipelineConfig } from '@adforge/core/config/pipeline';
 import { parseEnv } from '@adforge/core/config/env';
 import { createVoiceProviders } from '../src/providers';
-import { QwenClient, qwenParams } from '../src/qwen';
+import { QwenClient, QwenBody, createQwenTTS, qwenParams } from '../src/qwen';
 
 const BASE = 'http://127.0.0.1:8190';
 const QBASE = 'http://127.0.0.1:8191';
@@ -42,8 +42,8 @@ function memStorage() {
 }
 
 type Engine = 'chatterbox' | 'qwen';
-const withEngines = (en: Engine, hi: Engine = 'chatterbox') =>
-  PipelineConfig.parse({ ...DEFAULT_PIPELINE, voice: { ...DEFAULT_PIPELINE.voice, engineByLanguage: { en, hi, hinglish: 'chatterbox' } } });
+const withEngines = (en: Engine) =>
+  PipelineConfig.parse({ ...DEFAULT_PIPELINE, voice: { ...DEFAULT_PIPELINE.voice, engineByLanguage: { en, hi: 'chatterbox', hinglish: 'chatterbox' } } });
 const req = (language: 'en' | 'hi' | 'hinglish', emotion = 0.4) => ({ text: 'hello', language, emotion, idempotencyKey: 'k' });
 const jsonRes = (b: unknown) => new Response(JSON.stringify(b), { headers: { 'content-type': 'application/json' } });
 
@@ -52,6 +52,15 @@ describe('config + env', () => {
     expect(DEFAULT_PIPELINE.voice.engineByLanguage).toEqual({ en: 'chatterbox', hi: 'chatterbox', hinglish: 'chatterbox' });
     expect(parseEnv({}).ADFORGE_QWEN_TTS_URL).toBe('http://127.0.0.1:8191');
     expect(parseEnv({ ADFORGE_QWEN_TTS_URL: 'http://h:1/' }).ADFORGE_QWEN_TTS_URL).toBe('http://h:1');
+  });
+  it('rejects qwen for hi/hinglish (English only)', () => {
+    const bad = (l: string) => PipelineConfig.parse({ ...DEFAULT_PIPELINE, voice: { ...DEFAULT_PIPELINE.voice, engineByLanguage: { ...DEFAULT_PIPELINE.voice.engineByLanguage, [l]: 'qwen' } } });
+    expect(() => bad('hi')).toThrow();
+    expect(() => bad('hinglish')).toThrow();
+  });
+  it('rejects a non-preset speaker (config and body)', () => {
+    expect(() => PipelineConfig.parse({ ...DEFAULT_PIPELINE, voice: { ...DEFAULT_PIPELINE.voice, qwen: { ...DEFAULT_PIPELINE.voice.qwen, speaker: 'Bob' } } })).toThrow();
+    expect(QwenBody.safeParse({ text: 'x', speaker: 'Bob' }).success).toBe(false);
   });
   it('rejects an unknown engine', () => {
     expect(() => withEngines('kokoro' as never)).toThrow();
@@ -111,7 +120,7 @@ describe('engine routing', () => {
   });
   it('QwenTTS rejects non-English and oversized text before dispatch', async () => {
     const f = fake({});
-    const { tts } = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('chatterbox', 'qwen'), storage: memStorage(), fetchImpl: f });
+    const tts = createQwenTTS({ client: new QwenClient(QBASE, f), storage: memStorage() });
     expect(await tts.synthesize(req('hi'))).toMatchObject({ status: 'failed', retryable: false, error: { code: 'INVALID_INPUT' } });
     const big = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: f }).tts;
     expect(await big.synthesize({ ...req('en'), text: 'x'.repeat(501) })).toMatchObject({ status: 'failed', error: { code: 'INVALID_INPUT' } });
@@ -145,6 +154,13 @@ describe('engine routing', () => {
     const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
     await expect(v.unload()).rejects.toThrow();
     expect(f.calls).toContain('POST 8191 /unload');
+  });
+  it('health.ok reflects qwen only when a language routes to it', async () => {
+    const routes = { 'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }), 'GET 8191 /health': () => new Response('x', { status: 503 }) };
+    const routed = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: fake(routes) });
+    expect(await routed.health()).toMatchObject({ ok: false, sm120: false, qwen: null });
+    const dflt = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: fake(routes) });
+    expect(await dflt.health()).toMatchObject({ ok: true, sm120: true });
   });
   it('health returns qwen: null when qwen is unreachable', async () => {
     const f = fake({ 'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }), 'GET 8191 /health': () => new Response('x', { status: 503 }) });

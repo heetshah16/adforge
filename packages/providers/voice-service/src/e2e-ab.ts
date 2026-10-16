@@ -25,7 +25,7 @@ try {
   if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
 }
 const env = parseEnv(process.env);
-const qwenBaseUrl = process.env.ADFORGE_VOICE_QWEN_URL ?? 'http://127.0.0.1:8191';
+const qwenBaseUrl = env.ADFORGE_QWEN_TTS_URL;
 const storage = new LocalDiskStorage(join(env.ADFORGE_DATA_DIR, 'media'), env.ADFORGE_PUBLIC_URL);
 const comfy = createComfyProviders({
   baseUrl: env.COMFYUI_URL, storage,

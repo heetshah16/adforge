@@ -14,7 +14,7 @@ import { asrLanguage, voiceParams } from './params';
 
 const AlignReq = z.object({ audio: z.object({ id: z.string().min(1) }).passthrough(), text: z.string(), language: Language, idempotencyKey: z.string().min(1) });
 
-export type RoutedTTSProvider = TTSProvider & { /** Id of the engine that serves this language ('chatterbox' | 'qwen-tts') — use for provider_calls attribution. */ idFor(l: Language): string };
+export type RoutedTTSProvider = TTSProvider & { /** Id of the engine that serves this language ('chatterbox' | 'qwen-tts') â€” use for provider_calls attribution. */ idFor(l: Language): string };
 
 export function createVoiceProviders(o: { baseUrl: string; qwenBaseUrl?: string; cfg?: PipelineConfig; storage: StorageProvider; fetchImpl?: typeof fetch; timeoutMs?: number }) {
   const cfg = o.cfg ?? PIPELINE;
@@ -76,11 +76,18 @@ export function createVoiceProviders(o: { baseUrl: string; qwenBaseUrl?: string;
   return {
     tts,
     aligner,
-    /** Chatterbox health, plus `qwen` when a qwenBaseUrl is configured (null if unreachable). */
-    health: async () => ({ ...(await client.health()), ...(qwenClient ? { qwen: await qwenClient.ttsHealth().catch(() => null) } : {}) }),
+    /** Chatterbox health, plus `qwen` when a qwenBaseUrl is configured (null if unreachable). ok/sm120 also require qwen when any language routes to it. */
+    health: async () => {
+      const base = await client.health();
+      if (!qwenClient) return base;
+      const q = await qwenClient.ttsHealth().catch(() => null);
+      const usesQwen = Object.values(engines).includes('qwen');
+      return { ...base, ok: base.ok && (!usesQwen || q?.ok === true), sm120: base.sm120 && (!usesQwen || q?.sm120 === true), qwen: q };
+    },
     /** Unloads both engines; the Qwen unload is best-effort. */
     unload: async () => {
-      const [r] = await Promise.allSettled([client.unload(), qwenClient?.unload()]);
+      const [r, q] = await Promise.allSettled([client.unload(), qwenClient?.unload()]);
+      if (q.status === 'rejected') console.warn('voice-qwen unload failed (best-effort):', q.reason);
       if (r.status === 'rejected') throw r.reason;
       return r.value;
     },

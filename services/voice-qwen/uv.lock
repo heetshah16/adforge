@@ -37,7 +37,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "python-multipart" },
     { name = "qwen-tts" },
     { name = "torch" },
     { name = "torchaudio" },
@@ -53,7 +52,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = "==0.142.2" },
-    { name = "python-multipart", specifier = "==0.0.32" },
     { name = "qwen-tts", specifier = "==0.1.1" },
     { name = "torch", specifier = "==2.12.1", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchaudio", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },

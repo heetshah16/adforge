@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const PosInt = z.number().int().positive();
 const Engine = z.enum(['chatterbox', 'qwen']);
+export const QwenSpeaker = z.enum(['Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric', 'Ryan', 'Aiden', 'Ono_Anna', 'Sohee']);
 const Range = z
   .tuple([z.number().positive(), z.number().positive()])
   .refine(([min, max]) => min <= max, 'range min must be <= max');
@@ -44,8 +45,8 @@ export const PipelineConfig = z.object({
     hinglishTtsLanguage: z.enum(['en', 'hi']),
     hinglishAsrLanguage: z.enum(['en', 'hi']),
     requestTimeoutMs: PosInt,
-    engineByLanguage: z.object({ en: Engine, hi: Engine, hinglish: Engine }),
-    qwen: z.object({ speaker: z.string().min(1), instructExpressiveAbove: z.number().min(0).max(1), expressiveInstruct: z.string().min(1).max(300), calmInstruct: z.string().min(1).max(300) }),
+    engineByLanguage: z.object({ en: Engine, hi: z.literal('chatterbox'), hinglish: z.literal('chatterbox') }),
+    qwen: z.object({ speaker: QwenSpeaker, instructExpressiveAbove: z.number().min(0).max(1), expressiveInstruct: z.string().min(1).max(300), calmInstruct: z.string().min(1).max(300) }),
   }),
   composite: z.object({
     hero: z.object({ anchorX: z.number().min(0).max(1), anchorY: z.number().min(0).max(1), heightFrac: z.number().positive().max(1) }),

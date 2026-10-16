@@ -7,10 +7,11 @@ import gc
 import os
 import threading
 import time
+from typing import Literal
 
 import numpy as np
 import torch
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -66,7 +67,7 @@ app = FastAPI(title="adforge-voice-qwen")
 
 class SynthReq(BaseModel):
     text: str = Field(min_length=1, max_length=500)
-    speaker: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z_]+$")
+    speaker: Literal["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric", "Ryan", "Aiden", "Ono_Anna", "Sohee"]
     instruct: str | None = Field(default=None, max_length=300)
 
 
@@ -89,7 +90,10 @@ def synthesize(req: SynthReq):
         model = _get(tts)
         with Watchdog(CALL_TIMEOUT_S):
             kw = {"instruct": req.instruct} if req.instruct else {}  # no sampling params: model defaults
-            wavs, sr = model.generate_custom_voice(text=req.text, language="English", speaker=req.speaker, **kw)
+            try:
+                wavs, sr = model.generate_custom_voice(text=req.text, language="English", speaker=req.speaker, **kw)
+            except ValueError as e:
+                raise HTTPException(422, str(e))
             samples = np.asarray(wavs[0], dtype=np.float32).reshape(-1)
             sr = int(sr)
             tts.touch()

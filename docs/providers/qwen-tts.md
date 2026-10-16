@@ -14,3 +14,5 @@ Source: github.com/QwenLM/Qwen3-TTS and PyPI `qwen-tts`, fetched 2026-10-17; ver
 - **OneDrive:** the repo lives under OneDrive, so uv's default hardlink install fails (os error 396). Use `UV_LINK_MODE=copy` (set in `scripts/voice-qwen.ps1`).
 - **Sampling:** no `temperature`/`top_p`/`top_k` are passed; model defaults apply.
 - **Service:** `services/voice-qwen`, 127.0.0.1:8191. `POST /synthesize {text 1..500, speaker, instruct?}` -> WAV (`X-Duration-Sec`, `X-Sample-Rate`); `GET /health`; `POST /unload`.
+
+Note: the 0.6B models drop `instruct`, so the emotion->instruct mapping is a no-op for them.

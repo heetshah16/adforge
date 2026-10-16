@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { ProviderError, type StorageProvider, type TTSProvider } from '@adforge/core/providers/types';
 import { PIPELINE, type PipelineConfig } from '@adforge/core/config/pipeline';
+import { QwenSpeaker } from '@adforge/core/config/pipeline';
 import { VoiceClient } from './client';
 import { asFailed, TtsReq } from './tts-common';
 
-export const QwenBody = z.object({ text: z.string().min(1).max(500), speaker: z.string().regex(/^[A-Za-z_]{1,40}$/), instruct: z.string().max(300).optional() });
+export const QwenBody = z.object({ text: z.string().min(1).max(500), speaker: QwenSpeaker, instruct: z.string().max(300).optional() });
 export type QwenBody = z.infer<typeof QwenBody>;
 
 const QwenHealth = z.object({ ok: z.boolean(), device: z.string(), cuda: z.boolean(), sm120: z.boolean(), loaded: z.object({ tts: z.boolean() }), allocated_mb: z.number() });

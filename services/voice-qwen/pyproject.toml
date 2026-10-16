@@ -7,7 +7,6 @@ dependencies = [
   "qwen-tts==0.1.1",
   "fastapi==0.142.2",
   "uvicorn==0.54.0",
-  "python-multipart==0.0.32",
   "torch==2.12.1",
   "torchaudio==2.11.0",
 ]

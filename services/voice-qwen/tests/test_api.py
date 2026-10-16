@@ -31,6 +31,7 @@ def test_validation_is_422():
     assert c.post("/synthesize", json={"text": "", "speaker": "Ryan"}).status_code == 422
     assert c.post("/synthesize", json={"text": "x" * 501, "speaker": "Ryan"}).status_code == 422
     assert c.post("/synthesize", json={"text": "hi", "speaker": "../x"}).status_code == 422
+    assert c.post("/synthesize", json={"text": "hi", "speaker": "Nobody"}).status_code == 422
     assert c.post("/synthesize", json={"text": "hi"}).status_code == 422
 
 
@@ -38,7 +39,7 @@ def test_synthesize_returns_wav_and_forces_english(monkeypatch):
     m = _install(monkeypatch)
     r = c.post("/synthesize", json={"text": "Hello there.", "speaker": "Ryan", "instruct": "calm"})
     assert r.status_code == 200 and r.headers["content-type"] == "audio/wav"
-    assert r.content[:4] == b"RIFF" and float(r.headers["x-duration-sec"]) == 0.1
+    assert r.content[:4] == b"RIFF" and float(r.headers["x-duration-sec"]) == 0.1 and r.headers["x-sample-rate"] == "24000"
     with wave.open(io.BytesIO(r.content)) as w:
         assert w.getframerate() == 24000 and w.getnchannels() == 1
     assert m.calls == [{"text": "Hello there.", "language": "English", "speaker": "Ryan", "instruct": "calm"}]
@@ -113,3 +114,10 @@ def test_watchdog_fires_on_overrun_and_not_otherwise():
         pass
     time.sleep(0.05)
     assert fired == [1]
+
+
+def test_model_valueerror_is_422(monkeypatch):
+    m = _install(monkeypatch)
+    m.generate_custom_voice = lambda **kw: (_ for _ in ()).throw(ValueError("bad speaker"))
+    assert c.post("/synthesize", json={"text": "hi", "speaker": "Ryan"}).status_code == 422
+    a.tts.unload()
