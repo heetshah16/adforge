@@ -43,6 +43,17 @@ describe('shortlist', () => {
     expect(s.formats.find((f) => f.family !== 'narrative_arc')!.reason).toBe('added for family diversity');
   });
 
+  it('never counts a null family toward family top-up', () => {
+    const r = clone();
+    for (const f of r.formats) f.fitsArchetypes = f.family === 'narrative_arc' ? ['remedy'] : ['gifting'];
+    r.formats.find((f) => f.slug === 'listicle_3')!.family = null;
+    const s = shortlist(brief('remedy', 'remedy'), r);
+    const realFamilies = new Set(s.formats.map((f) => f.family).filter((f) => f !== null));
+    expect(realFamilies.size).toBeGreaterThanOrEqual(2);
+    expect(s.formats.find((f) => f.slug === 'listicle_3')).toBeUndefined();
+    expect(s.formats.some((f) => f.family === null && f.reason === 'added for family diversity')).toBe(false);
+  });
+
   it('never offers retired or proposed entries, and reserves one experimental slot', () => {
     const r = clone();
     r.formats.find((f) => f.slug === 'problem_solution')!.status = 'retired';

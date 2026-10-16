@@ -35,10 +35,10 @@ const byScoreThenSlug = (a: Ranked, b: Ranked) => b.score - a.score || a.slug.lo
 function rankKind(entries: readonly RegistryEntry[], b: Brief, cap: number, minFamilies: number): Ranked[] {
   const all = entries.filter((e) => e.status === 'active').map((e) => rank(e, b)).sort(byScoreThenSlug);
   const picked = all.filter((r) => r.score > 0).slice(0, cap);
-  const families = new Set(picked.map((r) => r.family));
+  const families = new Set<string>(picked.flatMap((r) => (r.family === null ? [] : [r.family])));
   for (const candidate of all) {
     if (families.size >= minFamilies) break;
-    if (families.has(candidate.family) || picked.includes(candidate)) continue;
+    if (candidate.family === null || families.has(candidate.family) || picked.includes(candidate)) continue;
     picked.push({ ...candidate, reason: 'added for family diversity' });
     families.add(candidate.family);
   }
