@@ -1,6 +1,6 @@
 # AdForge — Local POC Design
 
-**Date:** 2026-10-15 · **Status:** approved in conversation, pending written review
+**Date:** 2026-10-15 · **Status:** approved; **amended 2026-10-16 — see §11, which supersedes earlier sections where they differ**
 **Parent:** [architecture.md](../../architecture.md). This spec narrows it for a local proof-of-concept; where they differ, the deviations are listed in §2 and each gets an ADR.
 
 ---
@@ -304,3 +304,23 @@ Each: plan files → approve → implement → `pnpm test` → ADR for anything 
 | Wan 2.2 5B too slow (several minutes per clip) | `broll.enabled` toggle; per-variant isolation keeps the rest moving |
 | HyperFrames API churn | Exact version pin; fetched docs; render test in CI |
 | OpenRouter model slugs differ from Anthropic ids | Verified at P5 against OpenRouter's model list; env-driven |
+
+---
+
+## 11. Decisions amended 2026-10-16 (P3–P8 planning)
+
+These supersede §1–§9 where they differ. Each one gets an ADR in the milestone that implements it.
+
+| Area | Was | Now |
+|---|---|---|
+| TTS | Kokoro-82M via `kokoro-js`, English only | **Chatterbox Multilingual** (Resemble AI, MIT, ~0.5B), local on the GPU via a small Python service behind `TTSProvider`. Built-in default voice. Per-line emotion intensity (`exaggeration`) set by the Director per beat. Shares the GPU with ComfyUI, and the pipeline serializes GPU work |
+| Captions | Proportional timing (`captions.mode: 'proportional'`) | **Whisper word-level alignment** of each generated voice clip (transformers.js in Node, CPU). Proportional stays as a fallback mode |
+| Languages | English only, Hinglish deferred | **Per product: `en`, `hi` (Devanagari VO and captions), `hinglish` (Latin-script Hindi)**. All three are validated with a listening check in the P6 end-to-end. On-screen claim text stays Latin script for all languages (build spec §7) |
+| Music | Undecided | **None in the POC.** `VideoSpec.audio.music` stays optional |
+| LLM | OpenRouter via `@openrouter/ai-sdk-provider` | **Claude via the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) under the user's Claude subscription**, for local POC use only, behind the LLM seam. Structured output via `outputFormat: { type: 'json_schema', schema: z.toJSONSchema(S, { target: 'draft-7' }) }`, re-validated with Zod. Switch to an API key before anyone other than the user runs AdForge |
+| Eval products | Two products, photos in `fixtures/eval-products/` | **The user supplies 2 real products** (3–5 photos each, plus name, price and description). Never the oil or the mug |
+| Input form | Photos | **3–5 photos, name, price, description, language (en/hi/hinglish), b-roll toggle.** No URL scraping (`enrich` stays out of the POC) |
+| B-roll | Always, when a product-absent beat exists | **Toggle per job, default OFF** (`broll.enabled` becomes a per-job input, defaulting to false) |
+| UI | Upload, progress, review, approve | Same; **minimal and functional**. Design polish is deferred (memory: POC quality stance) |
+| Testing | §8 | **Every task carries functional tests (no GPU, no network, in `pnpm test`). Each milestone ends with exactly one end-to-end check** (a live script or browser run), like `pnpm smoke:comfy` |
+
