@@ -6,6 +6,7 @@ import { createFunctions, inngest } from '@adforge/pipeline';
 import { buildDeps } from './deps';
 import { send, toRequest } from './http';
 import { makeRoutes } from './routes';
+import { makeShutdown } from './shutdown';
 
 try {
   process.loadEnvFile(join(REPO_ROOT, '.env'));
@@ -23,7 +24,10 @@ const base = `http://127.0.0.1:${env.ADFORGE_WORKER_PORT}`;
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', base);
-    if (url.pathname.startsWith('/api/inngest')) return void inngestHandler(req, res);
+    if (url.pathname.startsWith('/api/inngest')) {
+      await inngestHandler(req, res);
+      return;
+    }
     // Uploads must declare their size so the 30 MB cap is enforced before the body is buffered.
     if (req.method === 'POST' && url.pathname === '/api/jobs' && !req.headers['content-length']) {
       res.writeHead(411, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'content-length required' }));
@@ -36,7 +40,7 @@ const server = createServer(async (req, res) => {
       : req.method === 'GET' && url.pathname.startsWith('/media/') ? routes.getMedia
       : req.method === 'GET' && url.pathname === '/health' ? routes.health
       : null;
-    await send(res, handler ? await handler(r) : new Response('not found', { status: 404 }));
+    await send(res, handler ? await handler(r) : new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } }));
   } catch (e) {
     console.error(e);
     if (!res.headersSent) res.writeHead(500).end('internal error');
@@ -45,14 +49,6 @@ const server = createServer(async (req, res) => {
 server.requestTimeout = 120_000; // liveness: no request may hang the worker
 server.listen(env.ADFORGE_WORKER_PORT, '127.0.0.1', () => console.log(`worker on ${base}`));
 
-let stopping = false;
-const shutdown = async (signal: string) => {
-  if (stopping) return;
-  stopping = true;
-  console.log(`${signal}: closing`);
-  server.close();
-  await close(); // releases the PGlite lock
-  process.exit(0);
-};
+const shutdown = makeShutdown({ server, close, exit: (c) => process.exit(c) });
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));

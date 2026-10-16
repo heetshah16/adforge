@@ -55,6 +55,7 @@ describe('createJob', () => {
     ['an exe renamed png', { photos: [file(new Uint8Array([77, 90, 0, 0]), 'image/png', 'evil.png'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /not a real/],
     ['an exe declared as exe', { photos: [file(new Uint8Array([77, 90, 0, 0]), 'application/x-msdownload', 'evil.exe'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /unsupported type/],
     ['a RIFF that is not WEBP', { photos: [file(new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 65, 86, 73, 32]), 'image/webp'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /not a real/],
+    ['a prototype-key mime (__proto__)', { photos: [file(PNG, '__proto__'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /unsupported type/],
     ['a missing name', { name: undefined }, /name/],
     ['an unknown language', { language: 'fr' }, /language/],
   ])('rejects %s with 400 and stores nothing', async (_label, over, msg) => {

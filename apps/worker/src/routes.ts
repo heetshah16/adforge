@@ -45,7 +45,7 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
       // Validate everything before storing anything: a rejected upload leaves no files, assets or job behind.
       const loaded: { bytes: Uint8Array; type: keyof typeof TYPES }[] = [];
       for (const p of photos) {
-        if (!(p.type in TYPES)) return bad(`${p.name}: unsupported type ${p.type || 'unknown'} (png, jpeg, webp only)`);
+        if (!Object.hasOwn(TYPES, p.type)) return bad(`${p.name}: unsupported type ${p.type || 'unknown'} (png, jpeg, webp only)`);
         if (p.size > MAX_PHOTO) return bad(`${p.name}: larger than 5 MB`);
         const bytes = new Uint8Array(await p.arrayBuffer());
         if (!sniff(bytes, p.type as keyof typeof TYPES)) return bad(`${p.name}: not a real ${p.type} file`);
