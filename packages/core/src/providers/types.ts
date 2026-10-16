@@ -1,3 +1,5 @@
+import type { VideoSpec } from '../spec/video-spec';
+
 /** Everything that crosses a provider boundary. Vendor SDK types never appear here. */
 
 export interface MediaRef {
@@ -122,4 +124,15 @@ export interface VideoProvider {
   readonly capabilities: VideoCapabilities;
   submit(req: VideoGenRequest): Promise<JobHandle>;
   poll(handle: JobHandle): Promise<ProviderResult<MediaRef>>;
+}
+
+export interface RenderRequest {
+  spec: VideoSpec;
+  idempotencyKey: string;
+}
+
+/** Receives our VideoSpec IR, never provider-shaped JSON. Returns the stored MP4. */
+export interface RendererProvider {
+  readonly id: string;
+  render(req: RenderRequest): Promise<ProviderResult<MediaRef>>;
 }

@@ -1,0 +1,29 @@
+{
+  "name": "@adforge/renderer-hyperframes",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "e2e": "tsx src/e2e.ts"
+  },
+  "dependencies": {
+    "@adforge/core": "workspace:*",
+    "@hyperframes/engine": "catalog:",
+    "@hyperframes/producer": "catalog:",
+    "@fontsource/inter": "catalog:",
+    "@fontsource/noto-sans-devanagari": "catalog:",
+    "gsap": "catalog:"
+  },
+  "devDependencies": {
+    "@adforge/provider-comfyui": "workspace:*",
+    "@adforge/provider-local-storage": "workspace:*",
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}
