@@ -51,25 +51,41 @@ export const HEAVY = {
         const beat = v.scenes.findIndex((s, b) => s.product_prominence === 'absent' && p.plates[`${v.variant_no}:${b}`]);
         if (beat < 0) { out[v.variant_no] = null; continue; }
         const key = `${p.jobId}:broll:${v.variant_no}`;
-        const firstFrame = await refFromKey(deps.storage, p.plates[`${v.variant_no}:${beat}`]!);
-        let result: ProviderResult<MediaRef> | null = null;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const handle = await deps.comfy.video.submit({
-            mode: 'image_to_video', prompt: `${v.scenes[beat]!.scene}, subtle ambient motion, static camera`, firstFrame,
-            durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p', idempotencyKey: key,
-          });
-          const deadline = Date.now() + PIPELINE.broll.pollDeadlineMs;
-          let r = await deps.comfy.video.poll(handle);
-          while (r.status === 'pending' && Date.now() < deadline) {
-            await deps.sleep(handle.pollAfterMs);
-            r = await deps.comfy.video.poll(handle);
+        try {
+          const firstFrame = await refFromKey(deps.storage, p.plates[`${v.variant_no}:${beat}`]!);
+          let result: ProviderResult<MediaRef> | null = null;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const handle = await deps.comfy.video.submit({
+              mode: 'image_to_video', prompt: `${v.scenes[beat]!.scene}, subtle ambient motion, static camera`, firstFrame,
+              durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p', idempotencyKey: key,
+            });
+            // Deterministic deadline: elapsed is the sum of requested poll waits, not the wall clock.
+            let elapsed = 0;
+            let r = await deps.comfy.video.poll(handle);
+            while (r.status === 'pending' && elapsed < PIPELINE.broll.pollDeadlineMs) {
+              const wait = Math.max(handle.pollAfterMs, 1);
+              await deps.sleep(wait);
+              elapsed += wait;
+              r = await deps.comfy.video.poll(handle);
+            }
+            result = r;
+            if (r.status === 'done' || (r.status === 'failed' && !r.retryable)) break;
           }
-          result = r;
-          if (r.status === 'done' || (r.status === 'failed' && !r.retryable)) break;
+          const res = result!;
+          await recordCall(deps.db, {
+            jobId: p.jobId, kind: 'video', provider: deps.comfy.video.id, idempotencyKey: key, result: res,
+            latencyMs: res.status === 'done' ? res.latencyMs : undefined, costUsd: res.status === 'done' ? res.cost.amountUsd : 0,
+          });
+          const ref = await keep(deps, 'broll', res);
+          out[v.variant_no] = ref ? { beat, key: ref.id, durationSec: ref.durationSec ?? PIPELINE.broll.durationSec } : null;
+        } catch (e) {
+          // B-roll is never fatal: the beat degrades to its plate.
+          out[v.variant_no] = null;
+          await recordCall(deps.db, {
+            jobId: p.jobId, kind: 'video', provider: deps.comfy.video.id, idempotencyKey: key,
+            result: { ok: false, code: 'UNKNOWN', message: e instanceof Error ? e.message : String(e), retryable: false },
+          }).catch(() => {});
         }
-        await recordCall(deps.db, { jobId: p.jobId, kind: 'video', provider: deps.comfy.video.id, idempotencyKey: key, result: result! });
-        const ref = result ? await keep(deps, 'broll', result) : null;
-        out[v.variant_no] = ref ? { beat, key: ref.id, durationSec: ref.durationSec ?? PIPELINE.broll.durationSec } : null;
       }
       return out;
     } finally {
@@ -114,9 +130,13 @@ export const HEAVY = {
 
   async render(deps: PipelineDeps, p: { jobId: string; variantNo: number; spec: VideoSpec }): Promise<RenderResult> {
     const key = `${p.jobId}:render:${p.variantNo}`;
-    const r = await call(deps, p.jobId, 'render', deps.renderer.id, key, () => deps.renderer.render({ spec: p.spec, idempotencyKey: key }));
-    const w = toWire(r);
-    if (!w.ok) return { error: w.message };
-    return { key: w.value.id, assetId: await saveAsset(deps.db, deps.projectId, 'render', w.value) };
+    try {
+      const r = await call(deps, p.jobId, 'render', deps.renderer.id, key, () => deps.renderer.render({ spec: p.spec, idempotencyKey: key }));
+      const w = toWire(r);
+      if (!w.ok) return { error: w.message };
+      return { key: w.value.id, assetId: await saveAsset(deps.db, deps.projectId, 'render', w.value) };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
   },
 } as const;
