@@ -45,3 +45,6 @@ desktop.ini
 
 # --- local data (PGlite + media) --------------------------------------------
 .data/
+
+# User-provided eval products (local only; real brand photos)
+fixtures/eval-products/

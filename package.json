@@ -13,7 +13,8 @@
     "db:seed": "pnpm --filter @adforge/db seed",
     "smoke:comfy": "pnpm --filter @adforge/provider-comfyui smoke",
     "e2e:render": "pnpm --filter @adforge/renderer-hyperframes e2e",
-    "e2e:shortlist": "pnpm --filter @adforge/db e2e:shortlist"
+    "e2e:shortlist": "pnpm --filter @adforge/db e2e:shortlist",
+    "e2e:llm": "pnpm --filter @adforge/provider-claude-agent-sdk e2e"
   },
   "devDependencies": {
     "turbo": "catalog:",
