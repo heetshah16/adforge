@@ -55,3 +55,7 @@ services/voice-qwen/**/__pycache__/
 services/voice-qwen/__pycache__/
 services/voice/**/__pycache__/
 services/voice/.pytest_cache/
+
+# playwright
+test-results/
+playwright-report/
