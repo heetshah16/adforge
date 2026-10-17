@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Python services (services/voice, services/voice-qwen) are deliberately not in CI:
+# their torch/CUDA stacks are GPU-machine only.
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: adforge
+          POSTGRES_PASSWORD: adforge
+          POSTGRES_DB: adforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ADFORGE_TEST_DATABASE_URL: postgresql://adforge:adforge@localhost:5432/adforge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm i -g pnpm@12.11.2
+      # puppeteer's allowed postinstall downloads chrome + chrome-headless-shell (the renderer tests' browser) into ~/.cache/puppeteer
+      - run: pnpm install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 fonts-noto-core
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm db:check

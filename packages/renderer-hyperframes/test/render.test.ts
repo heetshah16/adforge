@@ -48,8 +48,13 @@ const frames = (file: string) =>
     ]).toString().trim(),
   );
 
-const chromeCount = () =>
-  execFileSync('tasklist', ['/FI', 'IMAGENAME eq chrome-headless-shell.exe', '/NH']).toString().split(String.fromCharCode(10)).filter((l) => l.includes('chrome-headless-shell')).length;
+const chromeCount = () => {
+  const out =
+    process.platform === 'win32'
+      ? execFileSync('tasklist', ['/FI', 'IMAGENAME eq chrome-headless-shell.exe', '/NH']).toString()
+      : execFileSync('ps', ['-eo', 'args']).toString();
+  return out.split(String.fromCharCode(10)).filter((l) => l.includes('chrome-headless-shell')).length;
+};
 
 describe('HyperframesRenderer (real Chrome + FFmpeg, no GPU)', () => {
   it('renders a 240x426, 5-frame spec into storage and cleans up', async () => {

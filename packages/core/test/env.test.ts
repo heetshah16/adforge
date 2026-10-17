@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { REPO_ROOT, dataDirWarnings, parseEnv } from '../src/config/env';
 
@@ -62,7 +62,8 @@ describe('parseEnv', () => {
   });
 
   it('absolute data dir passes through', () => {
-    expect(parseEnv({ ADFORGE_DATA_DIR: 'C:\\adforge-data' }).ADFORGE_DATA_DIR).toBe('C:\\adforge-data');
+    const abs = resolve('/adforge-data'); // absolute on both Windows and POSIX
+    expect(parseEnv({ ADFORGE_DATA_DIR: abs }).ADFORGE_DATA_DIR).toBe(abs);
   });
 
   it('relative data dir is not cwd-dependent', () => {
