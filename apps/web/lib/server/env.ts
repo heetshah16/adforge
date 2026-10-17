@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 // Web-server env. Deliberately not @adforge/core/config/env: its REPO_ROOT depth check breaks under Next bundling.
 const ServerEnv = z.object({
+  ADFORGE_ENV: z.enum(['dev', 'prod']).default('dev'),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   NEXT_PUBLIC_SUPABASE_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
