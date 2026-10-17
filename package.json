@@ -16,7 +16,8 @@
     "e2e:shortlist": "pnpm --filter @adforge/db e2e:shortlist",
     "e2e:voice": "pnpm --filter @adforge/provider-voice-service e2e",
     "e2e:voice-ab": "pnpm --filter @adforge/provider-voice-service e2e:ab",
-    "e2e:llm": "pnpm --filter @adforge/provider-claude-agent-sdk e2e"
+    "e2e:llm": "pnpm --filter @adforge/provider-claude-agent-sdk e2e",
+    "e2e:pipeline": "pnpm --filter @adforge/worker e2e"
   },
   "devDependencies": {
     "turbo": "catalog:",

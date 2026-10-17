@@ -34,6 +34,7 @@ function memStorage() {
     async read(key: string) {
       return files.get(key)!;
     },
+    urlFor: (key: string) => `http://localhost:3000/media/${key}`,
   };
 }
 

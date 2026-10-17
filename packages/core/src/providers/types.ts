@@ -75,6 +75,8 @@ export interface StorageProvider {
   readonly id: string;
   put(bytes: Uint8Array, opts: PutOptions): Promise<MediaRef>;
   read(key: string): Promise<Uint8Array>;
+  /** The only place an internal media URL is built. MediaRef.url must come from here. */
+  urlFor(key: string): string;
 }
 
 export interface ImageGenRequest {

@@ -41,6 +41,11 @@ describe('LocalDiskStorage', () => {
     await expect(storage.read('ab/../../x.png')).rejects.toThrow(/Invalid storage key/);
   });
 
+  it('urlFor builds the internal media URL for a key', () => {
+    const key = `ab/${'a'.repeat(64)}.png`;
+    expect(storage.urlFor(key)).toBe(`http://localhost:3000/media/${key}`);
+  });
+
   it('rejects unknown mime types', async () => {
     await expect(storage.put(bytes, { mime: 'application/x-msdownload' })).rejects.toThrow(/Unsupported mime/);
   });

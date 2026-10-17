@@ -1,0 +1,32 @@
+{
+  "name": "@adforge/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "start": "tsx src/main.ts",
+    "inngest:dev": "inngest-cli dev -u http://127.0.0.1:3001/api/inngest --no-discovery",
+    "e2e": "tsx src/e2e.ts"
+  },
+  "dependencies": {
+    "@adforge/core": "workspace:*",
+    "@adforge/db": "workspace:*",
+    "@adforge/pipeline": "workspace:*",
+    "@adforge/provider-claude-agent-sdk": "workspace:*",
+    "@adforge/provider-comfyui": "workspace:*",
+    "@adforge/provider-local-storage": "workspace:*",
+    "@adforge/provider-voice-service": "workspace:*",
+    "@adforge/renderer-hyperframes": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "inngest": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "inngest-cli": "catalog:",
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}

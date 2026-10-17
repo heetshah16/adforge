@@ -106,6 +106,9 @@ export const hookArchetypes = pgTable('hook_archetypes', {
 
 // --- jobs --------------------------------------------------------------------
 
+/** One line of the append-only stage log shown in the UI. */
+export type ProgressEntry = { stage: string; status: 'running' | 'done' | 'failed' | 'skipped'; at: string; detail?: string };
+
 export const jobs = pgTable('jobs', {
   id: id(),
   projectId: uuid().notNull().references(() => projects.id),
@@ -116,6 +119,8 @@ export const jobs = pgTable('jobs', {
   shortlist: jsonb(),
   /** Resolved config, treatment params, workflow names, model ids and prompt hashes this job ran with. */
   configSnapshot: jsonb(),
+  /** Append-only stage log for the UI. */
+  progress: jsonb().$type<ProgressEntry[]>().notNull().default([]),
   costUsd: doublePrecision().notNull().default(0),
   error: jsonb(),
   createdAt: createdAt(),
