@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDb } from '../src/client';
+import { openDb, openDbForEnv, type Db } from '../src/client';
+import * as schema from '../src/schema';
 import { jobs, projects, providerCalls, users } from '../src/schema';
 
 const dirs: string[] = [];
@@ -61,5 +62,23 @@ describe('openDb', () => {
     writeFileSync(lock, 'garbage');
     await expect(openDb(dir)).rejects.toThrow(/unreadable or corrupt/);
     expect(existsSync(lock)).toBe(true);
+  });
+});
+
+describe('openDbForEnv', () => {
+  it('dev opens PGlite under the data dir and takes the lock', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adforge-db-'));
+    dirs.push(dir);
+    const first = await openDbForEnv({ ADFORGE_ENV: 'dev', ADFORGE_DATA_DIR: dir });
+    await expect(openDbForEnv({ ADFORGE_ENV: 'dev', ADFORGE_DATA_DIR: dir })).rejects.toThrow(/already open by pid/);
+    await first.close();
+  });
+
+  it('Db accepts the result of both openers (type-level)', () => {
+    const f = (d: Db) => d.select().from(schema.jobs);
+    expect(typeof f).toBe('function');
+    const g = async () => f((await openDb()).db);
+    const h = async () => f((await openDbForEnv({ ADFORGE_ENV: 'dev', ADFORGE_DATA_DIR: 'x' })).db);
+    expect([g, h]).toHaveLength(2);
   });
 });

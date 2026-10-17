@@ -1,5 +1,5 @@
 import { dataDirWarnings, parseEnv } from '@adforge/core/config/env';
-import { openDb } from '../client';
+import { openDbForEnv } from '../client';
 import { seedLocalUser, seedVocabulary } from './seed';
 
 try {
@@ -11,7 +11,7 @@ try {
 const env = parseEnv(process.env);
 for (const w of dataDirWarnings(env.ADFORGE_DATA_DIR)) console.warn(`WARN ${w}`);
 
-const { db, close } = await openDb(env.ADFORGE_DATA_DIR);
+const { db, close } = await openDbForEnv(env);
 try {
   await seedVocabulary(db);
   const ids = await seedLocalUser(db);
