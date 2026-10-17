@@ -170,6 +170,7 @@ describe('approve', () => {
       const id = await jobWithVariants(s);
       expect((await approve(s, id, 3)).status).toBe(409);
       expect((await approve(s, id, 9)).status).toBe(404);
+      for (const n of [0, 2 ** 31, 99999999999999999999]) expect((await approve(s, id, n)).status).toBe(404);
       expect((await approve(s, '00000000-0000-0000-0000-000000000000', 1)).status).toBe(404);
     } finally { await s.close(); }
   });

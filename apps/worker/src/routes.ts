@@ -98,15 +98,17 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
       const m = new URL(req.url).pathname.match(/^\/api\/jobs\/([^/]+)\/variants\/(\d+)\/approve$/);
       const id = m?.[1] ?? '';
       const n = Number(m?.[2]);
-      if (!z.uuid().safeParse(id).success || !Number.isInteger(n)) return json({ error: 'not found' }, 404);
-      const [v] = await deps.db.select().from(variants).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
-      if (!v) return json({ error: 'not found' }, 404);
-      if (v.status !== 'completed' && v.status !== 'approved') return json({ error: `variant ${n} is ${v.status}` }, 409);
-      await deps.db.transaction(async (tx) => {
+      if (!z.uuid().safeParse(id).success || !Number.isSafeInteger(n) || n < 1 || n > 2 ** 31 - 1) return json({ error: 'not found' }, 404);
+      // Check and set in one transaction so a concurrent status change can't be approved over.
+      const refusal = await deps.db.transaction(async (tx) => {
+        const [v] = await tx.select().from(variants).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
+        if (!v) return json({ error: 'not found' }, 404);
+        if (v.status !== 'completed' && v.status !== 'approved') return json({ error: `variant ${n} is ${v.status}` }, 409);
         await tx.update(variants).set({ status: 'completed' }).where(and(eq(variants.jobId, id), eq(variants.status, 'approved'), ne(variants.variantNo, n)));
         await tx.update(variants).set({ status: 'approved' }).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
+        return null;
       });
-      return json({ approved: n });
+      return refusal ?? json({ approved: n });
     },
 
     async getMedia(req: Request): Promise<Response> {
