@@ -25,6 +25,11 @@ describe('diffColumns', () => {
     expect(lines[0]).toContain('character varying');
   });
 
+  it('reports a nullability difference as one line naming table.column', () => {
+    const lines = diffColumns([col('jobs', 'shortlist', 'jsonb', true)], [col('jobs', 'shortlist', 'jsonb', false)]);
+    expect(lines).toEqual(['jobs.shortlist: pglite nullable=true postgres nullable=false']);
+  });
+
   it('reports a column present on one side only as a "missing in" line', () => {
     const a = [col('variants', 'error')];
     expect(diffColumns(a, [])).toEqual(['variants.error: missing in postgres']);
