@@ -5,7 +5,7 @@ import { direct } from '@adforge/core/llm/direct';
 import { strategize } from '@adforge/core/llm/strategize';
 import { Language } from '@adforge/core/vocab/enums';
 import { shortlist } from '@adforge/core/vocab/shortlist';
-import { openDb } from '@adforge/db/client';
+import { openDbForEnv } from '@adforge/db/client';
 import { loadRegistry } from '@adforge/db/registry';
 import { ClaudeAgentProvider } from './adapter';
 
@@ -23,7 +23,7 @@ if (products.length < 2) {
   process.exit(1);
 }
 
-const { db, close } = await openDb(env.ADFORGE_DATA_DIR);
+const { db, close } = await openDbForEnv(env);
 const registry = await loadRegistry(db).finally(close);
 const llm = new ClaudeAgentProvider();
 let ok = true;

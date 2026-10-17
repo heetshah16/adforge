@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Env } from '@adforge/core/config/env';
-import { openDb } from '@adforge/db/client';
+import { openDbForEnv } from '@adforge/db/client';
 import { seedLocalUser, seedVocabulary } from '@adforge/db/seed/seed';
 import type { PipelineDeps } from '@adforge/pipeline';
 import { ClaudeAgentProvider } from '@adforge/provider-claude-agent-sdk';
@@ -10,7 +10,7 @@ import { createVoiceProviders } from '@adforge/provider-voice-service';
 import { HyperframesRenderer } from '@adforge/renderer-hyperframes';
 
 export async function buildDeps(env: Env): Promise<{ deps: PipelineDeps; storage: LocalDiskStorage; close(): Promise<void> }> {
-  const { db, close } = await openDb(env.ADFORGE_DATA_DIR);
+  const { db, close } = await openDbForEnv(env);
   try {
     await seedVocabulary(db);
     const { userId, projectId } = await seedLocalUser(db);

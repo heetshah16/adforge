@@ -1,8 +1,24 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { REPO_ROOT, dataDirWarnings, parseEnv } from '../src/config/env';
 
 describe('parseEnv', () => {
+  it('defaults to the dev profile with no DATABASE_URL', () => {
+    const env = parseEnv({});
+    expect(env.ADFORGE_ENV).toBe('dev');
+    expect(env.DATABASE_URL).toBeUndefined();
+  });
+
+  it('requires DATABASE_URL in prod', () => {
+    expect(() => parseEnv({ ADFORGE_ENV: 'prod' })).toThrow(/DATABASE_URL/);
+    const env = parseEnv({ ADFORGE_ENV: 'prod', DATABASE_URL: 'postgresql://u:p@h:5432/d' });
+    expect(env.ADFORGE_ENV).toBe('prod');
+  });
+
+  it('rejects a non-postgres DATABASE_URL', () => {
+    expect(() => parseEnv({ DATABASE_URL: 'http://x' })).toThrow(/DATABASE_URL/);
+  });
+
   it('defaults the voice providers and URL', () => {
     const env = parseEnv({});
     expect(env.ADFORGE_PROVIDER_TTS).toBe('chatterbox');
@@ -46,7 +62,8 @@ describe('parseEnv', () => {
   });
 
   it('absolute data dir passes through', () => {
-    expect(parseEnv({ ADFORGE_DATA_DIR: 'C:\\adforge-data' }).ADFORGE_DATA_DIR).toBe('C:\\adforge-data');
+    const abs = resolve('/adforge-data'); // absolute on both Windows and POSIX
+    expect(parseEnv({ ADFORGE_DATA_DIR: abs }).ADFORGE_DATA_DIR).toBe(abs);
   });
 
   it('relative data dir is not cwd-dependent', () => {

@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { REPO_ROOT, parseEnv } from '@adforge/core/config/env';
 import { assertVariantDiversity } from '@adforge/core/vocab/diversity';
 import { shortlist } from '@adforge/core/vocab/shortlist';
-import { openDb } from './client';
+import { openDbForEnv } from './client';
 import { loadRegistry } from './registry';
 
 try {
@@ -11,7 +11,7 @@ try {
   if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
 }
 const env = parseEnv(process.env);
-const { db, close } = await openDb(env.ADFORGE_DATA_DIR);
+const { db, close } = await openDbForEnv(env);
 let ok = true;
 try {
   const registry = await loadRegistry(db);
