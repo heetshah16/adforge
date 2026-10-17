@@ -19,7 +19,7 @@ const WaitlistInput = z.object({
   category: z.string().trim().min(1).max(80),
   country: z.string().trim().min(1).max(80),
   note: z.string().trim().max(1000).optional(),
-  company_url: z.string().max(300).optional(),
+  company_url: z.string().optional(),
   startedAt: z.number().int().nonnegative(),
 });
 
@@ -47,10 +47,14 @@ async function readCapped(req: Request): Promise<string | null> {
   return text + dec.decode();
 }
 
-/** The client IP is the first x-forwarded-for entry, else x-real-ip. */
+/**
+ * Assumes platform-set headers: x-vercel-forwarded-for on Vercel, else x-real-ip, else the LAST x-forwarded-for entry
+ * (the hop our own proxy appended). The first x-forwarded-for entry is client-controlled, so it is never used.
+ */
 export function clientIp(req: Request): string {
-  const fwd = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return fwd || req.headers.get('x-real-ip')?.trim() || 'unknown';
+  const h = req.headers;
+  const last = h.get('x-forwarded-for')?.split(',').pop()?.trim();
+  return h.get('x-vercel-forwarded-for')?.trim() || h.get('x-real-ip')?.trim() || last || 'unknown';
 }
 
 export async function waitlistHandler(ctx: WaitlistCtx, req: Request): Promise<Response> {
@@ -60,12 +64,13 @@ export async function waitlistHandler(ctx: WaitlistCtx, req: Request): Promise<R
   if (text === null) return json({ error: 'body larger than 8 KB' }, 413);
   let raw: unknown;
   try { raw = JSON.parse(text); } catch { return json({ error: 'expected JSON' }, 400); }
+  // Bot signals first, so a bot gets the same silent 200 whatever else is wrong with its payload.
+  const signals = raw && typeof raw === 'object' ? (raw as { company_url?: unknown; startedAt?: unknown }) : {};
+  if (signals.company_url) return ok();
+  if (typeof signals.startedAt === 'number' && Date.now() - signals.startedAt < MIN_FILL_MS) return ok();
   const parsed = WaitlistInput.safeParse(raw);
   if (!parsed.success) return json({ error: 'invalid', issues: z.flattenError(parsed.error).fieldErrors }, 400);
   const { startedAt, company_url, ...f } = parsed.data;
-  // Bots get the same 200 as a real signup, so they cannot tell the checks apart.
-  if (company_url) return ok();
-  if (Date.now() - startedAt < MIN_FILL_MS) return ok();
   await ctx.insert(f);
   return ok();
 }
