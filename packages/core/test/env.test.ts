@@ -60,6 +60,15 @@ describe('ADFORGE_PUBLIC_URL', () => {
   });
 });
 
+describe('ADFORGE_PUBLIC_URL / ADFORGE_UI_ORIGIN defaults', () => {
+  it('media is served by the worker; the UI is on 3000', () => {
+    const e = parseEnv({});
+    expect(e.ADFORGE_PUBLIC_URL).toBe('http://127.0.0.1:3001');
+    expect(e.ADFORGE_UI_ORIGIN).toBe('http://localhost:3000');
+    for (const u of ['http://localhost:3000/', 'http://localhost:3000/some/path?x=1', 'HTTP://LOCALHOST:3000']) expect(parseEnv({ ADFORGE_UI_ORIGIN: u }).ADFORGE_UI_ORIGIN).toBe('http://localhost:3000');
+  });
+});
+
 describe('dataDirWarnings', () => {
   it('warns when the data dir is inside OneDrive', () => {
     expect(dataDirWarnings('C:\\Users\\a\\OneDrive\\Desktop\\adforge\\.data')).toHaveLength(1);

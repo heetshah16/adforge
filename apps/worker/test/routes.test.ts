@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { assets, jobs } from '@adforge/db/schema';
+import { assets, jobs, variants } from '@adforge/db/schema';
 import { makeRoutes } from '../src/routes';
 import { makeDeps } from '../../../packages/pipeline/test/fakes';
 import type { LocalDiskStorage } from '@adforge/provider-local-storage';
@@ -133,5 +133,60 @@ describe('getJob and getMedia', () => {
   it('health is ok', async () => {
     const s = await setup();
     try { expect(await (await s.routes.health()).json()).toEqual({ ok: true }); } finally { await s.close(); }
+  });
+});
+
+describe('approve', () => {
+  async function jobWithVariants(s: Awaited<ReturnType<typeof setup>>) {
+    const { jobId } = (await (await s.routes.createJob(post(form()))).json()) as { jobId: string };
+    for (const n of [1, 2, 3]) {
+      await s.deps.db.insert(variants).values({
+        jobId, variantNo: n, formatSlug: 'problem_solution', hookSlug: 'curiosity_gap', archetypeSlug: 'remedy',
+        visualTreatment: 'macro_texture', strategicBet: `bet ${n}`, status: n === 3 ? 'failed' : 'completed',
+        ...(n === 3 ? { error: { why: 'voice synthesis timed out' } } : {}),
+      });
+    }
+    return jobId;
+  }
+  const approve = (s: Awaited<ReturnType<typeof setup>>, id: string, n: number) =>
+    s.routes.approve(new Request(`http://w/api/jobs/${id}/variants/${n}/approve`, { method: 'POST' }));
+
+  it('approves one variant and moves the approval when another is approved', async () => {
+    const s = await setup();
+    try {
+      const id = await jobWithVariants(s);
+      expect((await approve(s, id, 1)).status).toBe(200);
+      expect((await approve(s, id, 2)).status).toBe(200);
+      const view = (await (await s.routes.getJob(new Request(`http://w/api/jobs/${id}`))).json()) as { variants: { variantNo: number; status: string; formatFamily: string | null; hookFamily: string | null; error: unknown }[] };
+      expect(view.variants.map((v) => [v.variantNo, v.status])).toEqual([[1, 'completed'], [2, 'approved'], [3, 'failed']]);
+      expect(view.variants[0]).toMatchObject({ formatFamily: 'narrative_arc', hookFamily: 'tension', error: null });
+      expect(view.variants[2]!.error).toEqual({ why: 'voice synthesis timed out' });
+    } finally { await s.close(); }
+  });
+
+  it('refuses to approve a failed variant (409) and 404s unknown targets', async () => {
+    const s = await setup();
+    try {
+      const id = await jobWithVariants(s);
+      expect((await approve(s, id, 3)).status).toBe(409);
+      expect((await approve(s, id, 9)).status).toBe(404);
+      for (const n of [0, 2 ** 31, 99999999999999999999]) expect((await approve(s, id, n)).status).toBe(404);
+      expect((await approve(s, '00000000-0000-0000-0000-000000000000', 1)).status).toBe(404);
+    } finally { await s.close(); }
+  });
+});
+
+describe('getMedia ?download=1', () => {
+  it('adds content-disposition: attachment with the key basename', async () => {
+    const s = await setup();
+    try {
+      const ref = await (s.deps.storage as LocalDiskStorage).put(PNG, { mime: 'image/png' });
+      const url = new URL(ref.url);
+      const plain = await s.routes.getMedia(new Request(`http://w${url.pathname}`));
+      expect(plain.headers.get('content-disposition')).toBeNull();
+      const dl = await s.routes.getMedia(new Request(`http://w${url.pathname}?download=1`));
+      expect(dl.status).toBe(200);
+      expect(dl.headers.get('content-disposition')).toBe(`attachment; filename="adforge-${decodeURIComponent(url.pathname).split('/').pop()}"`);
+    } finally { await s.close(); }
   });
 });

@@ -4,7 +4,7 @@
 
 Small D2C sellers spend on Meta, TikTok and Instagram but have no creative budget and no audience data. They can't afford a videographer, can't afford a UGC creator, and can't afford to burn ad spend testing one creative at a time. AdForge gives them three testable angles per product, each with a stated strategic bet.
 
-> **Status: pre-implementation.** This repository currently tracks specification and architecture only. No code has been written yet. See [Build order](#build-order).
+> **Status: local POC complete.** Upload photos, get three rendered ad variants with rationale and bets, approve one. Runs on one machine (see [Run it locally](#run-it-locally)); Phases 3+ are not started. See [Build order](#build-order).
 
 ---
 
@@ -21,6 +21,19 @@ Every run surfaces a one-line rationale for the classification and a per-variant
 
 **4. The creative vocabulary compounds.**
 Variants differ along *typed, tracked* dimensions — archetype, format, hook. When performance data comes back, it can be attributed to those dimensions: *"for `remedy` products on TikTok, `objection_lead` hooks retain 18% better than `curiosity_gap`."* A competitor wrapping a video model has no typed dimensions and therefore cannot learn. That vocabulary is an adaptive registry, not a frozen enum — it grows from observed gaps and mined real ads, and prunes on evidence.
+
+---
+
+## Run it locally
+
+Prerequisites: Node 24 + pnpm, FFmpeg on PATH, ComfyUI Desktop with the models from [ADR 0002](docs/decisions/0002-comfyui-provider-and-models.md), the voice service dependencies via `uv` (`services/voice`), and a Claude Code login (the LLM runs on the subscription, [ADR 0009](docs/decisions/0009-claude-agent-sdk-on-subscription.md)).
+
+```powershell
+scripts/stack.ps1                 # ComfyUI, voice service, Inngest dev server, worker
+pnpm --filter @adforge/web dev    # the review UI
+```
+
+Open <http://localhost:3000> (exactly this origin; see [ADR 0012](docs/decisions/0012-ui-talks-to-worker.md)). Tests: `pnpm test`. UI end-to-end: `ADFORGE_E2E_PRODUCT=<folder in fixtures/eval-products> pnpm e2e:ui`.
 
 ---
 
@@ -71,9 +84,9 @@ Every external capability — LLM, image gen, video gen, TTS, render, storage �
 
 | Phase | What | Status |
 |---|---|---|
-| **0** | Monorepo, schema, storage, ingest | Not started |
-| **1** | Prove the render path before any AI touches it | Not started |
-| **2** | The creative engine — registry, shortlist, LLM chain, pipeline, review UI | Not started |
+| **0** | Monorepo, schema, storage, ingest | Done (POC, local) |
+| **1** | Prove the render path before any AI touches it | Done (POC, local) |
+| **2** | The creative engine — registry, shortlist, LLM chain, pipeline, review UI | Done (POC, local) |
 | **3** | Shot synthesis — Product Bible, T0 composites, continuity gate, motion tiers | Not started |
 | **4** | Distribution — publish to TikTok / Reels / Shorts via an aggregator | Not started |
 | **5** | Attribution and vocabulary discovery — the actual product | Not started |

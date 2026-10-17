@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { Language } from '@adforge/core/vocab/enums';
+import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, variants } from '@adforge/db/schema';
 import type { PipelineDeps } from '@adforge/pipeline';
 import { failJob } from '@adforge/pipeline/progress';
@@ -78,20 +79,42 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
       const [j] = await deps.db.select().from(jobs).where(eq(jobs.id, id));
       if (!j) return json({ error: 'not found' }, 404);
       const vs = await deps.db.select().from(variants).leftJoin(assets, eq(variants.renderAssetId, assets.id)).where(eq(variants.jobId, id));
+      const registry = await loadRegistry(deps.db);
       return json({
         job: { id: j.id, status: j.status, progress: j.progress, brief: j.brief, error: j.error, costUsd: j.costUsd, createdAt: j.createdAt, completedAt: j.completedAt },
         variants: vs
           .map(({ variants: v, assets: a }) => ({
             variantNo: v.variantNo, formatSlug: v.formatSlug, hookSlug: v.hookSlug, visualTreatment: v.visualTreatment,
-            strategicBet: v.strategicBet, isExploratory: v.isExploratory, status: v.status, renderUrl: a ? storage.urlFor(a.storageKey) : null,
+            strategicBet: v.strategicBet, isExploratory: v.isExploratory, status: v.status, error: v.error,
+            formatFamily: registry.formats.find((f) => f.slug === v.formatSlug)?.family ?? null,
+            hookFamily: registry.hooks.find((h) => h.slug === v.hookSlug)?.family ?? null,
+            renderUrl: a ? storage.urlFor(a.storageKey) : null,
           }))
           .sort((a, b) => a.variantNo - b.variantNo),
       });
     },
 
+    async approve(req: Request): Promise<Response> {
+      const m = new URL(req.url).pathname.match(/^\/api\/jobs\/([^/]+)\/variants\/(\d+)\/approve$/);
+      const id = m?.[1] ?? '';
+      const n = Number(m?.[2]);
+      if (!z.uuid().safeParse(id).success || !Number.isSafeInteger(n) || n < 1 || n > 2 ** 31 - 1) return json({ error: 'not found' }, 404);
+      // Check and set in one transaction so a concurrent status change can't be approved over.
+      const refusal = await deps.db.transaction(async (tx) => {
+        const [v] = await tx.select().from(variants).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
+        if (!v) return json({ error: 'not found' }, 404);
+        if (v.status !== 'completed' && v.status !== 'approved') return json({ error: `variant ${n} is ${v.status}` }, 409);
+        await tx.update(variants).set({ status: 'completed' }).where(and(eq(variants.jobId, id), eq(variants.status, 'approved'), ne(variants.variantNo, n)));
+        await tx.update(variants).set({ status: 'approved' }).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
+        return null;
+      });
+      return refusal ?? json({ approved: n });
+    },
+
     async getMedia(req: Request): Promise<Response> {
       let key: string;
-      try { key = decodeURIComponent(new URL(req.url).pathname.replace(/^\/media\//, '')); } catch { return json({ error: 'invalid media key' }, 400); }
+      const reqUrl = new URL(req.url);
+      try { key = decodeURIComponent(reqUrl.pathname.replace(/^\/media\//, '')); } catch { return json({ error: 'invalid media key' }, 400); }
       let path: string;
       try { path = storage.pathFor(key); } catch { return json({ error: 'invalid media key' }, 400); }
       const bytes = await storage.read(key).catch(() => null);
@@ -99,7 +122,10 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
       const ext = path.split('.').pop()!;
       const type = ({ png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', mp4: 'video/mp4', wav: 'audio/wav' } as Record<string, string>)[ext] ?? 'application/octet-stream';
       // ponytail: no Range support — fine for start-to-end playback in the review UI; add byte ranges if scrubbing is needed.
-      return new Response(bytes as Uint8Array<ArrayBuffer>, { headers: { 'content-type': type, 'content-length': String(bytes.byteLength), 'cache-control': 'public, max-age=31536000, immutable' } });
+      const headers: Record<string, string> = { 'content-type': type, 'content-length': String(bytes.byteLength), 'cache-control': 'public, max-age=31536000, immutable' };
+      // <a download> is ignored cross-origin, so the UI asks for an attachment explicitly.
+      if (reqUrl.searchParams.get('download') === '1') headers['content-disposition'] = `attachment; filename="adforge-${key.split('/').pop()!.replace(/[\x00-\x1f"\\]/g, '_')}"`;
+      return new Response(bytes as Uint8Array<ArrayBuffer>, { headers });
     },
   };
 }

@@ -29,3 +29,10 @@
 - **Pinned-memory (`--disable-pinned-memory`) experiment:** not run. It needs a second plates run on a fresh upload and a RAM sampler; deferred. `scripts/comfyui.ps1` is unchanged.
 - **Noise:** with voice-qwen not running, every voice hand-off and janitor tick logs a best-effort "voice-qwen unload failed (ECONNREFUSED :8191)" stack trace. Harmless, but worth downgrading to one line.
 - **Shutdown on Windows:** a console Ctrl-C could not be delivered to the detached background worker, so it was force-killed and the stale PGlite lock removed by hand. The SIGINT path itself is covered by the shutdown tests.
+
+### Measured, b-roll on (`pnpm e2e:pipeline krishna-hing-ras --broll`, Hindi, final P8 run)
+- **Total:** 19.9 min wall, `COMPLETED`, 3/3 variants, no warnings (no "b-roll unavailable"). Cost ~$0.31 (Strategist + Director, `repairs=1`); all media providers $0.
+- **Per stage:** strategize 13 s · direct 89 s · plates 74 s · broll 14.3 min (3 Wan clips, about 4.8 min each, sequential) · voice 79 s · render ~27 s per variant · finalize ~0.
+- **Peak VRAM:** 15,729 MiB of 16,303 MiB (sampled every 10 s; baseline 743 MiB; 496 MiB after shutdown).
+- **B-roll clips:** 3 generated (one per variant, `provider_calls` kind `video`, all `done`). Only 2 reached the final videos (V1 beat 2, V3 beat 1): `buildSpec` drops a clip shorter than its beat, and V2's first absent beat (156 frames) outran the 5 s (150 frame) clip. The drop is silent. Follow-up: choose the beat after voice durations are known, or emit a warning.
+- **Shutdown:** services were force-killed by port owner (no console to deliver Ctrl-Break to); no stale PGlite lock remained.
