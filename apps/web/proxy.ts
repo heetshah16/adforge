@@ -1,9 +1,10 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { routeAccess } from './lib/route-access';
+import { serverEnv } from './lib/server/env';
 
 // Session refresh + deny-by-default gate: every path not listed public in lib/route-access.ts redirects to /signin without claims.
-// /api/* is refreshed but never redirected: route handlers answer 401/404 themselves via requireUser.
+// /api/* is refreshed but never redirected; the API route handlers (Task 5) must authenticate themselves.
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
@@ -19,7 +20,7 @@ export async function proxy(request: NextRequest) {
   });
   const { data } = await supabase.auth.getClaims();
   if (routeAccess(request.nextUrl.pathname) === 'gated' && !data?.claims) {
-    const redirect = NextResponse.redirect(new URL('/signin', request.url));
+    const redirect = NextResponse.redirect(new URL('/signin', serverEnv().ADFORGE_SITE_URL));
     for (const c of response.cookies.getAll()) redirect.cookies.set(c);
     return redirect;
   }
@@ -27,5 +28,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/|favicon.ico|auth/).*)'],
+  matcher: ['/((?!_next/|favicon\\.ico$|auth/).*)'],
 };

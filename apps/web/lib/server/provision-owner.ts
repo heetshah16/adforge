@@ -11,6 +11,14 @@ export class ProvisionRefused extends Error {
   }
 }
 
+/** drizzle wraps driver errors (cause); PGlite and postgres.js both carry SQLSTATE `code`. */
+export function isEmailUniqueViolation(e: unknown): boolean {
+  for (let x = e as { code?: string; constraint_name?: string; constraint?: string; message?: string; cause?: unknown } | undefined, i = 0; x && i < 4; x = x.cause as typeof x, i++) {
+    if (x.code === '23505' && /email/.test(`${x.constraint_name ?? x.constraint ?? ''} ${x.message ?? ''}`)) return true;
+  }
+  return false;
+}
+
 /** The only entry point for app code: admin list and prod switch come from the server env, never from the caller. */
 export async function provisionCurrent(p: { userId: string; email: string }): Promise<{ orgId: string; isAdmin: boolean }> {
   const env = serverEnv();
@@ -51,5 +59,8 @@ export function provisionWith(
     }
     await tx.update(waitlist).set({ status: 'joined' }).where(and(sql`lower(${waitlist.email}) = ${email}`, ne(waitlist.status, 'joined')));
     return { orgId, isAdmin };
+  }).catch((e) => {
+    // Two first logins, same email, different auth ids, racing past the clash check: the loser hits users.email's unique index.
+    throw isEmailUniqueViolation(e) ? new ProvisionRefused('conflict') : e;
   });
 }

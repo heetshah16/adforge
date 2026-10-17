@@ -3,7 +3,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb, openPostgres, type Db } from '@adforge/db/client';
 import { memberships, orgs, users, waitlist } from '@adforge/db/schema';
-import { ProvisionRefused, provisionWith } from '../lib/server/provision-owner';
+import { ProvisionRefused, isEmailUniqueViolation, provisionWith } from '../lib/server/provision-owner';
 
 type Handle = { db: Db; close(): Promise<void> };
 const DEV = { adminEmails: [] as string[], prod: false };
@@ -122,8 +122,34 @@ function suite(name: string, open: () => Promise<Handle>, gated = false) {
       expect(u?.id).toBe(a.userId);
       expect((await rows(a.userId)).memberships).toEqual([expect.objectContaining({ orgId: first.orgId })]);
     });
+
+    it('concurrent first logins, same email, different ids: exactly one wins, the other is a conflict (not a raw error)', async () => {
+      const a = fresh('race');
+      const b = { userId: randomUUID(), email: a.email };
+      made.userIds.push(b.userId);
+      const res = await Promise.allSettled([provisionWith(h.db, a, DEV), provisionWith(h.db, b, DEV)]);
+      expect(res.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const lost = res.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      expect(lost.reason).toBeInstanceOf(ProvisionRefused);
+      expect(lost.reason.reason).toBe('conflict');
+    });
   });
 }
+
+describe('isEmailUniqueViolation', () => {
+  it('matches 23505 on the email constraint, also under drizzle cause wrapping', () => {
+    const pg = { code: '23505', constraint_name: 'users_email_unique' };
+    expect(isEmailUniqueViolation(pg)).toBe(true);
+    expect(isEmailUniqueViolation(Object.assign(new Error('Failed query'), { cause: pg }))).toBe(true);
+    expect(isEmailUniqueViolation({ code: '23505', message: 'duplicate key value violates unique constraint "users_email_unique"' })).toBe(true);
+  });
+  it('ignores other violations and errors', () => {
+    expect(isEmailUniqueViolation({ code: '23505', constraint_name: 'memberships_pkey' })).toBe(false);
+    expect(isEmailUniqueViolation({ code: '40001' })).toBe(false);
+    expect(isEmailUniqueViolation(new Error('x'))).toBe(false);
+    expect(isEmailUniqueViolation(undefined)).toBe(false);
+  });
+});
 
 suite('pglite', () => openDb());
 suite('postgres', () => openPostgres(process.env.ADFORGE_TEST_DATABASE_URL!), true);
