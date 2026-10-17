@@ -139,10 +139,20 @@ describe('engine routing', () => {
       'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }),
       'GET 8191 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false }, allocated_mb: 0 }),
     });
-    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
+    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: f });
     expect(await v.unload()).toEqual({ unloaded: ['tts'] });
     expect(f.calls).toContain('POST 8191 /unload');
     expect(await v.health()).toMatchObject({ ok: true, qwen: { loaded: { tts: false } } });
+  });
+  it('default routing makes no qwen calls on unload or health', async () => {
+    const f = fake({
+      'POST 8190 /unload': () => jsonRes({ unloaded: ['tts'] }),
+      'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }),
+    });
+    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
+    await v.unload();
+    await v.health();
+    expect(f.calls.some((c) => c.includes(' 8191 '))).toBe(false);
   });
   it('idFor names the serving engine per language', () => {
     const d = createVoiceProviders({ baseUrl: BASE, storage: memStorage(), fetchImpl: fake({}) }).tts;
@@ -152,7 +162,7 @@ describe('engine routing', () => {
   });
   it('unload still unloads qwen when chatterbox unload fails, and rethrows', async () => {
     const f = fake({ 'POST 8190 /unload': () => new Response('x', { status: 500 }), 'POST 8191 /unload': () => jsonRes({ unloaded: ['tts'] }) });
-    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
+    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: f });
     await expect(v.unload()).rejects.toThrow();
     expect(f.calls).toContain('POST 8191 /unload');
   });
@@ -165,7 +175,7 @@ describe('engine routing', () => {
   });
   it('health returns qwen: null when qwen is unreachable', async () => {
     const f = fake({ 'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }), 'GET 8191 /health': () => new Response('x', { status: 503 }) });
-    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
-    expect(await v.health()).toMatchObject({ ok: true, qwen: null });
+    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: f });
+    expect(await v.health()).toMatchObject({ ok: false, qwen: null });
   });
 });

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Language } from '@adforge/core/vocab/enums';
 import { assets, jobs, variants } from '@adforge/db/schema';
 import type { PipelineDeps } from '@adforge/pipeline';
+import { failJob } from '@adforge/pipeline/progress';
 import { saveAsset } from '@adforge/pipeline/record';
 import type { LocalDiskStorage } from '@adforge/provider-local-storage';
 
@@ -22,7 +23,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const bad = (error: string, issues?: unknown) => json({ error, issues }, 400);
 const sniff = (b: Uint8Array, type: keyof typeof TYPES) => TYPES[type].every((x, i) => b[i] === x) && (type !== 'image/webp' || String.fromCharCode(...b.slice(8, 12)) === 'WEBP');
 
-export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage; sendEvent(name: string, data: unknown): Promise<void> }) {
+export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage; sendEvent(name: string, data: unknown, id?: string): Promise<void> }) {
   const { deps, storage } = ctx;
 
   return {
@@ -62,7 +63,12 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
         projectId: deps.projectId, userId: deps.userId,
         inputSpec: { product: { name: f.name, price: f.price, description: f.description, ...(f.brand ? { brand: f.brand } : {}) }, language: f.language, broll: f.broll, photoKeys },
       }).returning();
-      await ctx.sendEvent('adforge/job.requested', { jobId: job!.id });
+      try {
+        await ctx.sendEvent('adforge/job.requested', { jobId: job!.id }, job!.id);
+      } catch (e) {
+        await failJob(deps.db, job!.id, e instanceof Error ? e.message : String(e), 'enqueue');
+        return json({ error: 'could not queue the job' }, 503);
+      }
       return json({ jobId: job!.id }, 202);
     },
 

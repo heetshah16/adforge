@@ -125,7 +125,13 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
   let broll: Record<string, { beat: number; key: string; durationSec: number } | null> = {};
   if (input.broll) {
     await step.run('mark:broll', () => markProgress(db, jobId, 'broll', 'running').then(() => true));
-    broll = await step.heavy('broll', 'heavy:broll', { jobId, variants: vs, plates: plates.plates });
+    try {
+      broll = await step.heavy('broll', 'heavy:broll', { jobId, variants: vs, plates: plates.plates });
+    } catch (e) {
+      // b-roll is garnish: a timed-out or failed invoke degrades to plates, never fails the job.
+      broll = {};
+      warnings.push(`b-roll unavailable: ${e instanceof Error ? e.message : String(e)}`);
+    }
     for (const v of vs) if (!broll[v.variant_no]) warnings.push(`variant ${v.variant_no}: b-roll unavailable, using plate`);
     await step.run('mark:broll:done', () => markProgress(db, jobId, 'broll', 'done').then(() => true));
   } else {
@@ -176,7 +182,10 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
     const calls = await db.select({ c: providerCalls.costUsd }).from(providerCalls).where(eq(providerCalls.jobId, jobId));
     const cost = calls.reduce((s, x) => s + (x.c ?? 0), 0);
     const status = completed > 0 ? 'completed' : 'failed';
-    await setJobStatus(db, jobId, { status, costUsd: cost, completedAt: new Date(), error: warnings.length ? { warnings } : null });
+    // Only a still-running job may be finalized: the janitor/onFailure may already have failed it, and that must stick.
+    const wrote = await db.update(jobs).set({ status, costUsd: cost, completedAt: new Date(), error: warnings.length ? { warnings } : null })
+      .where(and(eq(jobs.id, jobId), eq(jobs.status, 'running'))).returning({ id: jobs.id });
+    if (!wrote.length) return { status: 'failed', warnings: [...warnings, 'job was no longer running at finalize'] } as Out;
     await markProgress(db, jobId, 'finalize', status === 'completed' ? 'done' : 'failed', `${completed}/3 variants`);
     return { status, warnings } as Out;
   });

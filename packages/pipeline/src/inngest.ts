@@ -1,5 +1,6 @@
 import { Inngest, type InngestFunction, type TimeStr } from 'inngest';
 import { HEAVY } from './heavy';
+import { failJob } from './progress';
 import { runJanitor } from './janitor';
 import { generateAds } from './orchestrate';
 import type { PipelineDeps, StepLike } from './types';
@@ -20,7 +21,13 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
   const heavy = { plates: heavyFn('plates', '30m'), broll: heavyFn('broll', '60m'), voice: heavyFn('voice', '30m'), render: heavyFn('render', '30m') };
 
   const generate = inngest.createFunction(
-    { id: 'generate-ads', triggers: [{ event: EVENTS.jobRequested }], retries: 2, concurrency: [{ limit: 2 }], timeouts: { finish: '4h' } },
+    { id: 'generate-ads', triggers: [{ event: EVENTS.jobRequested }], retries: 2, concurrency: [{ limit: 2 }], timeouts: { finish: '4h' },
+      // Retries exhausted / invoke timed out / load failed: fail the job now instead of waiting for the janitor.
+      onFailure: async ({ event, error }) => {
+        const jobId = (event.data.event.data as { jobId?: string } | undefined)?.jobId;
+        if (jobId) await failJob(deps.db, jobId, error.message);
+      },
+    },
     async ({ event, step }) => {
       const s: StepLike = {
         run: (id, fn) => step.run(id, fn) as never,
@@ -30,7 +37,7 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
     },
   );
 
-  const janitor = inngest.createFunction({ id: 'janitor', triggers: [{ cron: '*/5 * * * *' }], retries: 0 }, async ({ step }) =>
+  const janitor = inngest.createFunction({ id: 'janitor', triggers: [{ cron: '*/5 * * * *' }], retries: 0, timeouts: { finish: '4m' }, concurrency: [{ limit: 1 }] }, async ({ step }) =>
     step.run('sweep', () => runJanitor(deps)),
   );
   return [generate, heavy.plates, heavy.broll, heavy.voice, heavy.render, janitor];

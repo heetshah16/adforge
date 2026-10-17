@@ -105,6 +105,32 @@ describe('generateAds', () => {
     expect(m.calls.render).toBe(2);
   });
 
+  it('a b-roll invoke that throws completes the job with a warning', async () => {
+    const m = await makeDeps(); close = m.close;
+    const step = memoStep(m.deps);
+    const heavy = step.heavy;
+    step.heavy = ((task: string, id: string, payload: unknown) => (task === 'broll' ? Promise.reject(new Error('invoke timed out')) : (heavy as Function)(task, id, payload))) as never;
+    const id = await newJob(m.deps, true);
+    const r = await generateAds(id, step, m.deps);
+    expect(r.status).toBe('completed');
+    expect(r.warnings).toContain('b-roll unavailable: invoke timed out');
+  });
+
+  it('finalize does not resurrect a job the janitor already failed', async () => {
+    const m = await makeDeps(); close = m.close;
+    const step = memoStep(m.deps);
+    const id = await newJob(m.deps);
+    const run = step.run;
+    step.run = (async (sid: string, fn: () => Promise<unknown>) => {
+      if (sid === 'finalize') await m.deps.db.update(jobs).set({ status: 'failed', error: { stage: 'janitor' } }).where(eq(jobs.id, id));
+      return run(sid, fn as never);
+    }) as never;
+    await generateAds(id, step, m.deps);
+    const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    expect(j!.status).toBe('failed');
+    expect(j!.error).toEqual({ stage: 'janitor' });
+  });
+
   it('a failed b-roll degrades to the plate and the job still completes', async () => {
     const m = await makeDeps({ failBroll: true }); close = m.close;
     const seen: unknown[] = [];

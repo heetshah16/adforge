@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { jobs } from '@adforge/db/schema';
+import { failJob } from '../src/progress';
 import { runJanitor } from '../src/janitor';
 import { makeDeps } from './fakes';
 
@@ -30,6 +31,26 @@ describe('runJanitor', () => {
       const r = await runJanitor(m.deps);
       expect(r).toEqual({ freed: false, stalled: [] });
       expect(m.calls.free + m.calls.unload).toBe(0);
+    } finally {
+      await m.close();
+    }
+  });
+});
+
+describe('failJob', () => {
+  it('fails a running job with the inngest stage and one progress entry, never a completed one', async () => {
+    const m = await makeDeps();
+    try {
+      const [run] = await m.deps.db.insert(jobs).values({ projectId: m.deps.projectId, userId: m.deps.userId, inputSpec: {}, status: 'running' }).returning();
+      const [done] = await m.deps.db.insert(jobs).values({ projectId: m.deps.projectId, userId: m.deps.userId, inputSpec: {}, status: 'completed' }).returning();
+      expect(await failJob(m.deps.db, run!.id, 'boom')).toBe(true);
+      expect(await failJob(m.deps.db, done!.id, 'boom')).toBe(false);
+      const [a] = await m.deps.db.select().from(jobs).where(eq(jobs.id, run!.id));
+      expect(a).toMatchObject({ status: 'failed', error: { stage: 'inngest', reason: 'boom' } });
+      expect(a!.completedAt).toBeTruthy();
+      expect(a!.progress).toHaveLength(1);
+      const [b] = await m.deps.db.select().from(jobs).where(eq(jobs.id, done!.id));
+      expect(b!.status).toBe('completed');
     } finally {
       await m.close();
     }

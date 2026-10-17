@@ -80,14 +80,16 @@ export function createVoiceProviders(o: { baseUrl: string; qwenBaseUrl?: string;
     health: async () => {
       const base = await client.health();
       if (!qwenClient) return base;
-      const q = await qwenClient.ttsHealth().catch(() => null);
       const usesQwen = Object.values(engines).includes('qwen');
+      if (!usesQwen) return base;
+      const q = await qwenClient.ttsHealth().catch((e) => { console.warn(`voice-qwen health failed: ${(e as Error)?.message ?? e}`); return null; });
       return { ...base, ok: base.ok && (!usesQwen || q?.ok === true), sm120: base.sm120 && (!usesQwen || q?.sm120 === true), qwen: q };
     },
     /** Unloads both engines; the Qwen unload is best-effort. */
     unload: async () => {
-      const [r, q] = await Promise.allSettled([client.unload(), qwenClient?.unload()]);
-      if (q.status === 'rejected') console.warn('voice-qwen unload failed (best-effort):', q.reason);
+      const usesQwen = Object.values(engines).includes('qwen');
+      const [r, q] = await Promise.allSettled([client.unload(), usesQwen ? qwenClient?.unload() : undefined]);
+      if (q.status === 'rejected') console.warn(`voice-qwen unload failed (best-effort): ${(q.reason as Error)?.message ?? q.reason}`);
       if (r.status === 'rejected') throw r.reason;
       return r.value;
     },

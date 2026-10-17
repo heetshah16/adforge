@@ -24,6 +24,21 @@ async function setup() {
   return { ...m, routes, sent };
 }
 
+describe('createJob enqueue failure', () => {
+  it('sendEvent throwing -> 503 and the job is failed', async () => {
+    const m = await makeDeps();
+    try {
+      const routes = makeRoutes({ deps: m.deps, storage: m.deps.storage as LocalDiskStorage, sendEvent: async () => { throw new Error('inngest down'); } });
+      const res = await routes.createJob(post(form()));
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: 'could not queue the job' });
+      const [j] = await m.deps.db.select().from(jobs);
+      expect(j!.status).toBe('failed');
+      expect(j!.error).toEqual({ stage: 'enqueue', reason: 'inngest down' });
+    } finally { await m.close(); }
+  });
+});
+
 describe('createJob', () => {
   it('stores photos, creates the job and sends the event', async () => {
     const s = await setup();

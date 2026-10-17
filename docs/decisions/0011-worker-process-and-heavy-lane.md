@@ -12,7 +12,13 @@
   3. voice and align, then voice `/unload`;
   4. one render per variant.
 - **Partial success:** the job is `completed` when ≥1 variant finishes; failed variants carry their reason.
-- **Liveness:** function timeouts, the request timeout on the worker, a 5-minute janitor (fails jobs silent for 60 min, frees GPU holders when idle), and graceful shutdown that releases the PGlite lock.
+- **Liveness:** function timeouts, a 5-minute janitor (`finish: 4m`, concurrency 1; fails only `running` jobs silent for `staleAfterMin`, frees GPU holders when idle), `generate-ads` `onFailure`, and graceful shutdown that releases the PGlite lock.
+  - **`server.requestTimeout` bounds request receipt (slow uploads), not handler run time.** It does not guarantee that no request can hang the worker; handlers are short and bounded by their own awaits.
+  - **`onFailure`:** when a `generate-ads` run dies (retries exhausted, a heavy `step.invoke` timing out, `load` failing), `failJob` marks the job `failed` with `error: { stage: 'inngest', reason }` and one progress entry, only if it is still `queued` or `running`. A completed job is never overwritten; `finalize` likewise writes only while the job is `running`, so a janitor-failed job is not resurrected.
+  - **Enqueue failure:** if `inngest.send` throws, the job is failed with `stage: 'enqueue'` and the API returns 503; the event is sent with `id: jobId` for dedupe.
+  - **b-roll is never fatal:** a throwing `heavy-broll` invoke yields no b-roll and a warning `b-roll unavailable: <reason>`.
+  - **Values:** `broll.pollDeadlineMs = 480_000` (8 min) so 3 variants x 2 attempts x 8 min = 48 min fits under the `heavy-broll` 60 min `finish`; `jobs.staleAfterMin = 120` so a long, legitimately silent heavy step (queued behind the lane) is not janitor-failed (was 900_000 / 60).
+  - **Memoization is per batch, not per call:** each heavy invoke is one `step.run`, so a throw mid-batch re-runs the whole batch and regenerates earlier items; ComfyUI `promptIdFor` dedupe softens the cost.
 
 ## Measured (`pnpm e2e:pipeline krishna-special-hing`, b-roll off, English, 4 photos)
 - **Total:** 5.3 min wall, `COMPLETED`, 3/3 variants, no warnings, no partial success. Cost ~$0.22 (Strategist + Director on the subscription; `repairs=0`).

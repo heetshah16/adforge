@@ -18,7 +18,7 @@ for (const w of dataDirWarnings(env.ADFORGE_DATA_DIR)) console.warn(`WARN ${w}`)
 
 const { deps, storage, close } = await buildDeps(env);
 const inngestHandler = serve({ client: inngest, functions: createFunctions(deps) });
-const routes = makeRoutes({ deps, storage, sendEvent: async (name, data) => { await inngest.send({ name, data: data as Record<string, unknown> }); } });
+const routes = makeRoutes({ deps, storage, sendEvent: async (name, data, id) => { await inngest.send({ name, data: data as Record<string, unknown>, ...(id ? { id } : {}) }); } });
 const base = `http://127.0.0.1:${env.ADFORGE_WORKER_PORT}`;
 
 const server = createServer(async (req, res) => {
@@ -48,9 +48,12 @@ const server = createServer(async (req, res) => {
     else res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'internal error' }));
   }
 });
-server.requestTimeout = 120_000; // liveness: no request may hang the worker
+server.requestTimeout = 120_000; // bounds request *receipt* (slow uploads), not handler run time
 server.listen(env.ADFORGE_WORKER_PORT, '127.0.0.1', () => console.log(`worker on ${base}`));
 
 const shutdown = makeShutdown({ server, close, exit: (c) => process.exit(c) });
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
+// Windows: console window closed / Ctrl-Break.
+process.on('SIGHUP', () => void shutdown('SIGHUP'));
+process.on('SIGBREAK', () => void shutdown('SIGBREAK'));
