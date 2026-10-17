@@ -1,0 +1,1 @@
+ALTER TYPE "public"."variant_status" ADD VALUE 'approved';

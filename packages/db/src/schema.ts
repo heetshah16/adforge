@@ -17,7 +17,7 @@ const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow()
 export const vocabKind = pgEnum('vocab_kind', ['archetype', 'format', 'hook']);
 export const vocabStatus = pgEnum('vocab_status', ['proposed', 'experimental', 'active', 'retired']);
 export const jobStatus = pgEnum('job_status', ['queued', 'running', 'completed', 'failed']);
-export const variantStatus = pgEnum('variant_status', ['pending', 'running', 'completed', 'failed']);
+export const variantStatus = pgEnum('variant_status', ['pending', 'running', 'completed', 'failed', 'approved']);
 export const callStatus = pgEnum('call_status', ['pending', 'done', 'failed']);
 
 export const users = pgTable('users', {
