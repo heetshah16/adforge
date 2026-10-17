@@ -1,4 +1,4 @@
-import { count, desc, eq, sql } from 'drizzle-orm';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { createClient } from '@supabase/supabase-js';
 import { memberships, orgs, waitlist } from '@adforge/db/schema';
 import type { Db } from '@adforge/db/client';
@@ -26,7 +26,7 @@ export async function getWaitlistEntry(db: Db, id: string): Promise<WaitlistEntr
 }
 
 export const markInvited = (db: Db, id: string) =>
-  db.update(waitlist).set({ status: 'invited', invitedAt: sql`now()` }).where(eq(waitlist.id, id)).then(() => undefined);
+  db.update(waitlist).set({ status: 'invited', invitedAt: sql`now()` }).where(and(eq(waitlist.id, id), eq(waitlist.status, 'new'))).then(() => undefined);
 
 export const adminWaitlist = async () => listWaitlist(await getDb());
 export const adminOrgs = async () => listOrgsWithCounts(await getDb());

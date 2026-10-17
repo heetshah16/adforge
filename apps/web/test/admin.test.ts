@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '@adforge/db/client';
-import { waitlist } from '@adforge/db/schema';
+import { memberships, orgs, users, waitlist } from '@adforge/db/schema';
 import { inviteHandler, type AdminCtx } from '../lib/server/admin-api';
 import { getWaitlistEntry, listOrgsWithCounts, listWaitlist, markInvited } from '../lib/server/admin-owner';
 
@@ -33,7 +33,7 @@ describe('admin invite (pglite)', () => {
       get: (id) => getWaitlistEntry(h.db, id),
       markInvited: (id) => markInvited(h.db, id),
       invite: async (email, redirectTo) => {
-        if (inviteError) throw new Error('boom');
+        if (inviteError) throw new Error('rate limit exceeded');
         calls.push({ email, redirectTo });
       },
     };
@@ -104,13 +104,33 @@ describe('admin invite (pglite)', () => {
     const w = await add('fail@x.com');
     inviteError = true;
     expect((await inviteHandler(ctx, post({ waitlistId: w.id }))).status).toBe(502);
+    expect((await (await inviteHandler(ctx, post({ waitlistId: w.id }))).json()).error).toContain('rate limit exceeded');
     const r = await row(w.id);
     expect([r.status, r.invitedAt]).toEqual(['new', null]);
   });
 
-  it('lists waitlist newest first and orgs with member counts', async () => {
-    const list = await listWaitlist(h.db);
-    for (let i = 1; i < list.length; i++) expect(list[i - 1]!.createdAt >= list[i]!.createdAt).toBe(true);
-    expect(Array.isArray(await listOrgsWithCounts(h.db))).toBe(true);
+  it('markInvited never moves a joined row back to invited', async () => {
+    const w = await add('guard@x.com');
+    await h.db.update(waitlist).set({ status: 'joined' }).where(eq(waitlist.id, w.id));
+    await markInvited(h.db, w.id);
+    expect((await row(w.id)).status).toBe('joined');
+  });
+
+  it('lists waitlist newest first (exact order)', async () => {
+    const ids: string[] = [];
+    for (const [i, d] of [[1, '2030-01-01'], [2, '2030-03-01'], [3, '2030-02-01']] as const) {
+      const [r] = await h.db.insert(waitlist).values({ name: 'N', email: `ord${i}@x.com`, brand: 'B', category: 'C', country: 'IN', createdAt: new Date(d) }).returning();
+      ids.push(r!.id);
+    }
+    const got = (await listWaitlist(h.db)).filter((r) => ids.includes(r.id)).map((r) => r.id);
+    expect(got).toEqual([ids[1], ids[2], ids[0]]);
+  });
+
+  it('org member counts are exact', async () => {
+    const [a, b] = await h.db.insert(orgs).values([{ name: 'CountA' }, { name: 'CountB' }]).returning();
+    const us = await h.db.insert(users).values([{ email: 'm1@x.com' }, { email: 'm2@x.com' }]).returning();
+    await h.db.insert(memberships).values(us.map((u) => ({ orgId: a!.id, userId: u.id, role: 'member' as const })));
+    const got = (await listOrgsWithCounts(h.db)).filter((o) => [a!.id, b!.id].includes(o.id));
+    expect(Object.fromEntries(got.map((o) => [o.name, o.members]))).toEqual({ CountA: 2, CountB: 0 });
   });
 });

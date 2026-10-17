@@ -27,9 +27,15 @@ export async function inviteHandler(ctx: AdminCtx, req: Request): Promise<Respon
   if (entry.status !== 'new') return json({ ok: true, status: entry.status });
   try {
     await ctx.invite(entry.email, new URL('/auth/confirm', ctx.siteUrl).toString());
-  } catch {
-    return json({ error: 'invite failed' }, 502);
+  } catch (e) {
+    console.warn('inviteUserByEmail:', (e as Error).message);
+    return json({ error: `invite failed: ${(e as Error).message}` }, 502);
   }
-  await ctx.markInvited(entry.id);
+  try {
+    await ctx.markInvited(entry.id);
+  } catch (e) {
+    console.error(`markInvited failed after a successful invite (waitlist ${entry.id}):`, e);
+    return json({ error: 'invite sent but status update failed' }, 500);
+  }
   return json({ ok: true, status: 'invited' });
 }
