@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
-export const WORKER = (process.env.NEXT_PUBLIC_WORKER_URL ?? 'http://127.0.0.1:3001').replace(/\/+$/, '');
 const T = () => AbortSignal.timeout(10_000);
+/** Same-origin /api routes. A 401 means the session ended: go sign in again. */
+const signedOut = (res: Response) => { if (res.status === 401 && typeof location !== 'undefined') location.assign('/signin'); };
 
 const Progress = z.object({ stage: z.string(), status: z.enum(['running', 'done', 'failed', 'skipped']), at: z.string(), detail: z.string().optional() });
 const Variant = z.object({
@@ -19,19 +20,22 @@ const JobViewSchema = z.object({
 export type JobView = z.infer<typeof JobViewSchema>;
 
 export async function createJob(form: FormData, fetchImpl: typeof fetch = fetch) {
-  const res = await fetchImpl(`${WORKER}/api/jobs`, { method: 'POST', body: form, signal: T() });
+  const res = await fetchImpl(`/api/jobs`, { method: 'POST', body: form, signal: T() });
+  signedOut(res);
   const body = (await res.json().catch(() => ({}))) as { jobId?: string; error?: string; issues?: Record<string, string[]> };
   if (res.status === 202 && body.jobId) return { ok: true as const, jobId: body.jobId };
   return { ok: false as const, error: body.error ?? `upload failed (HTTP ${res.status})`, ...(body.issues ? { issues: body.issues } : {}) };
 }
 
 export async function getJob(id: string, fetchImpl: typeof fetch = fetch): Promise<JobView> {
-  const res = await fetchImpl(`${WORKER}/api/jobs/${encodeURIComponent(id)}`, { signal: T() });
+  const res = await fetchImpl(`/api/jobs/${encodeURIComponent(id)}`, { signal: T() });
+  signedOut(res);
   if (!res.ok) throw new Error(`job ${id}: HTTP ${res.status}`);
   return JobViewSchema.parse(await res.json());
 }
 
 export async function approveVariant(id: string, n: number, fetchImpl: typeof fetch = fetch): Promise<void> {
-  const res = await fetchImpl(`${WORKER}/api/jobs/${encodeURIComponent(id)}/variants/${n}/approve`, { method: 'POST', signal: T() });
+  const res = await fetchImpl(`/api/jobs/${encodeURIComponent(id)}/variants/${n}/approve`, { method: 'POST', signal: T() });
+  signedOut(res);
   if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `approve failed (HTTP ${res.status})`);
 }

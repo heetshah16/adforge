@@ -10,10 +10,14 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@adforge/core": "workspace:*",
     "@adforge/db": "workspace:*",
-    "drizzle-orm": "catalog:",
+    "@adforge/pipeline": "workspace:*",
+    "@adforge/provider-local-storage": "workspace:*",
     "@supabase/ssr": "catalog:",
     "@supabase/supabase-js": "catalog:",
+    "drizzle-orm": "catalog:",
+    "inngest": "catalog:",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

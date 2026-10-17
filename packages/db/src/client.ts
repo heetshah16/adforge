@@ -12,7 +12,7 @@ import postgres from 'postgres';
 import type { Env } from '@adforge/core/config/env';
 import * as schema from './schema';
 
-const MIGRATIONS = fileURLToPath(new URL('../drizzle', import.meta.url));
+const MIGRATIONS = join(fileURLToPath(import.meta.url), '..', '..', 'drizzle');
 
 function makeDb(client: PGlite) {
   return drizzle({ client, schema, casing: 'snake_case' });

@@ -31,7 +31,7 @@ describe('requireUserWith', () => {
     const userId = randomUUID();
     const email = `Boss-${userId}@Example.test`;
     const u = await requireUserWith({ supabase: fake({ data: { claims: { sub: userId, email } }, error: null }), provision: prov({ adminEmails: [email.toLowerCase()], prod: false }) });
-    expect(u).toEqual({ userId, email: email.toLowerCase(), isAdmin: true });
+    expect(u).toEqual({ userId, email: email.toLowerCase(), isAdmin: true, orgId: expect.any(String) });
     expect(await h.db.select().from(users).where(eq(users.id, userId))).toHaveLength(1);
   });
   it('prod, uninvited -> redirect /waitlist; email owned by another id -> /signin?error=conflict', async () => {

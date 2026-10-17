@@ -25,7 +25,7 @@ export default function UploadPage() {
       if (r.ok) router.push(`/jobs/${r.jobId}`);
       else setErrors([r.error, ...Object.values(r.issues ?? {}).flat()]);
     } catch (err) {
-      setErrors([`Could not reach the worker: ${(err as Error).message}`]);
+      setErrors([`Could not reach the server: ${(err as Error).message}`]);
     } finally {
       setBusy(false);
     }
