@@ -20,7 +20,7 @@ const post = (body: FormData, headers?: Record<string, string>) => new Request('
 async function setup() {
   const m = await makeDeps();
   const sent: unknown[] = [];
-  const routes = makeRoutes({ deps: m.deps, storage: m.deps.storage as LocalDiskStorage, sendEvent: async (name, data) => { sent.push({ name, data }); } });
+  const routes = makeRoutes({ deps: m.deps, operator: m.op, storage: m.deps.storage as LocalDiskStorage, sendEvent: async (name, data) => { sent.push({ name, data }); } });
   return { ...m, routes, sent };
 }
 
@@ -28,7 +28,7 @@ describe('createJob enqueue failure', () => {
   it('sendEvent throwing -> 503 and the job is failed', async () => {
     const m = await makeDeps();
     try {
-      const routes = makeRoutes({ deps: m.deps, storage: m.deps.storage as LocalDiskStorage, sendEvent: async () => { throw new Error('inngest down'); } });
+      const routes = makeRoutes({ deps: m.deps, operator: m.op, storage: m.deps.storage as LocalDiskStorage, sendEvent: async () => { throw new Error('inngest down'); } });
       const res = await routes.createJob(post(form()));
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: 'could not queue the job' });
@@ -49,6 +49,8 @@ describe('createJob', () => {
       const [j] = await s.deps.db.select().from(jobs).where(eq(jobs.id, jobId));
       expect(j!.inputSpec).toMatchObject({ product: { name: 'Glow Rx Serum', brand: 'Glow Rx' }, language: 'en', broll: true });
       expect((j!.inputSpec as { photoKeys: string[] }).photoKeys).toHaveLength(3);
+      expect(j).toMatchObject({ orgId: s.op.orgId, projectId: s.op.projectId, userId: s.op.userId });
+      expect((await s.deps.db.select().from(assets)).map((a) => a.orgId)).toEqual([s.op.orgId, s.op.orgId, s.op.orgId]);
       expect(s.sent).toEqual([{ name: 'adforge/job.requested', data: { jobId } }]);
     } finally { await s.close(); }
   });
@@ -141,7 +143,7 @@ describe('approve', () => {
     const { jobId } = (await (await s.routes.createJob(post(form()))).json()) as { jobId: string };
     for (const n of [1, 2, 3]) {
       await s.deps.db.insert(variants).values({
-        jobId, variantNo: n, formatSlug: 'problem_solution', hookSlug: 'curiosity_gap', archetypeSlug: 'remedy',
+        orgId: s.op.orgId, jobId, variantNo: n, formatSlug: 'problem_solution', hookSlug: 'curiosity_gap', archetypeSlug: 'remedy',
         visualTreatment: 'macro_texture', strategicBet: `bet ${n}`, status: n === 3 ? 'failed' : 'completed',
         ...(n === 3 ? { error: { why: 'voice synthesis timed out' } } : {}),
       });

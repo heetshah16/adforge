@@ -8,7 +8,7 @@ import { shortlist, type Shortlist } from '@adforge/core/vocab/shortlist';
 import { loadRegistry } from '@adforge/db/registry';
 import { jobs, providerCalls, variants } from '@adforge/db/schema';
 import { markProgress, setJobStatus } from './progress';
-import { recordCall } from './record';
+import { orgOfJob, recordCall } from './record';
 import { buildConfigSnapshot } from './snapshot';
 import type { JobInput, PipelineDeps, StepLike } from './types';
 import { toWire } from './wire';
@@ -97,7 +97,7 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
     const exp = (list as Shortlist).experimental;
     for (const v of d.output.variants) {
       await db.insert(variants).values({
-        jobId, variantNo: v.variant_no, formatSlug: v.format, hookSlug: v.hook_archetype, archetypeSlug: brief.brief.archetype_primary,
+        orgId: orgOfJob(jobId), jobId, variantNo: v.variant_no, formatSlug: v.format, hookSlug: v.hook_archetype, archetypeSlug: brief.brief.archetype_primary,
         visualTreatment: v.visual_treatment, strategicBet: v.strategic_bet,
         isExploratory: !!exp && v.variant_no === 3, direction: v, status: 'running',
       }).onConflictDoNothing();

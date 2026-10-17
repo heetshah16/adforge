@@ -24,8 +24,12 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const bad = (error: string, issues?: unknown) => json({ error, issues }, 400);
 const sniff = (b: Uint8Array, type: keyof typeof TYPES) => TYPES[type].every((x, i) => b[i] === x) && (type !== 'image/webp' || String.fromCharCode(...b.slice(8, 12)) === 'WEBP');
 
-export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage; sendEvent(name: string, data: unknown, id?: string): Promise<void> }) {
-  const { deps, storage } = ctx;
+/** `operator` (seedOperator's ids) owns every job the dev route creates. */
+export function makeRoutes(ctx: {
+  deps: PipelineDeps; storage: LocalDiskStorage; operator: { orgId: string; userId: string; projectId: string };
+  sendEvent(name: string, data: unknown, id?: string): Promise<void>;
+}) {
+  const { deps, storage, operator } = ctx;
 
   return {
     async health() {
@@ -56,12 +60,12 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
       const photoKeys: string[] = [];
       for (const { bytes, type } of loaded) {
         const ref = await storage.put(bytes, { mime: type });
-        await saveAsset(deps.db, deps.projectId, 'upload', ref);
+        await saveAsset(deps.db, operator, 'upload', ref);
         photoKeys.push(ref.id);
       }
       const f = fields.data;
       const [job] = await deps.db.insert(jobs).values({
-        projectId: deps.projectId, userId: deps.userId,
+        ...operator,
         inputSpec: { product: { name: f.name, price: f.price, description: f.description, ...(f.brand ? { brand: f.brand } : {}) }, language: f.language, broll: f.broll, photoKeys },
       }).returning();
       try {

@@ -7,7 +7,7 @@ import type { DirectorOutput } from '@adforge/core/llm/schemas';
 import { ProviderError, type MediaRef, type ProviderResult } from '@adforge/core/providers/types';
 import { jobs } from '@adforge/db/schema';
 import { openDb } from '@adforge/db/client';
-import { seedLocalUser, seedVocabulary } from '@adforge/db/seed/seed';
+import { seedOperator, seedVocabulary } from '@adforge/db/seed/seed';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
 import type { PipelineDeps } from '../src/types';
 
@@ -35,7 +35,7 @@ export interface FakeControls {
 export async function makeDeps(ctl: FakeControls = {}) {
   const { db, close } = await openDb();
   await seedVocabulary(db);
-  const { userId, projectId } = await seedLocalUser(db);
+  const op = await seedOperator(db);
   const storage = new LocalDiskStorage(join(mkdtempSync(join(tmpdir(), 'adforge-pipe-')), 'media'), 'http://localhost:3000');
   const calls = { image: 0, cutout: 0, videoSubmit: 0, videoPoll: 0, tts: 0, align: 0, render: 0, llm: 0, free: 0, unload: 0 };
   let n = 0;
@@ -45,7 +45,7 @@ export async function makeDeps(ctl: FakeControls = {}) {
   const director = ctl.director ?? [anchor()];
 
   const deps: PipelineDeps = {
-    db, storage, userId, projectId,
+    db, storage,
     env: parseEnv({}),
     sleep: async () => {},
     comfy: {
@@ -85,11 +85,11 @@ export async function makeDeps(ctl: FakeControls = {}) {
       },
     },
   };
-  return { deps, calls, close };
+  return { deps, calls, close, op };
 }
 
-/** A real jobs row (provider_calls.jobId is a foreign key). */
+/** A real jobs row in the Operator org (provider_calls.jobId is a foreign key; the job row scopes every write). */
 export async function jobRow(deps: PipelineDeps): Promise<string> {
-  const [j] = await deps.db.insert(jobs).values({ projectId: deps.projectId, userId: deps.userId, inputSpec: {} }).returning();
+  const [j] = await deps.db.insert(jobs).values({ ...(await seedOperator(deps.db)), inputSpec: {} }).returning();
   return j!.id;
 }

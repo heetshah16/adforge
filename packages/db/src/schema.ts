@@ -5,6 +5,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -19,15 +20,58 @@ export const vocabStatus = pgEnum('vocab_status', ['proposed', 'experimental', '
 export const jobStatus = pgEnum('job_status', ['queued', 'running', 'completed', 'failed']);
 export const variantStatus = pgEnum('variant_status', ['pending', 'running', 'completed', 'failed', 'approved']);
 export const callStatus = pgEnum('call_status', ['pending', 'done', 'failed']);
+export const membershipRole = pgEnum('membership_role', ['owner', 'member']);
+export const waitlistStatus = pgEnum('waitlist_status', ['new', 'invited', 'joined']);
 
+/**
+ * `id` equals the Supabase `auth.users.id` of the same person. There is no FK: `auth` is
+ * Supabase's schema (absent on PGlite), so provisioning writes the id explicitly. The default only serves local seeds.
+ */
 export const users = pgTable('users', {
   id: id(),
   email: text().notNull().unique(),
+  isAdmin: boolean().notNull().default(false),
   createdAt: createdAt(),
+});
+
+// --- tenancy -----------------------------------------------------------------
+// Every tenant row carries org_id: it is what RLS filters on.
+
+export const orgs = pgTable('orgs', {
+  id: id(),
+  name: text().notNull(),
+  createdAt: createdAt(),
+});
+
+export const memberships = pgTable(
+  'memberships',
+  {
+    orgId: uuid().notNull().references(() => orgs.id),
+    userId: uuid().notNull().references(() => users.id),
+    role: membershipRole().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.userId] })],
+);
+
+/** Public sign-up queue; not tenant data (admin-only under RLS). */
+export const waitlist = pgTable('waitlist', {
+  id: id(),
+  name: text().notNull(),
+  email: text().notNull().unique(),
+  brand: text().notNull(),
+  website: text(),
+  category: text().notNull(),
+  country: text().notNull(),
+  note: text(),
+  status: waitlistStatus().notNull().default('new'),
+  createdAt: createdAt(),
+  invitedAt: timestamp({ withTimezone: true }),
 });
 
 export const projects = pgTable('projects', {
   id: id(),
+  orgId: uuid().notNull().references(() => orgs.id),
   userId: uuid().notNull().references(() => users.id),
   name: text().notNull(),
   brandKit: jsonb().notNull().default({}),
@@ -38,6 +82,7 @@ export const assets = pgTable(
   'assets',
   {
     id: id(),
+    orgId: uuid().notNull().references(() => orgs.id),
     projectId: uuid().notNull().references(() => projects.id),
     kind: text().notNull(), // upload | cutout | plate | broll | voice | render
     storageKey: text().notNull(),
@@ -50,8 +95,16 @@ export const assets = pgTable(
     sourceUrl: text(),
     createdAt: createdAt(),
   },
-  (t) => [unique().on(t.projectId, t.sha256)],
+  (t) => [unique().on(t.orgId, t.sha256)],
 );
+
+export const products = pgTable('products', {
+  id: id(),
+  orgId: uuid().notNull().references(() => orgs.id),
+  projectId: uuid().notNull().references(() => projects.id),
+  name: text().notNull(),
+  createdAt: createdAt(),
+});
 
 // --- the adaptive vocabulary (architecture §5.1) ----------------------------
 // Slugs are the attribution key: never renamed, never reused, never deleted.
@@ -111,6 +164,7 @@ export type ProgressEntry = { stage: string; status: 'running' | 'done' | 'faile
 
 export const jobs = pgTable('jobs', {
   id: id(),
+  orgId: uuid().notNull().references(() => orgs.id),
   projectId: uuid().notNull().references(() => projects.id),
   userId: uuid().notNull().references(() => users.id),
   status: jobStatus().notNull().default('queued'),
@@ -132,6 +186,7 @@ export const variants = pgTable(
   'variants',
   {
     id: id(),
+    orgId: uuid().notNull().references(() => orgs.id),
     jobId: uuid().notNull().references(() => jobs.id),
     variantNo: integer().notNull(),
     formatSlug: text().notNull(),
@@ -153,6 +208,7 @@ export const variants = pgTable(
 
 export const providerCalls = pgTable('provider_calls', {
   id: id(),
+  orgId: uuid().notNull().references(() => orgs.id),
   jobId: uuid().references(() => jobs.id),
   variantId: uuid().references(() => variants.id),
   kind: text().notNull(),

@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDb, openDbForEnv, type Db } from '../src/client';
 import * as schema from '../src/schema';
-import { jobs, projects, providerCalls, users } from '../src/schema';
+import { jobs, providerCalls } from '../src/schema';
+import { seedOperator } from '../src/seed/seed';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -14,10 +15,9 @@ afterEach(() => {
 
 async function seedJob() {
   const { db, close } = await openDb();
-  const [u] = await db.insert(users).values({ email: 't@x.dev' }).returning();
-  const [p] = await db.insert(projects).values({ userId: u!.id, name: 'p' }).returning();
-  const [j] = await db.insert(jobs).values({ projectId: p!.id, userId: u!.id, inputSpec: {} }).returning();
-  return { db, close, jobId: j!.id };
+  const op = await seedOperator(db);
+  const [j] = await db.insert(jobs).values({ ...op, inputSpec: {} }).returning();
+  return { db, close, jobId: j!.id, orgId: op.orgId };
 }
 
 describe('openDb', () => {
@@ -30,8 +30,8 @@ describe('openDb', () => {
   });
 
   it('enforces the provider_calls idempotency key', async () => {
-    const { db, close, jobId } = await seedJob();
-    const call = { jobId, kind: 'image', provider: 'comfyui', requestHash: 'h', idempotencyKey: 'k1' };
+    const { db, close, jobId, orgId } = await seedJob();
+    const call = { orgId, jobId, kind: 'image', provider: 'comfyui', requestHash: 'h', idempotencyKey: 'k1' };
     await db.insert(providerCalls).values(call);
     await expect(db.insert(providerCalls).values(call)).rejects.toMatchObject({ cause: { message: expect.stringMatching(/duplicate key.*provider_calls_idempotencyKey_unique/) } });
     await close();

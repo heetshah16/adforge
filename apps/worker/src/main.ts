@@ -16,9 +16,9 @@ try {
 const env = parseEnv(process.env);
 for (const w of dataDirWarnings(env.ADFORGE_DATA_DIR)) console.warn(`WARN ${w}`);
 
-const { deps, storage, close } = await buildDeps(env);
+const { deps, storage, operator, close } = await buildDeps(env);
 const inngestHandler = serve({ client: inngest, functions: createFunctions(deps) });
-const routes = makeRoutes({ deps, storage, sendEvent: async (name, data, id) => { await inngest.send({ name, data: data as Record<string, unknown>, ...(id ? { id } : {}) }); } });
+const routes = makeRoutes({ deps, storage, operator, sendEvent: async (name, data, id) => { await inngest.send({ name, data: data as Record<string, unknown>, ...(id ? { id } : {}) }); } });
 const base = `http://127.0.0.1:${env.ADFORGE_WORKER_PORT}`;
 
 const server = createServer(makeHandler({ routes, inngestHandler, env }));

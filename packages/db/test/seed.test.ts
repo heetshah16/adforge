@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../src/client';
-import { archetypes, formats, hookArchetypes, projects, users, vocabFamilies } from '../src/schema';
-import { seedLocalUser, seedVocabulary } from '../src/seed/seed';
+import { archetypes, formats, hookArchetypes, vocabFamilies } from '../src/schema';
+import { seedVocabulary } from '../src/seed/seed';
 import { VOCAB, type VocabSeed } from '../src/seed/vocabulary';
 
 const clone = (): VocabSeed => structuredClone(VOCAB);
@@ -68,18 +68,6 @@ describe('seedVocabulary', () => {
     vocab.hooks[0]!.family = 'narrative_arc';
     await expect(seedVocabulary(db, vocab)).rejects.toThrow(/narrative_arc.*format.*hook/);
     expect(await db.$count(vocabFamilies)).toBe(0); // rolled back
-    await close();
-  });
-});
-
-describe('seedLocalUser', () => {
-  it('creates one user and one project, idempotently', async () => {
-    const { db, close } = await openDb();
-    const a = await seedLocalUser(db);
-    const b = await seedLocalUser(db);
-    expect(b).toEqual(a);
-    expect(await db.$count(users)).toBe(1);
-    expect(await db.$count(projects)).toBe(1);
     await close();
   });
 });
