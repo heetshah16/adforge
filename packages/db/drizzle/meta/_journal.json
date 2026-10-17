@@ -64,6 +64,13 @@
       "when": 1792254097281,
       "tag": "0008_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792254745927,
+      "tag": "0009_narrow_user_grants",
+      "breakpoints": true
     }
   ]
 }

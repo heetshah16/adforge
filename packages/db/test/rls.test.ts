@@ -12,13 +12,31 @@ const url = process.env.ADFORGE_TEST_DATABASE_URL;
 
 /** Tables without org_id. Each is covered by its own policy; adding a table means adding it here or giving it org_id. */
 const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes'];
-const CRUD = ['projects', 'products', 'assets', 'jobs', 'variants'] as const;
-/** Creation order: parents first. */
+/** Every org_id table, in creation order (parents first). The coverage test fails if the schema gains one not listed. */
 const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls'] as const;
 type Tenant = (typeof TENANT)[number];
 type Fixture = { org: string; user: string } & Record<Tenant, string>;
 
-const isCrud = (t: Tenant) => (CRUD as readonly string[]).includes(t);
+/** What a member writes directly (migration 0009); everything else is the worker's, on the owner connection. */
+const INSERTABLE: readonly Tenant[] = ['projects', 'products', 'assets', 'jobs'];
+const UPDATABLE: Partial<Record<Tenant, string>> = { projects: 'name', products: 'name', variants: 'status' };
+/** authenticated's exact privileges per public table; column-level UPDATE shown as UPDATE(cols). */
+const PRIVILEGES: Record<string, string[]> = {
+  projects: ['SELECT', 'INSERT', 'UPDATE(brand_kit,name)'],
+  products: ['SELECT', 'INSERT', 'UPDATE(name)'],
+  assets: ['SELECT', 'INSERT'],
+  jobs: ['SELECT', 'INSERT'],
+  variants: ['SELECT', 'UPDATE(status)'],
+  provider_calls: ['SELECT'],
+  orgs: ['SELECT'],
+  memberships: ['SELECT'],
+  users: ['SELECT'],
+  waitlist: ['SELECT', 'UPDATE'],
+  vocab_families: ['SELECT'],
+  archetypes: ['SELECT'],
+  formats: ['SELECT'],
+  hook_archetypes: ['SELECT'],
+};
 
 /** PGlite returns { rows }, postgres-js returns the row array directly. */
 function rows<T>(r: unknown): T[] {
@@ -134,15 +152,34 @@ describe.each(backends)('RLS on %s', (_name, open) => {
       if ('orgId' in getTableColumns(t)) expect(r!.policies, `${name} has policies`).toBeGreaterThan(0);
       else expect(NON_TENANT, `${name} has no org_id`).toContain(name);
     }
+    // A new org_id table must join TENANT, which gives it the per-table behaviour tests below.
+    // memberships is the exception: it is the tenancy link itself, policied per user (tested further down).
+    const orgTables = tables.filter((t) => 'orgId' in getTableColumns(t)).map(getTableName).filter((n) => n !== 'memberships');
+    expect(orgTables.sort()).toEqual([...TENANT].sort());
     // Tables created outside the Drizzle schema are covered too.
     expect(dbTables.filter((r) => !r.rls).map((r) => r.name)).toEqual([]);
-    // TRUNCATE (and TRIGGER/REFERENCES) bypass RLS, so neither role may hold them; anon holds nothing at all.
-    const grants = rows<{ name: string }>(await db.execute(sql`
+    // anon holds nothing at all.
+    const anon = rows<{ name: string }>(await db.execute(sql`
       select relname as name from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'
-        and (has_table_privilege('anon', oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-          or has_table_privilege('authenticated', oid, 'TRUNCATE,REFERENCES,TRIGGER'))
+        and has_table_privilege('anon', oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     `));
-    expect(grants).toEqual([]);
+    expect(anon).toEqual([]);
+    // authenticated holds exactly PRIVILEGES. TRUNCATE (and TRIGGER/REFERENCES) bypass RLS, so they would show up here.
+    const privs = rows<{ name: string; privs: string[] }>(await db.execute(sql`
+      select c.relname as name, array_remove(array[
+        case when has_table_privilege('authenticated', c.oid, 'SELECT') then 'SELECT' end,
+        case when has_table_privilege('authenticated', c.oid, 'INSERT') then 'INSERT' end,
+        case when has_table_privilege('authenticated', c.oid, 'UPDATE') then 'UPDATE' end,
+        case when has_table_privilege('authenticated', c.oid, 'DELETE') then 'DELETE' end,
+        case when has_table_privilege('authenticated', c.oid, 'TRUNCATE,REFERENCES,TRIGGER') then 'TRUNCATE/REFERENCES/TRIGGER' end,
+        case when not has_table_privilege('authenticated', c.oid, 'UPDATE') and has_any_column_privilege('authenticated', c.oid, 'UPDATE')
+          then 'UPDATE(' || (select string_agg(a.attname::text, ',' order by a.attname) from pg_attribute a
+            where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+              and has_column_privilege('authenticated', c.oid, a.attnum, 'UPDATE')) || ')' end
+      ], null) as privs
+      from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
+    `));
+    expect(Object.fromEntries(privs.map((r) => [r.name, r.privs]))).toEqual(PRIVILEGES);
   });
 
   for (const t of TENANT) {
@@ -154,25 +191,28 @@ describe.each(backends)('RLS on %s', (_name, open) => {
         expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select id from ${T} where org_id = ${b.org}`)))).toBe(0);
       });
 
-      it(`a member of A updates and deletes 0 of B's rows`, async () => {
-        const expected = isCrud(t) ? 0 : 'denied';
-        const upd = withUser(db, a.user, (u) => u.execute(sql`update ${T} set org_id = org_id where id = ${b[t]} returning id`));
-        expect(await affected(upd)).toBe(expected);
-        const del = withUser(db, a.user, (u) => u.execute(sql`delete from ${T} where id = ${b[t]} returning id`));
-        expect(await affected(del)).toBe(expected);
-        expect(await affected(db.execute(sql`select id from ${T} where id = ${b[t]}`))).toBe(1); // still there
-        if (isCrud(t)) {
-          const own = withUser(db, a.user, (u) => u.execute(sql`update ${T} set org_id = org_id where id = ${a[t]} returning id`));
-          expect(await affected(own)).toBe(1);
+      const update = (id: string, column: string) => withUser(db, a.user, (u) =>
+        u.execute(sql`update ${T} set ${sql.identifier(column)} = ${sql.identifier(column)} where id = ${id} returning id`));
+
+      it(`a member of A updates and deletes 0 of B's rows, and never moves a row between orgs`, async () => {
+        const col = UPDATABLE[t];
+        if (col) {
+          expect(await affected(update(b[t], col))).toBe(0); // granted, so RLS is what filters it
+          expect(await affected(update(a[t], col))).toBe(1);
         }
+        expect(await affected(update(b[t], 'org_id'))).toBe('denied');
+        expect(await affected(update(a[t], 'org_id'))).toBe('denied');
+        const del = withUser(db, a.user, (u) => u.execute(sql`delete from ${T} where id = ${b[t]} returning id`));
+        expect(await affected(del)).toBe('denied');
+        expect(await affected(db.execute(sql`select id from ${T} where id = ${b[t]}`))).toBe(1); // still there
       });
 
       it(`a member of A cannot insert a row with org_id = B`, async () => {
         // B's own parents, so only RLS can refuse it.
         expect(await errorCode(withUser(db, a.user, (u) => ROW[t](u, { ...b, user: a.user }, randomUUID())))).toBe('42501');
         const own = withUser(db, a.user, (u) => ROW[t](u, a, randomUUID()));
-        if (isCrud(t)) await own;
-        else expect(await errorCode(own)).toBe('42501'); // provider_calls is select-only
+        if (INSERTABLE.includes(t)) await own;
+        else expect(await errorCode(own)).toBe('42501'); // written by the worker only
       });
 
       if (t !== 'projects') {
@@ -218,9 +258,21 @@ describe.each(backends)('RLS on %s', (_name, open) => {
       rows<{ u: string; uid: string }>(await u.execute(sql`select current_user as u, auth.uid() as uid`))[0]);
     expect(inside).toEqual({ u: 'authenticated', uid: a.user });
     await expect(withUser(db, a.user, async () => { throw new Error('boom'); })).rejects.toThrow('boom');
-    const [after] = rows<{ u: string; claims: string | null }>(
-      await db.execute(sql`select current_user as u, nullif(current_setting('request.jwt.claims', true), '') as claims`),
-    );
-    expect(after).toEqual({ u: owner!.u, claims: null });
+    const [after] = rows<{ u: string; claims: string | null; sub: string | null }>(await db.execute(sql`
+      select current_user as u, nullif(current_setting('request.jwt.claims', true), '') as claims,
+        nullif(current_setting('request.jwt.claim.sub', true), '') as sub
+    `));
+    expect(after).toEqual({ u: owner!.u, claims: null, sub: null });
+  });
+
+  it('withUser refuses to run inside a transaction: SET LOCAL would outlive the savepoint', async () => {
+    const nested = withUser(db, a.user, (u) =>
+      // @ts-expect-error a UserDb is not a Db
+      withUser(u, b.user, async () => 'ran as B'));
+    await expect(nested).rejects.toThrow('withUser must not be nested in a transaction');
+    const inTx = db.transaction((tx) =>
+      // @ts-expect-error a transaction is not a Db
+      withUser(tx, a.user, async () => 'ran as A'));
+    await expect(inTx).rejects.toThrow('withUser must not be nested in a transaction');
   });
 });
