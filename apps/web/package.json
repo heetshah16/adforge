@@ -6,7 +6,7 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "test": "vitest run",
-    "typecheck": "tsc -p .",
+    "typecheck": "next typegen && tsc -p .",
     "e2e": "playwright test"
   },
   "dependencies": {

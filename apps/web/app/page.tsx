@@ -37,7 +37,7 @@ export default function UploadPage() {
       <p className="muted">Upload 3–5 photos. AdForge reads the buying psychology and makes three structurally different ads.</p>
       <form onSubmit={onSubmit} noValidate>
         <label>Product name<input name="name" required maxLength={120} /></label>
-        <label>Brand (optional, the hook must not name it)<input name="brand" maxLength={60} placeholder="Krishna" /></label>
+        <label>Brand (optional, the hook must not name it)<input name="brand" maxLength={60} placeholder="Acme" /></label>
         <label>Price<input name="price" required maxLength={40} placeholder="₹899" /></label>
         <label>Description<textarea name="description" required rows={4} maxLength={2000} /></label>
         <label>Voice-over language
@@ -49,7 +49,7 @@ export default function UploadPage() {
         </label>
         <label>Photos (3–5, PNG/JPEG/WebP, ≤ 5 MB each)<input name="photos" type="file" accept="image/png,image/jpeg,image/webp" multiple required /></label>
         <label style={{ display: 'flex', gap: 8, fontWeight: 400 }}><input name="broll" type="checkbox" /> Add AI b-roll (≈ +14 min)</label>
-        {errors.length > 0 && <ul className="errors" role="alert">{errors.map((x) => <li key={x}>{x}</li>)}</ul>}
+        {errors.length > 0 && <ul className="errors" role="alert">{errors.map((x, i) => <li key={`${i}-${x}`}>{x}</li>)}</ul>}
         <button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Make three ads'}</button>
       </form>
     </>

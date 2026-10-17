@@ -10,15 +10,19 @@ export default function JobPage() {
   const [offline, setOffline] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const errors = useRef(0);
+  const seq = useRef(0);
 
   const load = useCallback(async () => {
+    const n = ++seq.current;
     try {
       const v = await getJob(id);
+      if (n !== seq.current) return v; // a newer request started; drop this stale response
       setView(v);
       setOffline(false);
       errors.current = 0;
       return v;
     } catch {
+      if (n !== seq.current) return null;
       setOffline(true);
       errors.current += 1;
       return null;
@@ -64,13 +68,13 @@ export default function JobPage() {
         </section>
       )}
       {!done && (
-        <ol className="stages" aria-live="polite">
+        <ol className="stages" aria-live="off">
           {stageRows(view.job.progress).map((r) => (
             <li key={r.stage} data-status={r.status}>{r.label} — {r.status}{r.detail ? ` (${r.detail})` : ''}</li>
           ))}
         </ol>
       )}
-      {view.job.status === 'failed' && <p className="errors">This job failed: {JSON.stringify(view.job.error)}</p>}
+      {view.job.status === 'failed' && <p className="errors">{failMessage(view.job.error)}</p>}
       {notice && <p role="status">{notice}</p>}
       {view.variants.length > 0 && (
         <section className="grid" aria-label="Variants">
@@ -90,4 +94,10 @@ export default function JobPage() {
       )}
     </>
   );
+}
+
+function failMessage(error: unknown): string {
+  const e = (error ?? {}) as { reason?: unknown; why?: unknown };
+  const s = typeof e.reason === 'string' ? e.reason : typeof e.why === 'string' ? e.why : null;
+  return s ? `This job failed: ${s}` : 'This job failed — see the worker log.';
 }
