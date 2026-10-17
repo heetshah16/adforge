@@ -81,7 +81,7 @@ export const DEFAULT_PIPELINE: PipelineConfig = {
     hinglishTtsLanguage: 'hi',
     hinglishAsrLanguage: 'hi',
     requestTimeoutMs: 120_000,
-    engineByLanguage: { en: 'chatterbox', hi: 'chatterbox', hinglish: 'chatterbox' },
+    engineByLanguage: { en: 'qwen', hi: 'chatterbox', hinglish: 'chatterbox' }, // en: user listening check 3, ADR 0013
     qwen: {
       speaker: 'Ryan',
       instructExpressiveAbove: 0.75,

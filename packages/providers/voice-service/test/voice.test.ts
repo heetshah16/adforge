@@ -4,6 +4,10 @@ import { ProviderError } from '@adforge/core/providers/types';
 import { VoiceClient } from '../src/client';
 import { asrLanguage, voiceParams } from '../src/params';
 import { createVoiceProviders } from '../src/providers';
+import { DEFAULT_PIPELINE } from '@adforge/core/config/pipeline';
+
+// Chatterbox-client tests: pin the table so they don't follow the en default (qwen).
+const cfg = { ...DEFAULT_PIPELINE, voice: { ...DEFAULT_PIPELINE.voice, engineByLanguage: { en: 'chatterbox' as const, hi: 'chatterbox' as const, hinglish: 'chatterbox' as const } } };
 
 const BASE = 'http://127.0.0.1:8190';
 const fixture = (n: string) => JSON.parse(readFileSync(new URL(`../fixtures/${n}`, import.meta.url), 'utf8'));
@@ -132,7 +136,7 @@ describe('createVoiceProviders', () => {
   it('stores synthesized audio with its measured duration', async () => {
     const storage = memStorage();
     const f = fake({ 'POST /synthesize': () => new Response(new Uint8Array([1, 2]), { headers: { 'x-duration-sec': '2.500000' } }) });
-    const { tts } = createVoiceProviders({ baseUrl: BASE, storage, fetchImpl: f });
+    const { tts } = createVoiceProviders({ baseUrl: BASE, cfg, storage, fetchImpl: f });
     const r = await tts.synthesize({ text: 'hello', language: 'en', emotion: 0.4, idempotencyKey: 'k' });
     expect(r.status === 'done' && r.value).toMatchObject({ mime: 'audio/wav', durationSec: 2.5 });
     expect(f.bodies['POST /synthesize']).toMatchObject({ language_id: 'en' });
@@ -140,7 +144,7 @@ describe('createVoiceProviders', () => {
 
   it('rejects an invalid TTS request before dispatch', async () => {
     const f = fake({});
-    const { tts } = createVoiceProviders({ baseUrl: BASE, storage: memStorage(), fetchImpl: f });
+    const { tts } = createVoiceProviders({ baseUrl: BASE, cfg, storage: memStorage(), fetchImpl: f });
     const r = await tts.synthesize({ text: 'x'.repeat(501), language: 'en', emotion: 0.4, idempotencyKey: 'k' });
     expect(r.status === 'failed' && r.error.code).toBe('INVALID_INPUT');
   });
@@ -163,7 +167,7 @@ describe('createVoiceProviders', () => {
         return json({ text: '', words: [] });
       },
     });
-    const { aligner } = createVoiceProviders({ baseUrl: BASE, storage, fetchImpl: f });
+    const { aligner } = createVoiceProviders({ baseUrl: BASE, cfg, storage, fetchImpl: f });
     for (const language of ['hinglish', 'en'] as const) await aligner.align({ audio: ref, text: 'a', language, idempotencyKey: 'k' });
     await expect(JSON.stringify(forms, null, 2)).toMatchFileSnapshot('./golden/align-form.json');
   });
@@ -172,7 +176,7 @@ describe('createVoiceProviders', () => {
     const storage = memStorage();
     const ref = await storage.put(new Uint8Array([9]), { mime: 'audio/wav' });
     const f = fake({ 'POST /align': () => json({ text: 'a b', words: [{ text: 'a', start: 0.1, end: 0.3 }, { text: 'b', start: 0.3, end: 0.6 }] }) });
-    const { aligner } = createVoiceProviders({ baseUrl: BASE, storage, fetchImpl: f });
+    const { aligner } = createVoiceProviders({ baseUrl: BASE, cfg, storage, fetchImpl: f });
     const r = await aligner.align({ audio: ref, text: 'a b', language: 'en', idempotencyKey: 'k' });
     expect(r.status === 'done' && r.value.words).toEqual([{ text: 'a', startSec: 0.1, endSec: 0.3 }, { text: 'b', startSec: 0.3, endSec: 0.6 }]);
   });
@@ -182,7 +186,7 @@ describe('createVoiceProviders', () => {
       const body = new ReadableStream({ start(c) { c.error(new TypeError('socket reset')); } });
       return new Response(body, { status: 200, headers: { 'x-duration-sec': '1' } });
     }) as typeof fetch;
-    const { tts } = createVoiceProviders({ baseUrl: BASE, storage: memStorage(), fetchImpl: reset });
+    const { tts } = createVoiceProviders({ baseUrl: BASE, cfg, storage: memStorage(), fetchImpl: reset });
     const r = await tts.synthesize({ text: 'hello', language: 'en', emotion: 0.4, idempotencyKey: 'k' });
     expect(r.status === 'failed' && [r.error.code, r.retryable]).toEqual(['UPSTREAM', true]);
   });

@@ -49,8 +49,8 @@ const req = (language: 'en' | 'hi' | 'hinglish', emotion = 0.4) => ({ text: 'hel
 const jsonRes = (b: unknown) => new Response(JSON.stringify(b), { headers: { 'content-type': 'application/json' } });
 
 describe('config + env', () => {
-  it('defaults every language to chatterbox and the Qwen URL to :8191', () => {
-    expect(DEFAULT_PIPELINE.voice.engineByLanguage).toEqual({ en: 'chatterbox', hi: 'chatterbox', hinglish: 'chatterbox' });
+  it('defaults English to qwen, hi/hinglish to chatterbox, and the Qwen URL to :8191', () => {
+    expect(DEFAULT_PIPELINE.voice.engineByLanguage).toEqual({ en: 'qwen', hi: 'chatterbox', hinglish: 'chatterbox' });
     expect(parseEnv({}).ADFORGE_QWEN_TTS_URL).toBe('http://127.0.0.1:8191');
     expect(parseEnv({ ADFORGE_QWEN_TTS_URL: 'http://h:1/' }).ADFORGE_QWEN_TTS_URL).toBe('http://h:1');
   });
@@ -98,9 +98,9 @@ describe('QwenClient', () => {
 });
 
 describe('engine routing', () => {
-  it('default config sends every language to chatterbox and keeps id "chatterbox"', async () => {
+  it('an all-chatterbox table sends every language to chatterbox and keeps id "chatterbox"', async () => {
     const f = fake({ 'POST 8190 /synthesize': wav });
-    const { tts } = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
+    const { tts } = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('chatterbox'), storage: memStorage(), fetchImpl: f });
     expect(tts.id).toBe('chatterbox');
     for (const l of ['en', 'hi', 'hinglish'] as const) expect((await tts.synthesize(req(l))).status).toBe('done');
     expect(f.calls.every((c) => c.includes(' 8190 '))).toBe(true);
@@ -144,18 +144,18 @@ describe('engine routing', () => {
     expect(f.calls).toContain('POST 8191 /unload');
     expect(await v.health()).toMatchObject({ ok: true, qwen: { loaded: { tts: false } } });
   });
-  it('default routing makes no qwen calls on unload or health', async () => {
+  it('all-chatterbox routing makes no qwen calls on unload or health', async () => {
     const f = fake({
       'POST 8190 /unload': () => jsonRes({ unloaded: ['tts'] }),
       'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }),
     });
-    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: f });
+    const v = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('chatterbox'), storage: memStorage(), fetchImpl: f });
     await v.unload();
     await v.health();
     expect(f.calls.some((c) => c.includes(' 8191 '))).toBe(false);
   });
   it('idFor names the serving engine per language', () => {
-    const d = createVoiceProviders({ baseUrl: BASE, storage: memStorage(), fetchImpl: fake({}) }).tts;
+    const d = createVoiceProviders({ baseUrl: BASE, cfg: withEngines('chatterbox'), storage: memStorage(), fetchImpl: fake({}) }).tts;
     expect(d.idFor('en')).toBe('chatterbox');
     const r = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: fake({}) }).tts;
     expect([r.idFor('en'), r.idFor('hi')]).toEqual(['qwen-tts', 'chatterbox']);
@@ -170,7 +170,7 @@ describe('engine routing', () => {
     const routes = { 'GET 8190 /health': () => jsonRes({ ok: true, device: 'cuda', cuda: true, sm120: true, loaded: { tts: false, whisper: false } }), 'GET 8191 /health': () => new Response('x', { status: 503 }) };
     const routed = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: fake(routes) });
     expect(await routed.health()).toMatchObject({ ok: false, sm120: false, qwen: null });
-    const dflt = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, storage: memStorage(), fetchImpl: fake(routes) });
+    const dflt = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('chatterbox'), storage: memStorage(), fetchImpl: fake(routes) });
     expect(await dflt.health()).toMatchObject({ ok: true, sm120: true });
   });
   it('health returns qwen: null when qwen is unreachable', async () => {

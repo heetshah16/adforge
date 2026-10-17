@@ -25,3 +25,6 @@ Same Director English copy (`krishna-special-hing`, variant 1, 4 beats), same pl
 - Generation time (TTS+align, 4 beats): Chatterbox 48.9 s (40.4 s of it was beat 1, cold load); Qwen 55.4 s (29.6 s beat 1, cold load).
 - Peak VRAM: Chatterbox + Whisper about 6.0 GB; Qwen + Whisper about 7.35 GB (the voice service was unloaded between engines). The 15.7 GB peak in the same run was the ComfyUI plate phase, before the hand-off.
 - Run with `pnpm e2e:voice-ab` (needs ComfyUI, voice and voice-qwen up). Chatterbox beat 1 at 9.0 s for a short line is worth listening for.
+
+## Decision after listening check 3 (2026-10-17)
+The user picked Qwen ("leagues better"). **English now defaults to `qwen`** (`PIPELINE.voice.engineByLanguage.en`); hi and hinglish stay Chatterbox (Qwen has no Hindi). `voice-qwen` is now a required service for English jobs. Tests that exercise the Chatterbox client pin an all-chatterbox table instead of relying on the default.
