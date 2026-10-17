@@ -1,8 +1,12 @@
 import { z } from 'zod';
 
 // Web-server env. Deliberately not @adforge/core/config/env: its REPO_ROOT depth check breaks under Next bundling.
-const ServerEnv = z.object({
-  ADFORGE_ENV: z.enum(['dev', 'prod']).default('dev'),
+const ServerEnv = z
+  .object({
+  NODE_ENV: z.string().optional(),
+  // Unset: fail closed. A production build runs as prod; only a non-production NODE_ENV defaults to dev.
+  ADFORGE_ENV: z.enum(['dev', 'prod']).optional(),
+  ADFORGE_SITE_URL: z.url().optional(),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   NEXT_PUBLIC_SUPABASE_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
@@ -16,7 +20,15 @@ const ServerEnv = z.object({
   ADFORGE_PUBLIC_URL: z.url(),
   INNGEST_EVENT_KEY: z.string().min(1).optional(),
   INNGEST_DEV: z.string().min(1).optional(),
-});
+  })
+  .transform((e, ctx) => {
+    const ADFORGE_ENV = e.ADFORGE_ENV ?? (e.NODE_ENV === 'production' ? 'prod' : 'dev');
+    if (ADFORGE_ENV === 'prod' && !e.ADFORGE_SITE_URL) {
+      ctx.addIssue({ code: 'custom', path: ['ADFORGE_SITE_URL'], message: 'required when ADFORGE_ENV=prod' });
+      return z.NEVER;
+    }
+    return { ...e, ADFORGE_ENV, ADFORGE_SITE_URL: e.ADFORGE_SITE_URL ?? 'http://localhost:3000' };
+  });
 export type ServerEnv = z.infer<typeof ServerEnv>;
 
 export function parseServerEnv(raw: Record<string, string | undefined>): ServerEnv {
