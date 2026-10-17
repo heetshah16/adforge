@@ -8,7 +8,8 @@
     "typecheck": "tsc -p .",
     "generate": "drizzle-kit generate",
     "seed": "tsx src/seed/run.ts",
-    "e2e:shortlist": "tsx src/e2e-shortlist.ts"
+    "e2e:shortlist": "tsx src/e2e-shortlist.ts",
+    "db:check": "tsx src/db-check.ts"
   },
   "dependencies": {
     "@adforge/core": "workspace:*",
