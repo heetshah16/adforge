@@ -18,5 +18,7 @@
 
 ## Consequences
 - Chrome for the renderer tests in CI comes from puppeteer's allowed postinstall script. Verify on the first CI run; if it does not download, the renderer tests will fail there.
-- The Supabase dev-project parity check is pending the user's Supabase CLI and token setup. Until then, the CI Postgres container is the parity proof.
+- `pnpm db:check` against the Supabase dev project (session pooler, port 5432) reported "schema parity ok (97 columns)", and postgres.test.ts passed 2/2 against it.
+- turbo.json sets `passThroughEnv: ["ADFORGE_TEST_DATABASE_URL"]` on the `test` task; turbo's strict envMode otherwise strips it and postgres.test.ts is silently skipped.
+- `openPostgres` applies migrations on every prod boot with no lock — safe because there is one gpu-worker per environment (bridge design §4); revisit if multiple workers boot concurrently.
 - Moving a provider id into `POC_ONLY_PROVIDERS` blocks it in prod with no other code change.

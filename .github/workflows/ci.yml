@@ -7,9 +7,12 @@ on:
 # Python services (services/voice, services/voice-qwen) are deliberately not in CI:
 # their torch/CUDA stacks are GPU-machine only.
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17
