@@ -1,4 +1,4 @@
-import { and, eq, ne } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, variants } from '@adforge/db/schema';
@@ -49,6 +49,7 @@ export function makeRoutes(ctx: {
       return json({ jobId: job!.id }, 202);
     },
 
+    /** Dev-only: apps/worker/src/e2e.ts polls it. The product API is apps/web's /api/jobs/[id] under RLS. */
     async getJob(req: Request): Promise<Response> {
       const id = new URL(req.url).pathname.split('/').pop() ?? '';
       if (!z.uuid().safeParse(id).success) return json({ error: 'not found' }, 404);
@@ -68,23 +69,6 @@ export function makeRoutes(ctx: {
           }))
           .sort((a, b) => a.variantNo - b.variantNo),
       });
-    },
-
-    async approve(req: Request): Promise<Response> {
-      const m = new URL(req.url).pathname.match(/^\/api\/jobs\/([^/]+)\/variants\/(\d+)\/approve$/);
-      const id = m?.[1] ?? '';
-      const n = Number(m?.[2]);
-      if (!z.uuid().safeParse(id).success || !Number.isSafeInteger(n) || n < 1 || n > 2 ** 31 - 1) return json({ error: 'not found' }, 404);
-      // Check and set in one transaction so a concurrent status change can't be approved over.
-      const refusal = await deps.db.transaction(async (tx) => {
-        const [v] = await tx.select().from(variants).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
-        if (!v) return json({ error: 'not found' }, 404);
-        if (v.status !== 'completed' && v.status !== 'approved') return json({ error: `variant ${n} is ${v.status}` }, 409);
-        await tx.update(variants).set({ status: 'completed' }).where(and(eq(variants.jobId, id), eq(variants.status, 'approved'), ne(variants.variantNo, n)));
-        await tx.update(variants).set({ status: 'approved' }).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
-        return null;
-      });
-      return refusal ?? json({ approved: n });
     },
 
     async getMedia(req: Request): Promise<Response> {

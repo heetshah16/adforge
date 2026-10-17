@@ -17,6 +17,10 @@ export type JobsCtx = {
 };
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
+const isRetryable = (e: unknown) => {
+  for (let x = e as { code?: string; cause?: unknown } | undefined, i = 0; x && i < 4; x = x.cause as typeof x, i++) if (x.code === '40P01' || x.code === '40001') return true;
+  return false;
+};
 const notFound = () => json({ error: 'not found' }, 404);
 
 export async function createJobHandler(ctx: JobsCtx, req: Request): Promise<Response> {
@@ -61,6 +65,8 @@ export async function approveHandler(ctx: JobsCtx, id: string, nRaw: string): Pr
   if (user instanceof Response) return user;
   const n = Number(nRaw);
   if (!z.uuid().safeParse(id).success || !/^\d+$/.test(nRaw) || !Number.isSafeInteger(n) || n < 1 || n > 2 ** 31 - 1) return notFound();
-  const r = await ctx.run(user.userId, (udb) => approveVariant(udb, id, n));
+  const attempt = () => ctx.run(user.userId, (udb) => approveVariant(udb, id, n));
+  // Concurrent approves lock the same rows; if Postgres picks this one as a deadlock/serialization victim, the retry sees the winner's commit.
+  const r = await attempt().catch((e) => { if (isRetryable(e)) return attempt(); throw e; });
   return r === 'ok' ? json({ approved: n }) : r === 'not_found' ? notFound() : json({ error: `variant ${n} is not ready to approve` }, 409);
 }

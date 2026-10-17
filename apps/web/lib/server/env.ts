@@ -23,9 +23,10 @@ const ServerEnv = z
   })
   .transform((e, ctx) => {
     const ADFORGE_ENV = e.ADFORGE_ENV ?? (e.NODE_ENV === 'production' ? 'prod' : 'dev');
-    if (ADFORGE_ENV === 'prod' && !e.ADFORGE_SITE_URL) {
-      ctx.addIssue({ code: 'custom', path: ['ADFORGE_SITE_URL'], message: 'required when ADFORGE_ENV=prod' });
-      return z.NEVER;
+    if (ADFORGE_ENV === 'prod') {
+      const missing = (['ADFORGE_SITE_URL', 'INNGEST_EVENT_KEY'] as const).filter((k) => !e[k]);
+      for (const k of missing) ctx.addIssue({ code: 'custom', path: [k], message: 'required when ADFORGE_ENV=prod' });
+      if (missing.length) return z.NEVER;
     }
     return { ...e, ADFORGE_ENV, ADFORGE_SITE_URL: e.ADFORGE_SITE_URL ?? 'http://localhost:3000' };
   });

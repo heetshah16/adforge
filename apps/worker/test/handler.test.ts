@@ -11,7 +11,7 @@ afterEach(() => new Promise<void>((r) => (server ? server.close(() => r()) : r()
 async function start(over: Partial<ReturnType<typeof makeRoutes>> = {}) {
   const inngestHandler = vi.fn((_req: IncomingMessage, res: ServerResponse) => { res.writeHead(200).end('inngest'); });
   const ok = async () => new Response('{}', { headers: { 'content-type': 'application/json' } });
-  const routes = { health: ok, createJob: ok, getJob: ok, getMedia: ok, approve: ok, ...over } as ReturnType<typeof makeRoutes>;
+  const routes = { health: ok, createJob: ok, getJob: ok, getMedia: ok, ...over } as ReturnType<typeof makeRoutes>;
   // The port is only known after listen(); the handler reads env.ADFORGE_WORKER_PORT per request, so build it lazily.
   const env = { ADFORGE_WORKER_PORT: 0, ADFORGE_UI_ORIGIN: UI };
   let handler: ReturnType<typeof makeHandler> | undefined;

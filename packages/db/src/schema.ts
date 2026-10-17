@@ -82,7 +82,7 @@ export const projects = pgTable(
     brandKit: jsonb().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [unique().on(t.id, t.orgId), index().on(t.orgId)],
+  (t) => [unique().on(t.id, t.orgId), unique().on(t.orgId, t.name), index().on(t.orgId)],
 );
 
 export const assets = pgTable(

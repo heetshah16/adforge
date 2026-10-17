@@ -66,7 +66,7 @@ async function errorCode(p: Promise<unknown>): Promise<string | undefined> {
 let variantNo = 0;
 /** One row per tenant table, parents taken from `f`, so a mixed fixture exercises the composite FKs. */
 const ROW: Record<Tenant, (db: Db, f: Fixture, id: string) => Promise<unknown>> = {
-  projects: (db, f, id) => db.insert(schema.projects).values({ id, orgId: f.org, userId: f.user, name: 'rls' }),
+  projects: (db, f, id) => db.insert(schema.projects).values({ id, orgId: f.org, userId: f.user, name: `rls-${id}` }),
   products: (db, f, id) => db.insert(schema.products).values({ id, orgId: f.org, projectId: f.projects, name: 'rls' }),
   assets: (db, f, id) =>
     db.insert(schema.assets).values({ id, orgId: f.org, projectId: f.projects, kind: 'render', storageKey: id, mime: 'video/mp4', bytes: 1, sha256: id }),

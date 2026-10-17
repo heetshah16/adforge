@@ -99,8 +99,35 @@ describe('job routes (pglite, fake session)', () => {
       sendError = new Error('inngest down');
       const res = await createJobHandler(ctxFor(t), post(form()));
       expect([res.status, await res.json()]).toEqual([503, { error: 'could not queue the job' }]);
-      expect(failed).toHaveLength(1);
+      const created = (await h.db.select({ id: jobs.id }).from(jobs).where(eq(jobs.orgId, t.orgId))).find((j) => j.id !== t.jobId);
+      expect(created).toBeDefined();
+      expect(failed).toEqual([created!.id]);
     } finally { sendError = undefined; await h.db.delete(assets).where(eq(assets.orgId, t.orgId)); await dropTenants(h.db, [t]); }
+  });
+});
+
+describe('route-level guards and retry', () => {
+  const base = { auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, send: async () => {}, fail: async () => {} };
+  it('declared Content-Length over 30 MB -> 413 before parsing', async () => {
+    const ctx: JobsCtx = { ...base, run: async () => { throw new Error('must not touch the db'); } };
+    const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body: 'x', headers: { 'content-length': String(31 * 1024 * 1024) } }));
+    expect(res.status).toBe(413);
+  });
+  it('approve retries once on a deadlock (40P01, even wrapped) and then succeeds', async () => {
+    let calls = 0;
+    const ctx: JobsCtx = { ...base, run: async () => { if (++calls === 1) throw Object.assign(new Error('failed query'), { cause: { code: '40P01' } }); return 'ok' as never; } };
+    const res = await approveHandler(ctx, randomUUID(), '2');
+    expect([res.status, calls]).toEqual([200, 2]);
+  });
+  it('approve retries only once, and not for other errors', async () => {
+    let calls = 0;
+    const dead: JobsCtx = { ...base, run: async () => { calls++; throw Object.assign(new Error('x'), { code: '40001' }); } };
+    await expect(approveHandler(dead, randomUUID(), '2')).rejects.toThrow();
+    expect(calls).toBe(2);
+    calls = 0;
+    const other: JobsCtx = { ...base, run: async () => { calls++; throw new Error('boom'); } };
+    await expect(approveHandler(other, randomUUID(), '2')).rejects.toThrow('boom');
+    expect(calls).toBe(1);
   });
 });
 

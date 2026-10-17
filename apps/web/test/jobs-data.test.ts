@@ -49,6 +49,8 @@ describe('jobs data under RLS (pglite)', () => {
     const p1 = await withUser(h.db, t.userId, (u) => ensureDefaultProject(u, { orgId: t.orgId, userId: t.userId }));
     const p2 = await withUser(h.db, t.userId, (u) => ensureDefaultProject(u, { orgId: t.orgId, userId: t.userId }));
     expect(p2).toBe(p1);
+    const parallel = await Promise.all([1, 2, 3].map(() => withUser(h.db, t.userId, (u) => ensureDefaultProject(u, { orgId: t.orgId, userId: t.userId }))));
+    expect(new Set(parallel)).toEqual(new Set([p1]));
     const id = await withUser(h.db, t.userId, (u) => createJobRow(u, { orgId: t.orgId, projectId: p1, userId: t.userId, inputSpec: { x: 1 } }));
     expect((await withUser(h.db, t.userId, (u) => getJobView(u, id, url)))!.job.status).toBe('queued');
     // a member of another org cannot create a job in this org's project

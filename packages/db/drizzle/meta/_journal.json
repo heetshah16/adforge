@@ -71,6 +71,13 @@
       "when": 1792254745927,
       "tag": "0009_narrow_user_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792271805195,
+      "tag": "0010_mute_zarek",
+      "breakpoints": true
     }
   ]
 }

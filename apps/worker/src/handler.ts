@@ -31,7 +31,6 @@ export function makeHandler(ctx: { routes: ReturnType<typeof makeRoutes>; innges
       const r = toRequest(req, base);
       const handler =
         req.method === 'POST' && url.pathname === '/api/jobs' ? routes.createJob
-        : req.method === 'POST' && /^\/api\/jobs\/[^/]+\/variants\/\d+\/approve$/.test(url.pathname) ? routes.approve
         : req.method === 'GET' && /^\/api\/jobs\/[^/]+$/.test(url.pathname) ? routes.getJob
         : req.method === 'GET' && url.pathname.startsWith('/media/') ? routes.getMedia
         : req.method === 'GET' && url.pathname === '/health' ? routes.health

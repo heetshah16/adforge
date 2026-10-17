@@ -1,23 +1,19 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { loadRegistry } from '@adforge/db/registry';
-import { assets, jobs, projects, variants, type ProgressEntry } from '@adforge/db/schema';
+import { assets, jobs, projects, variants } from '@adforge/db/schema';
 import type { UserDb } from '@adforge/db/with-user';
+import type { JobView } from '../api';
 
 /** Everything here takes a UserDb: RLS decides what exists. A foreign id looks exactly like a missing one. */
-export type JobView = {
-  job: { id: string; status: 'queued' | 'running' | 'completed' | 'failed'; progress: ProgressEntry[]; brief: unknown; error: unknown; costUsd: number; createdAt: string; completedAt: string | null };
-  variants: {
-    variantNo: number; formatSlug: string; formatFamily: string | null; hookSlug: string; hookFamily: string | null; visualTreatment: string;
-    strategicBet: string; isExploratory: boolean; status: 'pending' | 'running' | 'completed' | 'failed' | 'approved'; error: unknown; renderUrl: string | null;
-  }[];
-};
 
-// ponytail: select-then-insert; two simultaneous first uploads can make two 'Default' projects (harmless, the oldest wins). Add a unique (org_id, name) if it ever matters.
+/** unique (org_id, name) makes concurrent first uploads converge on one 'Default'. */
 export async function ensureDefaultProject(udb: UserDb, { orgId, userId }: { orgId: string; userId: string }): Promise<string> {
-  const [p] = await udb.select({ id: projects.id }).from(projects).where(and(eq(projects.orgId, orgId), eq(projects.name, 'Default'))).orderBy(asc(projects.createdAt)).limit(1);
+  const find = () => udb.select({ id: projects.id }).from(projects).where(and(eq(projects.orgId, orgId), eq(projects.name, 'Default'))).limit(1);
+  const [p] = await find();
   if (p) return p.id;
-  const [created] = await udb.insert(projects).values({ orgId, userId, name: 'Default' }).returning({ id: projects.id });
-  return created!.id;
+  // A conflicting concurrent insert blocks until that transaction commits, then DO NOTHING; the re-select (READ COMMITTED) sees its row.
+  await udb.insert(projects).values({ orgId, userId, name: 'Default' }).onConflictDoNothing();
+  return (await find())[0]!.id;
 }
 
 export async function createJobRow(udb: UserDb, v: { orgId: string; projectId: string; userId: string; inputSpec: unknown }): Promise<string> {
