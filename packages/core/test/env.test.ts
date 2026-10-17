@@ -3,6 +3,22 @@ import { describe, expect, it } from 'vitest';
 import { REPO_ROOT, dataDirWarnings, parseEnv } from '../src/config/env';
 
 describe('parseEnv', () => {
+  it('defaults to the dev profile with no DATABASE_URL', () => {
+    const env = parseEnv({});
+    expect(env.ADFORGE_ENV).toBe('dev');
+    expect(env.DATABASE_URL).toBeUndefined();
+  });
+
+  it('requires DATABASE_URL in prod', () => {
+    expect(() => parseEnv({ ADFORGE_ENV: 'prod' })).toThrow(/DATABASE_URL/);
+    const env = parseEnv({ ADFORGE_ENV: 'prod', DATABASE_URL: 'postgresql://u:p@h:5432/d' });
+    expect(env.ADFORGE_ENV).toBe('prod');
+  });
+
+  it('rejects a non-postgres DATABASE_URL', () => {
+    expect(() => parseEnv({ DATABASE_URL: 'http://x' })).toThrow(/DATABASE_URL/);
+  });
+
   it('defaults the voice providers and URL', () => {
     const env = parseEnv({});
     expect(env.ADFORGE_PROVIDER_TTS).toBe('chatterbox');
