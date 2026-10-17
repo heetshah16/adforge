@@ -2,7 +2,7 @@
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { approveVariant, getJob, type JobView } from '@/lib/api';
-import { briefSummary, isTerminal, nextPollDelay, stageRows, variantCards } from '@/lib/view';
+import { briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, stageRows, variantCards } from '@/lib/view';
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -74,7 +74,8 @@ export default function JobPage() {
           ))}
         </ol>
       )}
-      {view.job.status === 'failed' && <p className="errors">{failMessage(view.job.error)}</p>}
+      {view.job.status === 'failed' && <p className="errors">{failMessage(view.job)}</p>}
+      {jobWarnings(view).length > 0 && <ul className="muted">{jobWarnings(view).map((w) => <li key={w}>{w}</li>)}</ul>}
       {notice && <p role="status">{notice}</p>}
       {view.variants.length > 0 && (
         <section className="grid" aria-label="Variants">
@@ -82,7 +83,7 @@ export default function JobPage() {
             <article key={c.variantNo} className="card" data-status={c.status}>
               <h3>V{c.variantNo}: {c.title}</h3>
               <p className="muted">{c.families}</p>
-              {c.videoUrl ? <video src={c.videoUrl} controls playsInline preload="metadata" aria-label={`Variant ${c.variantNo} video`} /> : <p className="errors">{c.failureReason ?? 'Rendering…'}</p>}
+              {c.videoUrl ? <video src={c.videoUrl} controls playsInline preload="metadata" aria-label={`Variant ${c.variantNo} video`} /> : <p className="errors">{c.failureReason ?? c.placeholder ?? 'Rendering…'}</p>}
               <p><strong>Bet:</strong> {c.bet}</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" disabled={!c.canApprove} onClick={() => approve(c.variantNo)}>{c.status === 'approved' ? 'Approved' : 'Approve'}</button>
@@ -94,10 +95,4 @@ export default function JobPage() {
       )}
     </>
   );
-}
-
-function failMessage(error: unknown): string {
-  const e = (error ?? {}) as { reason?: unknown; why?: unknown };
-  const s = typeof e.reason === 'string' ? e.reason : typeof e.why === 'string' ? e.why : null;
-  return s ? `This job failed: ${s}` : 'This job failed — see the worker log.';
 }

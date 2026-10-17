@@ -22,6 +22,7 @@ describe('guard (CSRF Origin + DNS-rebinding Host)', () => {
     expect(r?.status).toBe(403);
     expect(await r?.json()).toEqual({ error: 'origin not allowed' });
   });
+  it.each(['PUT', 'PATCH', 'DELETE'])('%s with a foreign Origin is 403', (m) => expect(g(m, { ...host, origin: 'https://evil.example' })?.status).toBe(403));
   it('POST with the UI origin passes', () => expect(g('POST', { ...host, origin: UI })).toBeNull());
   it('POST with no Origin passes (curl, e2e)', () => expect(g('POST', host)).toBeNull());
   it('GET with a foreign Origin is not blocked (CORS limits reads)', () => expect(g('GET', { ...host, origin: 'https://evil.example' })).toBeNull());

@@ -42,7 +42,7 @@ video.clip { width: 100%; height: 100%; object-fit: cover; }
 .plate { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cutout { position: absolute; translate: -50% -100%; width: auto; }
 .cutout.shadow { filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.45)); }
-.overlay { position: absolute; left: 6%; right: 6%; text-align: center; color: #fff; line-height: 1.1; overflow-wrap: anywhere; }
+.overlay { position: absolute; left: 6%; right: 6%; text-align: center; color: #fff; line-height: 1.1; overflow-wrap: anywhere; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 .overlay.scrim { background: rgba(0, 0, 0, 0.45); padding: 0.4em 0.6em; border-radius: 0.3em; }
 .w-regular { font-weight: 600; font-size: 64px; }
 .w-bold { font-weight: 800; font-size: 72px; }

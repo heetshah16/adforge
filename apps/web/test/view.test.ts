@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { JobView } from '../lib/api';
-import { STAGES, briefSummary, isTerminal, nextPollDelay, stageRows, validateUpload, variantCards } from '../lib/view';
+import { STAGES, briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, stageRows, validateUpload, variantCards } from '../lib/view';
 
 const file = (name: string, type: string, mb: number) => ({ name, type, size: mb * 1024 * 1024 });
 const ok = { name: 'Serum', price: '₹899', description: 'Niacinamide.', language: 'en', files: [1, 2, 3].map((i) => file(`${i}.png`, 'image/png', 1)) };
@@ -83,5 +83,44 @@ describe('briefSummary', () => {
       .toEqual({ archetypes: 'remedy + trust', rationale: 'असली कारण', objection: 'price' });
     expect(briefSummary(null)).toBeNull();
     expect(briefSummary({ nope: 1 })).toBeNull();
+  });
+});
+
+describe('briefSummary secondary', () => {
+  it('omits the separator without a secondary archetype', () =>
+    expect(briefSummary({ archetype_primary: 'remedy', rationale: 'r' })?.archetypes).toBe('remedy'));
+});
+
+describe('jobWarnings', () => {
+  it('lists warnings on a completed job and tolerates other shapes', () => {
+    const v = view(['completed']);
+    expect(jobWarnings(v)).toEqual([]);
+    v.job.error = { warnings: ['b-roll unavailable', 5] };
+    expect(jobWarnings(v)).toEqual(['b-roll unavailable']);
+    v.job.error = { reason: 'x' };
+    expect(jobWarnings(v)).toEqual([]);
+  });
+});
+
+describe('failMessage', () => {
+  const job = (error: unknown, progress: JobView['job']['progress'] = []) => ({ ...view([]).job, error, progress });
+  it('prefers string reason, then reason.message, then violation, then last failed detail, then generic', () => {
+    expect(failMessage(job({ reason: 'boom' }))).toBe('This job failed: boom');
+    expect(failMessage(job({ reason: { message: 'bad id' } }))).toBe('This job failed: bad id');
+    expect(failMessage(job({ violations: [{ rule: 'r', message: 'need 3 hook families' }] }))).toBe('This job failed: need 3 hook families');
+    expect(failMessage(job({ reason: { code: 1 } }, [{ stage: 'plates', status: 'failed', at: 't', detail: 'comfy down' }]))).toBe('This job failed: comfy down');
+    expect(failMessage(job(null))).toBe('This job failed — see the worker log.');
+  });
+});
+
+describe('not rendered placeholder', () => {
+  it('shows on terminal jobs with no video, not on failed or live jobs', () => {
+    const v = view(['pending', 'failed']);
+    v.variants[0]!.renderUrl = null;
+    const [a, b] = variantCards(v);
+    expect(a).toMatchObject({ placeholder: 'Not rendered' });
+    expect(b).not.toHaveProperty('placeholder');
+    v.job.status = 'running';
+    expect(variantCards(v)[0]).not.toHaveProperty('placeholder');
   });
 });

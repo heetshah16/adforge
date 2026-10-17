@@ -7,7 +7,7 @@ const slug = process.env.ADFORGE_E2E_PRODUCT;
 const root = fileURLToPath(new URL('../../../fixtures/eval-products/', import.meta.url)); // ESM package: no __dirname
 
 test('upload → three ads → approve one, persisting after reload', async ({ page }) => {
-  test.skip(!slug, 'set ADFORGE_E2E_PRODUCT to an eval-products folder name');
+  if (!slug) throw new Error('ADFORGE_E2E_PRODUCT is unset: set it to an eval-products folder name');
   const dir = join(root, slug!);
   const meta = JSON.parse(readFileSync(join(dir, 'product.json'), 'utf8')) as Record<string, string>;
   meta.price = meta.price!.replace(/\s*\(.*\)\s*$/, ''); // fixture notes like "(estimate ...)" exceed the 40-char price limit
