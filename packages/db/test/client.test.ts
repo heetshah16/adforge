@@ -74,6 +74,14 @@ describe('openDbForEnv', () => {
     await first.close();
   });
 
+  it('DATABASE_URL selects Postgres even in dev (refused connection, not PGlite)', async () => {
+    await expect(openDbForEnv({ ADFORGE_ENV: 'dev', ADFORGE_DATA_DIR: 'x', DATABASE_URL: 'postgres://u:p@127.0.0.1:1/x' })).rejects.toThrow();
+  });
+
+  it('prod without DATABASE_URL throws', () => {
+    expect(() => openDbForEnv({ ADFORGE_ENV: 'prod', ADFORGE_DATA_DIR: 'x' })).toThrow(/DATABASE_URL/);
+  });
+
   it('Db accepts the result of both openers (type-level)', () => {
     const f = (d: Db) => d.select().from(schema.jobs);
     expect(typeof f).toBe('function');
