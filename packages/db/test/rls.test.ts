@@ -13,7 +13,7 @@ const url = process.env.ADFORGE_TEST_DATABASE_URL;
 /** Tables without org_id. Each is covered by its own policy; adding a table means adding it here or giving it org_id. */
 const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes'];
 /** Every org_id table, in creation order (parents first). The coverage test fails if the schema gains one not listed. */
-const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls'] as const;
+const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls', 'library_assets'] as const;
 type Tenant = (typeof TENANT)[number];
 type Fixture = { org: string; user: string } & Record<Tenant, string>;
 
@@ -28,6 +28,7 @@ const PRIVILEGES: Record<string, string[]> = {
   jobs: ['SELECT', 'INSERT'],
   variants: ['SELECT', 'UPDATE(status)'],
   provider_calls: ['SELECT'],
+  library_assets: ['SELECT'],
   orgs: ['SELECT'],
   memberships: ['SELECT'],
   users: ['SELECT'],
@@ -80,6 +81,8 @@ const ROW: Record<Tenant, (db: Db, f: Fixture, id: string) => Promise<unknown>> 
     db.insert(schema.providerCalls).values({
       id, orgId: f.org, jobId: f.jobs, variantId: f.variants, kind: 'render', provider: 'fake', requestHash: 'h', idempotencyKey: id,
     }),
+  library_assets: (db, f, id) =>
+    db.insert(schema.libraryAssets).values({ id, orgId: f.org, projectId: f.projects, tag: `@prop_rls_${id}`, version: 1, kind: 'prop', descriptor: 'rls' }),
 };
 
 async function makeOrg(db: Db): Promise<Fixture> {
@@ -232,6 +235,15 @@ describe.each(backends)('RLS on %s', (_name, open) => {
     });
     const ins = withUser(db, a.user, (u) => u.execute(sql`insert into vocab_families (kind, slug, name) values ('hook', ${randomUUID()}, 'x')`));
     expect(await errorCode(ins)).toBe('42501');
+  });
+
+  it('the same tag and version in two orgs both insert (tags are unique per org)', async () => {
+    const tag = `@prop_shared_${a.org.slice(0, 8)}`;
+    const row = (orgId: string, projectId: string) => ({ orgId, projectId, tag, version: 1, kind: 'prop' as const, descriptor: 'shared' });
+    await db.insert(schema.libraryAssets).values(row(a.org, a.projects));
+    await db.insert(schema.libraryAssets).values(row(b.org, b.projects));
+    const n = rows<{ n: number }>(await db.execute(sql`select count(*)::int as n from library_assets where tag = ${tag}`))[0]!.n;
+    expect(n).toBe(2);
   });
 
   it('waitlist: a non-admin sees and updates nothing; an admin sees and updates everything', async () => {

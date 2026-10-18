@@ -24,6 +24,8 @@ export const variantStatus = pgEnum('variant_status', ['pending', 'running', 'co
 export const callStatus = pgEnum('call_status', ['pending', 'done', 'failed']);
 export const membershipRole = pgEnum('membership_role', ['owner', 'member']);
 export const waitlistStatus = pgEnum('waitlist_status', ['new', 'invited', 'joined']);
+export const libraryKind = pgEnum('library_kind', ['product_view', 'location', 'prop', 'brand_kit', 'voice']);
+export const libraryStatus = pgEnum('library_status', ['active', 'superseded']);
 
 /**
  * `id` equals the Supabase `auth.users.id` of the same person. There is no FK: `auth` is
@@ -119,7 +121,37 @@ export const products = pgTable(
     name: text().notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index().on(t.orgId), foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] })],
+  (t) => [unique().on(t.id, t.orgId), index().on(t.orgId), foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] })],
+);
+
+/**
+ * Library entries (creative §4.1). `tag` is the base tag without a version; a new state is a new row (version + 1).
+ * (org_id, tag, version) doubles as the org_id index. Written by the pipeline on the owner connection; members read only.
+ */
+export const libraryAssets = pgTable(
+  'library_assets',
+  {
+    id: id(),
+    orgId: uuid().notNull().references(() => orgs.id),
+    projectId: uuid().notNull(),
+    productId: uuid(),
+    tag: text().notNull(),
+    version: integer().notNull(),
+    kind: libraryKind().notNull(),
+    descriptor: text().notNull(),
+    storageKey: text(),
+    meta: jsonb().notNull().default({}),
+    status: libraryStatus().notNull().default('active'),
+    heroEligible: boolean().notNull().default(false),
+    gate: jsonb(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique().on(t.orgId, t.tag, t.version),
+    foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] }),
+    // MATCH SIMPLE: a NULL product_id is not checked.
+    foreignKey({ columns: [t.productId, t.orgId], foreignColumns: [products.id, products.orgId] }),
+  ],
 );
 
 // --- the adaptive vocabulary (architecture §5.1) ----------------------------
