@@ -45,35 +45,35 @@
   "usage": [
     {
       "inputTokens": 2,
-      "outputTokens": 575,
-      "cacheReadTokens": 1713,
-      "cacheCreationTokens": 8036
+      "outputTokens": 566,
+      "cacheReadTokens": 1796,
+      "cacheCreationTokens": 8047
     }
   ],
   "analysis": {
     "shapeClass": "jar",
     "viewpoint": {
       "azimuthDeg": 0,
-      "elevationDeg": 0
+      "elevationDeg": 3
     },
     "lightDirection": {
       "azimuthDeg": -30,
-      "elevationDeg": 30
+      "elevationDeg": 35
     },
     "palette": [
-      "#f9c000",
-      "#e8a000",
-      "#e8651a",
-      "#d6261f",
-      "#ffffff",
-      "#7b5cc4"
+      "#F8C21A",
+      "#FFFFFF",
+      "#E8731A",
+      "#C8202A",
+      "#7A5CB0"
     ],
-    "material": "Molded plastic jar with printed label",
+    "material": "molded plastic with printed label",
     "finish": "gloss",
     "visibleFaces": [
-      "front"
+      "front",
+      "top"
     ],
-    "descriptor": "A squat, rounded jar with a slightly waisted body that flares gently toward a base embossed with a faint ornamental pattern. A glossy yellow dome-edged snap cap sits on top, about a quarter of the height. The front label is a white rounded panel framed by an orange arch. At its top is the line SINCE 1925, curved over a circular portrait of a blue-skinned figure with a crown and garland, set on a yellow disc with ornate line art. Below is a red rectangular banner with white block letters KRISHNA, then bold black SPECIAL HING and finer COMPOUNDED ASAFOETIDA. A small green-dot square sits at the banner's right.",
+    "descriptor": "squat cylindrical jar with a gently waisted body and rounded shoulders, bright yellow throughout. a deep yellow snap cap with softly rounded top edge covers about a quarter of the height. the front label is a tall white arch panel framed by an orange backing, holding a round yellow medallion with a blue skinned deity portrait wearing a crown, ringed by faint orange floral line art, a curved arc of small text above and two tiny ribbon banners at the sides. below sits a wide red rectangular band with bold white serif lettering, a tiny green dot square at its right, then black bold lines in two sizes. a pale embossed floral pattern rings the base.",
     "bestPhotoIndex": 2
   }
 }

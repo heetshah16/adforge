@@ -1,23 +1,23 @@
 import { z } from 'zod';
-import type { OcrItem } from '../providers/types';
 
 const Angle = z.number().min(-180).max(180);
 const Elevation = z.number().min(-90).max(90);
 const Frac = z.number().min(0).max(1);
-const Box = z.tuple([Frac, Frac, Frac, Frac]);
+const Box = z.tuple([Frac, Frac, Frac, Frac]).refine(([x, y, w, h]) => x + w <= 1 + 1e-6 && y + h <= 1 + 1e-6, 'box must stay inside the image (x+w<=1, y+h<=1)');
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
-const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Quoted spans in prose: "…", “…”, or '…' (apostrophes inside words are not quotes). */
 const QUOTED = /"([^"]+)"|“([^”]+)”|(?<!\w)'([^']+)'(?!\w)/g;
+/** All-caps Latin tokens of 3+ letters (brand/label words); 2-letter units like ML and KG fall below the bar, so no allowlist. */
+const CAPS = /\b[A-Z]{3,}\b/g;
+/** Digit runs of 3+ (ASCII or Devanagari): years, weights, codes. */
+const DIGITS = /[0-9०-९]{3,}/g;
 
-/** Quoted strings in `descriptor` that the OCR did not return (case-insensitive). */
-export function unreadQuotes(descriptor: string, ocr: OcrItem[][]): string[] {
-  const haystack = norm(ocr.flat().map((o) => o.text).join(' '));
-  return [...descriptor.matchAll(QUOTED)]
-    .map((m) => (m[1] ?? m[2] ?? m[3])!)
-    .filter((q) => !haystack.includes(norm(q)));
+/** Label text that leaked into a descriptor: quoted strings, ALL-CAPS words, long digit runs. Label text lives in OCR metadata only. */
+export function labelTextViolations(descriptor: string): string[] {
+  const quoted = [...descriptor.matchAll(QUOTED)].map((m) => (m[1] ?? m[2] ?? m[3])!);
+  return [...quoted, ...(descriptor.match(CAPS) ?? []), ...(descriptor.match(DIGITS) ?? [])];
 }
 
 export const ProductAnalysis = z.object({
@@ -32,13 +32,6 @@ export const ProductAnalysis = z.object({
   bestPhotoIndex: z.number().int().min(0),
 });
 export type ProductAnalysis = z.infer<typeof ProductAnalysis>;
-
-/** The same schema plus the label-text guard, built per call from that call's OCR. */
-export const productAnalysisFor = (ocr: OcrItem[][]) =>
-  ProductAnalysis.refine((a) => unreadQuotes(a.descriptor, ocr).length === 0, {
-    path: ['descriptor'],
-    message: 'descriptor quotes label text that OCR did not return',
-  });
 
 export const PlateAnalysis = z.object({
   cameraHeight: z.enum(['ground', 'table', 'eye', 'high', 'overhead']),
