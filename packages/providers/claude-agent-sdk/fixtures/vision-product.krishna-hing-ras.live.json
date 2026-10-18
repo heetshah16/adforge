@@ -1,0 +1,65 @@
+{
+  "photos": [
+    "1-tins.jpg",
+    "2-powder-spoon.jpg",
+    "3-dish.jpg"
+  ],
+  "ocrText": [
+    [
+      "SINCE",
+      "925",
+      "MARK",
+      "1१25",
+      "SINCE",
+      "SINCE",
+      "1975",
+      "T7a२E",
+      "TAR_",
+      "_[7#05_",
+      "KRISHNA",
+      "TAADE",
+      "KRISHNA",
+      "COMPOUNDED",
+      "KRISHNA",
+      "ASALFOETIDA",
+      "COMMPOUNDED",
+      "COMPOUNDED",
+      "ASAOETIDA",
+      "ASAIFOETIDA"
+    ],
+    [],
+    []
+  ],
+  "repairs": 0,
+  "usage": [
+    {
+      "inputTokens": 2,
+      "outputTokens": 562,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 7706
+    }
+  ],
+  "analysis": {
+    "shapeClass": "can",
+    "viewpoint": {
+      "azimuthDeg": 0,
+      "elevationDeg": 3
+    },
+    "lightDirection": null,
+    "palette": [
+      "#E8591F",
+      "#7A1F1F",
+      "#F5E3A0",
+      "#E3A91B",
+      "#FFFFFF"
+    ],
+    "material": "Printed tinplate metal can",
+    "finish": "mixed",
+    "visibleFaces": [
+      "front",
+      "top"
+    ],
+    "descriptor": "Three upright cylindrical tins in graduated sizes, tall, medium and small, standing in a row with thin gold rims at top and bottom. The smallest has a clear translucent white snap lid. Each body is maroon with a large orange arch-shaped label outlined in cream and gold, covering most of the front. Inside the arch sits a round portrait of a blue-skinned deity with a feathered crown, framed by a small ribbon banner at each side and a registered mark. Above it is a curved line of text, SINCE 1925. Below is a red plaque with white bold text KRISHNA, then COMPOUNDED in yellow and ASAFOETIDA in bold yellow. A small green vegetarian symbol sits at the right edge.",
+    "bestPhotoIndex": 0
+  }
+}

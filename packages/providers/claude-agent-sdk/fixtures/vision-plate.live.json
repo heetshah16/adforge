@@ -1,0 +1,45 @@
+{
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 285,
+    "cacheReadTokens": 0,
+    "cacheCreationTokens": 3543
+  },
+  "analysis": {
+    "cameraHeight": "high",
+    "tiltDeg": -25,
+    "horizonY": null,
+    "supportSurface": {
+      "box": [
+        0,
+        0.55,
+        1,
+        0.45
+      ]
+    },
+    "light": {
+      "azimuthDeg": 20,
+      "colorTempK": 3200
+    },
+    "freeZones": [
+      [
+        0.3,
+        0.8,
+        0.2,
+        0.1
+      ],
+      [
+        0,
+        0.3,
+        0.12,
+        0.2
+      ],
+      [
+        0.42,
+        0.62,
+        0.15,
+        0.1
+      ]
+    ]
+  }
+}

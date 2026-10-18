@@ -1,0 +1,79 @@
+{
+  "photos": [
+    "1-packshot.jpg",
+    "2-kitchen-counter.jpg",
+    "3-in-hand.jpg",
+    "4-powder.jpg"
+  ],
+  "ocrText": [
+    [
+      "SINCE",
+      "925",
+      "११२5",
+      "SINCE",
+      "Faot",
+      "1973",
+      "SIACE",
+      "KRISHNA",
+      "KRISHNA",
+      "SPECIAL HING",
+      "KRISHNA",
+      "COMPOUNDED ASAFOETIDA",
+      "SPECIAL HING",
+      "SPECIAL HING",
+      "COMPOUNDED ASAFOETIDA",
+      "COMPOUNDED ASAFCETIOA"
+    ],
+    [
+      "ङllce",
+      "KRISHNA",
+      "DECIAL HING",
+      "CON",
+      "OUNDED ASAFOENDA"
+    ],
+    [
+      "1925",
+      "SINCE",
+      "7-0t",
+      "KRISHNA",
+      "SPECIAL HINC",
+      "COMPOUNDED ASAFOETIDA"
+    ],
+    []
+  ],
+  "repairs": 0,
+  "usage": [
+    {
+      "inputTokens": 2,
+      "outputTokens": 575,
+      "cacheReadTokens": 1713,
+      "cacheCreationTokens": 8036
+    }
+  ],
+  "analysis": {
+    "shapeClass": "jar",
+    "viewpoint": {
+      "azimuthDeg": 0,
+      "elevationDeg": 0
+    },
+    "lightDirection": {
+      "azimuthDeg": -30,
+      "elevationDeg": 30
+    },
+    "palette": [
+      "#f9c000",
+      "#e8a000",
+      "#e8651a",
+      "#d6261f",
+      "#ffffff",
+      "#7b5cc4"
+    ],
+    "material": "Molded plastic jar with printed label",
+    "finish": "gloss",
+    "visibleFaces": [
+      "front"
+    ],
+    "descriptor": "A squat, rounded jar with a slightly waisted body that flares gently toward a base embossed with a faint ornamental pattern. A glossy yellow dome-edged snap cap sits on top, about a quarter of the height. The front label is a white rounded panel framed by an orange arch. At its top is the line SINCE 1925, curved over a circular portrait of a blue-skinned figure with a crown and garland, set on a yellow disc with ornate line art. Below is a red rectangular banner with white block letters KRISHNA, then bold black SPECIAL HING and finer COMPOUNDED ASAFOETIDA. A small green-dot square sits at the banner's right.",
+    "bestPhotoIndex": 2
+  }
+}

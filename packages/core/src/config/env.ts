@@ -55,6 +55,8 @@ export const Env = z
     ADFORGE_LLM_DIRECTOR: ClaudeModel.default('claude-opus-5-5'),
     ADFORGE_LLM_EFFORT_STRATEGIST: Effort.default('medium'),
     ADFORGE_LLM_EFFORT_DIRECTOR: Effort.default('high'),
+    ADFORGE_LLM_VISION: ClaudeModel.default('claude-sonnet-5-5'),
+    ADFORGE_LLM_EFFORT_VISION: Effort.default('low'),
   })
   .superRefine((env, ctx) => {
     if (env.ADFORGE_ENV === 'prod' && !env.DATABASE_URL) {
