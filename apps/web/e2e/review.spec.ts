@@ -2,9 +2,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { adminEmail, signIn } from './auth';
 
 const slug = process.env.ADFORGE_E2E_PRODUCT;
 const root = fileURLToPath(new URL('../../../fixtures/eval-products/', import.meta.url)); // ESM package: no __dirname
+
+test.skip(!slug, 'needs the GPU stack: set ADFORGE_E2E_PRODUCT to an eval-products folder name');
 
 test('upload → three ads → approve one, persisting after reload', async ({ page }) => {
   if (!slug) throw new Error('ADFORGE_E2E_PRODUCT is unset: set it to an eval-products folder name');
@@ -13,6 +16,7 @@ test('upload → three ads → approve one, persisting after reload', async ({ p
   meta.price = meta.price!.replace(/\s*\(.*\)\s*$/, ''); // fixture notes like "(estimate ...)" exceed the 40-char price limit
   const photos = readdirSync(dir).filter((f) => ['.png', '.jpg', '.jpeg', '.webp'].includes(extname(f).toLowerCase())).map((f) => join(dir, f));
 
+  await signIn(page, adminEmail);
   await page.goto('/');
   await page.getByLabel('Product name').fill(meta.name!);
   await page.getByLabel('Price').fill(meta.price!);
