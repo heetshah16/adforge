@@ -6,6 +6,7 @@ import type { PipelineDeps } from '@adforge/pipeline';
 import { ClaudeAgentProvider } from '@adforge/provider-claude-agent-sdk';
 import { createComfyProviders } from '@adforge/provider-comfyui';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
+import { createVisionProviders } from '@adforge/provider-vision-service';
 import { createVoiceProviders } from '@adforge/provider-voice-service';
 import { HyperframesRenderer } from '@adforge/renderer-hyperframes';
 
@@ -21,11 +22,13 @@ export async function buildDeps(env: Env): Promise<{ deps: PipelineDeps; storage
       plateWorkflow: env.ADFORGE_COMFY_WORKFLOW_PLATE, cutoutWorkflow: env.ADFORGE_COMFY_WORKFLOW_CUTOUT, brollWorkflow: env.ADFORGE_COMFY_WORKFLOW_BROLL,
     });
     const voice = createVoiceProviders({ baseUrl: env.ADFORGE_VOICE_URL, qwenBaseUrl: env.ADFORGE_QWEN_TTS_URL, storage });
+    const vision = createVisionProviders({ baseUrl: env.ADFORGE_VISION_URL, storage });
     const deps: PipelineDeps = {
       db, storage, env,
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       comfy: { image: comfy.image, cutout: comfy.cutout, video: comfy.video, preflight: comfy.preflight, free: comfy.free, systemStats: comfy.systemStats, workflowHashes: comfy.workflowHashes },
       voice: { tts: voice.tts, aligner: voice.aligner, health: voice.health, unload: voice.unload },
+      vision: { ocr: vision.ocr, unload: vision.unload },
       renderer: new HyperframesRenderer({ storage, workDir: join(env.ADFORGE_DATA_DIR, 'render-work') }),
       llm: new ClaudeAgentProvider(),
     };

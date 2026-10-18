@@ -345,6 +345,9 @@ importers:
       '@adforge/provider-local-storage':
         specifier: workspace:*
         version: link:../../packages/providers/local-storage
+      '@adforge/provider-vision-service':
+        specifier: workspace:*
+        version: link:../../packages/providers/vision-service
       '@adforge/provider-voice-service':
         specifier: workspace:*
         version: link:../../packages/providers/voice-service

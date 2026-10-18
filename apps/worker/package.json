@@ -16,6 +16,7 @@
     "@adforge/provider-claude-agent-sdk": "workspace:*",
     "@adforge/provider-comfyui": "workspace:*",
     "@adforge/provider-local-storage": "workspace:*",
+    "@adforge/provider-vision-service": "workspace:*",
     "@adforge/provider-voice-service": "workspace:*",
     "@adforge/renderer-hyperframes": "workspace:*",
     "drizzle-orm": "catalog:",

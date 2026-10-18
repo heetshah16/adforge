@@ -20,7 +20,8 @@ const isWire = (r: unknown): r is WireResult<unknown> => typeof r === 'object' &
 export async function recordCall(
   db: Db,
   row: {
-    jobId: string; variantId?: string; kind: string; provider: string; model?: string; idempotencyKey: string;
+    /** A job's call takes its org from the job row; a job-less call (product ingest) names its org. */
+    jobId?: string; orgId?: string; variantId?: string; kind: string; provider: string; model?: string; idempotencyKey: string;
     result: WireResult<unknown> | ProviderResult<unknown>; latencyMs?: number; costUsd?: number;
   },
 ): Promise<void> {
@@ -42,7 +43,7 @@ export async function recordCall(
     .insert(providerCalls)
     .values({
       ...fields,
-      orgId: orgOfJob(row.jobId),
+      orgId: row.orgId ?? orgOfJob(row.jobId!),
       requestHash: createHash('sha256').update(row.idempotencyKey).digest('hex'),
       idempotencyKey: row.idempotencyKey,
     })

@@ -1,7 +1,7 @@
 import type { Env } from '@adforge/core/config/env';
 import type { ProductInput } from '@adforge/core/llm/render';
 import type {
-  AlignedWord, CaptionAligner, CutoutProvider, ImageProvider, LLMProvider, RendererProvider, StorageProvider, TTSProvider, VideoProvider,
+  AlignedWord, CaptionAligner, CutoutProvider, ImageProvider, LLMProvider, OcrProvider, RendererProvider, StorageProvider, TTSProvider, VideoProvider,
 } from '@adforge/core/providers/types';
 import type { Language } from '@adforge/core/vocab/enums';
 import type { Db } from '@adforge/db/client';
@@ -23,6 +23,7 @@ export interface PipelineDeps {
   storage: StorageProvider;
   comfy: { image: ImageProvider; cutout: CutoutProvider; video: VideoProvider; preflight(): Promise<void>; free(): Promise<void>; systemStats(): Promise<{ vramUsedBytes: number; vramTotalBytes: number }>; workflowHashes: Record<string, string> };
   voice: { tts: TTSProvider & { idFor?(language: Language): string }; aligner: CaptionAligner; health(): Promise<{ ok: boolean; sm120: boolean }>; unload(): Promise<unknown> };
+  vision: { ocr: OcrProvider; unload(): Promise<unknown> };
   renderer: RendererProvider;
   llm: LLMProvider;
   env: Env;

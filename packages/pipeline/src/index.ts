@@ -5,4 +5,5 @@ export * from './snapshot';
 export * from './progress';
 export * from './orchestrate';
 export * from './janitor';
+export * from './ingest';
 export * from './inngest';

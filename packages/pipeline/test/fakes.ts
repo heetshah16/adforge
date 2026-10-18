@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { parseEnv } from '@adforge/core/config/env';
 import { loadPrompt } from '@adforge/core/llm/prompts';
 import type { DirectorOutput } from '@adforge/core/llm/schemas';
-import { ProviderError, type MediaRef, type ProviderResult } from '@adforge/core/providers/types';
+import { ProviderError, type MediaRef, type OcrItem, type ProviderResult } from '@adforge/core/providers/types';
 import { jobs } from '@adforge/db/schema';
 import { openDb } from '@adforge/db/client';
 import { seedOperator, seedVocabulary } from '@adforge/db/seed/seed';
@@ -30,6 +30,8 @@ export interface FakeControls {
   director?: unknown[];       // canned Director outputs (default: anchor)
   voiceSm120?: boolean;
   comfyDown?: boolean;
+  ocr?: OcrItem[];            // what every OCR read returns (default: one label line)
+  visionDown?: boolean;       // every OCR read fails (retryable UPSTREAM)
 }
 
 export async function makeDeps(ctl: FakeControls = {}) {
@@ -37,7 +39,7 @@ export async function makeDeps(ctl: FakeControls = {}) {
   await seedVocabulary(db);
   const op = await seedOperator(db);
   const storage = new LocalDiskStorage(join(mkdtempSync(join(tmpdir(), 'adforge-pipe-')), 'media'), 'http://localhost:3000');
-  const calls = { image: 0, cutout: 0, videoSubmit: 0, videoPoll: 0, tts: 0, align: 0, render: 0, llm: 0, free: 0, unload: 0 };
+  const calls = { image: 0, cutout: 0, videoSubmit: 0, videoPoll: 0, tts: 0, align: 0, render: 0, llm: 0, free: 0, unload: 0, ocr: 0, visionUnload: 0 };
   let n = 0;
   const put = async (mime: string, extra: Partial<MediaRef> = {}) =>
     ({ ...(await storage.put(new Uint8Array([...PNG, n++]), { mime })), ...extra });
@@ -67,6 +69,10 @@ export async function makeDeps(ctl: FakeControls = {}) {
       unload: async () => { calls.unload++; return { unloaded: [] }; },
       tts: { id: 'fake', synthesize: async () => { calls.tts++; return done(await put('audio/wav', { durationSec: 3 })); } },
       aligner: { id: 'fake', align: async () => { calls.align++; return done({ words: [{ text: 'w', startSec: 0.1, endSec: 0.4 }] }); } },
+    },
+    vision: {
+      ocr: { id: 'fake-ocr', read: async () => { calls.ocr++; return ctl.visionDown ? fail('UPSTREAM', true) : done(ctl.ocr ?? [{ text: 'KRISHNA HING RAS', box: [0.1, 0.1, 0.5, 0.1], conf: 0.9 }]); } },
+      unload: async () => { calls.visionUnload++; return { unloaded: [] }; },
     },
     renderer: {
       id: 'fake',

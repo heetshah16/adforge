@@ -22,8 +22,8 @@ export function renderOcr(ocr: OcrItem[][]): string {
   return `OCR text read from each photo, for your understanding only (it may contain misreads; never copy it into the descriptor):\n${blocks.join('\n')}`;
 }
 
-/** Everything wrong with a descriptor, as one repair-ready sentence; '' when it is fine. */
-function descriptorProblems(d: string): string {
+/** Everything wrong with a descriptor, as one repair-ready sentence; '' when it is fine. Also guards human descriptor edits. */
+export function descriptorProblems(d: string): string {
   const n = wordCount(d);
   const leaked = labelTextViolations(d).map((t) => JSON.stringify(t));
   return [
