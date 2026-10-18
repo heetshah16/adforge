@@ -68,7 +68,7 @@ describe('admin invite (pglite)', () => {
     const w = await add('ok@x.com');
     const res = await inviteHandler(ctx, post({ waitlistId: w.id }));
     expect(res.status).toBe(200);
-    expect(calls).toEqual([{ email: 'ok@x.com', redirectTo: `${SITE}/auth/confirm` }]);
+    expect(calls).toEqual([{ email: 'ok@x.com', redirectTo: `${SITE}/signin?invited=1` }]);
     const r = await row(w.id);
     expect(r.status).toBe('invited');
     expect(r.invitedAt).toBeInstanceOf(Date);

@@ -47,7 +47,7 @@ See ADR 0015. Web env lives in `apps/web/.env.local`; the Supabase admin token i
 
 **Invite a brand**
 1. The brand submits the public form at `/waitlist`.
-2. An admin opens `/admin` and invites the row. Supabase emails the invite; the row becomes `invited`, then `joined` after first sign-in.
+2. An admin opens `/admin` and invites the row. Supabase emails the invite (default mailer, `{{ .ConfirmationURL }}`); the link lands on `/signin?invited=1`, which says "You're invited". The user then enters their email and requests a sign-in link (the invited auth user already exists, so this works even though prod forbids new accounts). The row becomes `invited`, then `joined` after first sign-in.
 3. Prod lets in only invited users and admins. Emails are compared lower-cased.
 
 **Make someone an admin**
@@ -59,7 +59,7 @@ Add their email to `ADFORGE_ADMIN_EMAILS` (comma list) and restart the web app. 
 3. Confirm sign-in and an `/admin` invite work, then delete the old key.
 
 **Re-apply the auth config**
-`node scripts/supabase-auth-config.mjs <project-ref>` (dev ref `pdxtuejlluzylgyvonii`; add `--site-url https://<host>` for prod). Idempotent; prints only the field names it changed and verifies with a GET. It sets the site URL, the exact redirect allow list, Confirm email ON, and turns the Data API off. Email templates apply only once custom SMTP is configured (B6).
+`node scripts/supabase-auth-config.mjs <project-ref>` (dev ref `pdxtuejlluzylgyvonii`; add `--site-url https://<host>` for prod). Idempotent; prints only the field names it changed and verifies with a GET. It sets the site URL, the exact redirect allow list, Confirm email ON, and turns the Data API off. Email templates apply only once custom SMTP is configured (B6). Until then, sign-in emails use the default `{{ .ConfirmationURL }}` PKCE link, which `/auth/confirm` handles via `?code=` (open it in the same browser that requested it, since the verifier cookie lives there). The free-tier mailer is heavily rate-limited, so expect `over_email_send_rate_limit` under load.
 
 **Resolve an "account conflict" sign-in**
 An auth user was deleted and re-invited, so the new `auth.users.id` differs from the stale `users` row with the same email. An admin deletes that stale `users` row (confirm it owns nothing worth keeping; FKs reference `users.id`). The user then signs in again and provision creates a fresh account.

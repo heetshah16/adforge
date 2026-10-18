@@ -12,6 +12,10 @@ if (!ref) {
   console.error('usage: node scripts/supabase-auth-config.mjs <project-ref> [--site-url <url>] [--prod]');
   process.exit(2);
 }
+if (args.includes('--site-url') && !/^https?:\/\//.test(opt('--site-url') ?? '')) {
+  console.error('--site-url needs a value, e.g. --site-url https://app.example.com');
+  process.exit(2);
+}
 const site = (args.includes('--site-url') ? opt('--site-url') : 'http://localhost:3000').replace(/\/$/, '');
 
 // .env.supabase uses "KEY = value" with spaces.
@@ -68,5 +72,5 @@ async function apply(path, desired) {
 const hasSmtp = Boolean((await call('/config/auth', 'GET')).smtp_host);
 if (!hasSmtp) console.log('WARNING: no custom SMTP; email templates NOT applied (default templates cannot carry token_hash links)');
 const a = await apply('/config/auth', hasSmtp ? { ...desiredAuth, ...desiredTemplates } : desiredAuth);
-await apply('/postgrest', desiredRest);
-console.log(`verified: site_url=${a.site_url} uri_allow_list=${a.uri_allow_list} disable_signup=${a.disable_signup} mailer_autoconfirm=${a.mailer_autoconfirm} db_schema=''`);
+const p = await apply('/postgrest', desiredRest);
+console.log(`verified: site_url=${a.site_url} uri_allow_list=${a.uri_allow_list} disable_signup=${a.disable_signup} mailer_autoconfirm=${a.mailer_autoconfirm} db_schema='${p.db_schema}'`);

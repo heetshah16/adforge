@@ -26,7 +26,7 @@ export async function inviteHandler(ctx: AdminCtx, req: Request): Promise<Respon
   if (!entry) return json({ error: 'not found' }, 404);
   if (entry.status !== 'new') return json({ ok: true, status: entry.status });
   try {
-    await ctx.invite(entry.email, new URL('/auth/confirm', ctx.siteUrl).toString());
+    await ctx.invite(entry.email, new URL('/signin?invited=1', ctx.siteUrl).toString());
   } catch (e) {
     console.warn('inviteUserByEmail:', (e as Error).message);
     return json({ error: `invite failed: ${(e as Error).message}` }, 502);
