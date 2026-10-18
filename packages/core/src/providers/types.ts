@@ -163,8 +163,10 @@ export interface CaptionAligner { readonly id: string; align(req: AlignRequest):
 /** box = [x, y, w, h] as fractions of the image. */
 export interface OcrItem { text: string; box: [number, number, number, number]; conf: number }
 /** estimate() resolves to a stored 16-bit PNG (larger = nearer). */
+/** `key` is a reserved idempotency key (unused today; kept for symmetry with other providers' requests). */
 export interface DepthProvider { readonly id: string; estimate(image: MediaRef, key: string): Promise<ProviderResult<MediaRef>> }
 export interface OcrProvider { readonly id: string; read(image: MediaRef, langs?: ('en' | 'hi')[]): Promise<ProviderResult<OcrItem[]>> }
+/** grid() resolves to n x n mean Rec.709 luma per cell, 0..255. */
 export interface LumaProvider { readonly id: string; grid(image: MediaRef, n?: number): Promise<ProviderResult<number[][]>> }
 export interface LLMResult<T> { value: T; usage: LLMUsage }
 export interface LLMProvider { readonly id: string; generate<T>(req: LLMRequest<T>): Promise<ProviderResult<LLMResult<T>>> }

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createVisionProviders } from '../src/providers';
 
 const BASE = 'http://127.0.0.1:8192';
@@ -129,5 +129,36 @@ describe('providers', () => {
     const p = mk(f, { baseUrl: `${BASE}//` });
     expect((await p.health()).ok).toBe(true);
     expect(await p.unload()).toEqual({ unloaded: ['depth'] });
+  });
+});
+
+describe('per-model first-load budget', () => {
+  it('900 s until that model has answered once, 120 s after; health, luma and unload never warm a model', async () => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    const f = fake({
+      'GET /health': () => json({ ok: true, device: 'cuda:0', cuda: true, loaded: { depth: false, ocr: false }, allocated_mb: 0 }),
+      'POST /ocr': () => json(fixture('ocr.live.json')),
+      'POST /luma': () => json(fixture('luma.live.json')),
+      'POST /depth': depthRes,
+      'POST /unload': () => json({ unloaded: ['depth', 'ocr'] }),
+    });
+    const p = mk(f);
+    const next = () => spy.mock.calls.at(-1)![0];
+    await p.health();
+    expect(next()).toBe(120_000);
+    await p.luma.grid(IMG);
+    expect(next()).toBe(120_000);
+    await p.ocr.read(IMG);
+    expect(next()).toBe(900_000); // first /ocr after a successful /health and /luma
+    await p.depth.estimate(IMG, 'k');
+    expect(next()).toBe(900_000); // first /depth after /ocr succeeded
+    await p.ocr.read(IMG);
+    expect(next()).toBe(120_000);
+    await p.depth.estimate(IMG, 'k');
+    expect(next()).toBe(120_000);
+    await p.unload();
+    await p.ocr.read(IMG);
+    expect(next()).toBe(900_000); // models were freed
+    spy.mockRestore();
   });
 });

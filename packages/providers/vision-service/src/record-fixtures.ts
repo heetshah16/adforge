@@ -3,7 +3,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { VisionClient } from './client';
 
 const c = new VisionClient(process.env.ADFORGE_VISION_URL ?? 'http://127.0.0.1:8192');
-const img = new Uint8Array(readFileSync(process.argv[2]!));
+if (!process.argv[2]) {
+  console.error('usage: tsx src/record-fixtures.ts <image path>');
+  process.exit(2);
+}
+const img = new Uint8Array(readFileSync(process.argv[2]));
 const out = (n: string, v: unknown) => writeFileSync(new URL(`../fixtures/${n}.live.json`, import.meta.url), JSON.stringify(v, null, 2) + '\n');
 console.log(await c.health());
 const d = await c.depth(img);
