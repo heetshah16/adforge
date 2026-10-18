@@ -136,8 +136,8 @@ def ocr_ep(image: bytes = File(...), langs: str = Form("en,hi")):
     with gpu:
         reader = _get(ocr)
         with Watchdog(CALL_TIMEOUT_S):
-            # EasyOCR expects BGR channel order for arrays.
-            res = reader.readtext(arr[..., ::-1])
+            # EasyOCR expects BGR channel order for arrays. (contiguous: negative strides break the tensor conversion)
+            res = reader.readtext(np.ascontiguousarray(arr[..., ::-1]))
             ocr.touch()
     w, h = im.size
     items = []

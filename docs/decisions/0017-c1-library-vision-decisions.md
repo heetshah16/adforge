@@ -13,6 +13,6 @@
 - Ingest LLM idempotency keys are scoped to the Inngest run (and attempt), so retries within a run reuse keys and a later run records its own spend.
 
 ## Consequences
-- About 2.1 GB extra VRAM while vision models are loaded; total peak about 15.8 of 16.3 GB during a job, so headroom is thin.
+- About 2.1 GB extra VRAM while vision models are loaded; total peak about 15.8 of 16.3 GB (measured in the C1 e2e:library run, 2026-10-18) during a job, so headroom is thin.
 - Plate analysis adds paid LLM calls per job (one per plate); nothing consumes `assets.analysis` until C3/C4.
 - Real label text for prompts must come from OCR metadata or the brand kit, never from descriptors.
