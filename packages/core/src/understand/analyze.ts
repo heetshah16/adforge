@@ -4,13 +4,14 @@ import type { LlmDeps } from '../llm/strategize';
 import { ProviderError, type LLMContent, type LLMResult, type MediaRef, type OcrItem, type ProviderResult, type StorageProvider } from '../providers/types';
 import { PlateAnalysis, ProductAnalysis, ProductAnalysisModel, labelTextViolations, wordCount } from './schemas';
 
-const MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
-type Mime = (typeof MIMES)[number];
+/** What the vision model accepts; ingest refuses anything else before any GPU work. */
+export const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+type Mime = (typeof IMAGE_MIMES)[number];
 export type VisionDeps = LlmDeps & { storage: Pick<StorageProvider, 'read'> };
 type ProductResult = ProviderResult<LLMResult<ProductAnalysis>>;
 
 const invalid = (message: string): ProviderResult<never> => ({ status: 'failed', error: new ProviderError('llm', 'INVALID_INPUT', message), retryable: false });
-const badMime = (refs: MediaRef[]) => refs.find((r) => !MIMES.includes(r.mime as Mime));
+const badMime = (refs: MediaRef[]) => refs.find((r) => !IMAGE_MIMES.includes(r.mime as Mime));
 
 async function imageContent(storage: VisionDeps['storage'], ref: MediaRef): Promise<LLMContent> {
   return { type: 'image', mime: ref.mime as Mime, data: await storage.read(ref.id) };

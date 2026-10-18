@@ -21,6 +21,8 @@ describe('recordCall', () => {
       const row = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'j:plate:1:0', result: { ok: false as const, code: 'UPSTREAM' as const, message: 'oom', retryable: true } };
       await recordCall(db, row);
       await recordCall(db, row); // retry re-entry
+      // @ts-expect-error a call names its job or its org; neither must not compile
+      void (() => recordCall(db, { kind: 'x', provider: 'p', idempotencyKey: 'k', result: row.result }));
       const rows = await db.select().from(providerCalls);
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ status: 'failed', error: { code: 'UPSTREAM', message: 'oom', retryable: true } });

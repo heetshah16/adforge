@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { loadPrompt } from '@adforge/core/llm/prompts';
 import type { LLMProvider, LLMRequest } from '@adforge/core/providers/types';
 import { labelTextViolations } from '@adforge/core/understand/schemas';
-import { libraryAssets, orgs, products, projects, providerCalls } from '@adforge/db/schema';
+import { assets, libraryAssets, orgs, products, projects, providerCalls } from '@adforge/db/schema';
 import { ingestProduct, updateDescriptor, type IngestStep } from '../src/ingest';
 import { saveAsset } from '../src/record';
 import { buildConfigSnapshot } from '../src/snapshot';
@@ -33,8 +33,21 @@ function fakeVision(outputs: Record<string, unknown>[]) {
   return { llm, reqs };
 }
 
-/** Inngest's step: results JSON round-trip. */
-const step: IngestStep = { run: async (_id, fn) => JSON.parse(JSON.stringify((await fn()) ?? null)) };
+/** Inngest's step: results JSON round-trip. Each call is its own run. */
+let runs = 0;
+const step: IngestStep = { get runId() { return `run-${++runs}`; }, run: async (_id, fn) => JSON.parse(JSON.stringify((await fn()) ?? null)) };
+/** One run retried by Inngest: memoizes each successful step by id (a throwing step is not cached and re-runs). */
+function memoStep(runId = 'run-memo'): IngestStep & { ids: string[] } {
+  const cache = new Map<string, unknown>();
+  const ids: string[] = [];
+  return {
+    runId, ids,
+    run: async <T>(id: string, fn: () => Promise<T>): Promise<T> => {
+      if (!cache.has(id)) { ids.push(id); cache.set(id, JSON.parse(JSON.stringify((await fn()) ?? null))); }
+      return cache.get(id) as T;
+    },
+  };
+}
 
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; });
@@ -89,8 +102,8 @@ describe('product.ingest', () => {
     // Joint call picks photo 1; photos 0 and 2 each get their own view analysis.
     const m = await setup({}, [
       analysis({ bestPhotoIndex: 1 }),
-      analysis({ viewpoint: { azimuthDeg: -90, elevationDeg: 0 }, visibleFaces: ['left'] }),
-      analysis({ viewpoint: { azimuthDeg: 45, elevationDeg: 5 }, visibleFaces: ['front', 'right'] }),
+      analysis({ viewpoint: { azimuthDeg: -90, elevationDeg: 0 }, visibleFaces: ['left'], palette: ['#000000'], material: 'tin', finish: 'matte', shapeClass: 'can' }),
+      analysis({ viewpoint: { azimuthDeg: 45, elevationDeg: 5 }, visibleFaces: ['front', 'right'], lightDirection: null }),
     ]);
     const productId = await product(m.deps, m.scope);
     const ids = await photos(m.deps, m.scope, 3);
@@ -103,9 +116,12 @@ describe('product.ingest', () => {
     expect(m.reqs.map((q) => q.user.filter((c) => c.type === 'image').length)).toEqual([3, 1, 1]);
     const rs = await rows(m.deps);
     expect(rs).toHaveLength(3);
-    const bySource = Object.fromEntries(rs.map((x) => [(x.meta as { sourceAssetId: string }).sourceAssetId, x.meta as { anchor: boolean; viewpoint: unknown }]));
+    const bySource = Object.fromEntries(rs.map((x) => [(x.meta as { sourceAssetId: string }).sourceAssetId, x.meta as { anchor: boolean; viewpoint: unknown; lightDirection: unknown }]));
     expect(ids.map((id) => bySource[id]!.anchor)).toEqual([false, true, false]);
     expect(bySource[ids[0]!]!.viewpoint).toEqual({ azimuthDeg: -90, elevationDeg: 0 });
+    // Product-level fields come from the joint call; per-photo calls contribute only the view.
+    for (const x of rs) expect(x.meta).toMatchObject({ palette: ['#aa5500', '#f5ecd7'], material: 'amber glass', finish: 'gloss', shapeClass: 'bottle' });
+    expect(bySource[ids[2]!]!.lightDirection).toBeNull();
     expect([m.calls.cutout, m.calls.free, m.calls.ocr, m.calls.visionUnload]).toEqual([3, 1, 3, 1]);
   });
 
@@ -135,6 +151,47 @@ describe('product.ingest', () => {
     const r = await ingestProduct({ productId, photoAssetIds: await photos(m.deps, m.scope, 1, 2) }, step, m.deps);
     expect(r.tags).toEqual([{ tag: '@prod_sattvikoil_front', version: 2, anchor: true }]);
     expect((await rows(m.deps)).map((x) => [x.version, x.status])).toEqual(expect.arrayContaining([[1, 'superseded'], [2, 'active']]));
+    // Back to the first set in a later run: it re-versions, and its paid LLM call gets its own provider_calls row.
+    const back = await ingestProduct({ productId, photoAssetIds: [(await rows(m.deps)).find((x) => x.version === 1)!.meta as { sourceAssetId: string }].map((x) => x.sourceAssetId) }, step, m.deps);
+    expect(back.tags).toEqual([{ tag: '@prod_sattvikoil_front', version: 3, anchor: true }]);
+    expect(await m.deps.db.$count(providerCalls, eq(providerCalls.kind, 'llm'))).toBe(3);
+  });
+
+  it('a renamed product keeps its tags on re-ingest', async () => {
+    const m = await setup();
+    const productId = await product(m.deps, m.scope);
+    await ingestProduct({ productId, photoAssetIds: await photos(m.deps, m.scope, 1, 1) }, step, m.deps);
+    await m.deps.db.update(products).set({ name: 'Sattvik Groundnut Oil' }).where(eq(products.id, productId));
+    const r = await ingestProduct({ productId, photoAssetIds: await photos(m.deps, m.scope, 1, 2) }, step, m.deps);
+    expect(r.tags).toEqual([{ tag: '@prod_sattvikoil_front', version: 2, anchor: true }]);
+  });
+
+  it('a retried run re-invokes only the failed per-photo call; earlier calls stay memoized and the anchor is unchanged', async () => {
+    const m = await setup({}, [
+      analysis({ bestPhotoIndex: 1 }),
+      analysis({ viewpoint: { azimuthDeg: -90, elevationDeg: 0 }, visibleFaces: ['left'] }),
+      analysis({ viewpoint: { azimuthDeg: 45, elevationDeg: 5 }, visibleFaces: ['front', 'right'] }),
+      analysis({ bestPhotoIndex: 0 }), // what a re-run joint call would say; must never be asked for
+    ]);
+    const gen = m.deps.llm.generate.bind(m.deps.llm);
+    let n = 0;
+    m.deps.llm.generate = (async (req: LLMRequest<unknown>) => {
+      if (++n === 3) throw new Error('subscription hiccup'); // the third call (photo 2) dies once
+      return gen(req);
+    }) as LLMProvider['generate'];
+    const productId = await product(m.deps, m.scope);
+    const ids = await photos(m.deps, m.scope, 3);
+    const s = memoStep();
+    await expect(ingestProduct({ productId, photoAssetIds: ids }, s, m.deps)).rejects.toThrow(/analysis failed: UNKNOWN subscription hiccup/);
+    expect(await m.deps.db.$count(libraryAssets)).toBe(0);
+    const r = await ingestProduct({ productId, photoAssetIds: ids }, s, m.deps); // Inngest's retry: same run, same memo
+    expect(n).toBe(4); // joint + photo 0 + photo 2 (failed) + photo 2 (retry): nothing re-billed
+    expect(m.reqs.map((q) => q.user.filter((c) => c.type === 'image').length)).toEqual([3, 1, 1]);
+    expect(r.tags.map((t) => t.anchor)).toEqual([false, true, false]);
+    const sha = (await m.deps.db.select().from(assets).where(eq(assets.id, ids[2]!)))[0]!.sha256;
+    expect(s.ids.filter((id) => id.startsWith('analyze:')).map((id) => id.replace(sha, 'photo2'))).toEqual(['analyze:joint', expect.stringMatching(/^analyze:[0-9a-f]{64}$/), 'analyze:photo2', 'analyze:photo2']);
+    const llm = await m.deps.db.select().from(providerCalls).where(eq(providerCalls.kind, 'llm'));
+    expect(llm.map((c) => c.status).sort()).toEqual(['done', 'done', 'done']); // the failed row was replaced by the retry's success
   });
 
   it('OCR [] → completes, and the descriptor carries no label text (an offending first draft is repaired)', async () => {
@@ -183,7 +240,16 @@ describe('product.ingest', () => {
     expect(v2.meta).toEqual(v1.meta);
     expect([v2.storageKey, v2.productId, v2.kind]).toEqual([v1.storageKey, v1.productId, v1.kind]);
     await expect(updateDescriptor(m.deps.db, { orgId: m.scope.orgId, tag, descriptor: `${DESC} "KRISHNA"` })).rejects.toThrow(/label text/);
-    await expect(updateDescriptor(m.deps.db, { orgId: m.scope.orgId, tag: '@prod_nope_front', descriptor: next })).rejects.toThrow(/not found/);
+    await expect(updateDescriptor(m.deps.db, { orgId: m.scope.orgId, tag: '@prod_nope_front', descriptor: next })).rejects.toThrow(/no active version/);
+    expect(await m.deps.db.$count(libraryAssets)).toBe(2);
+  });
+
+  it('updateDescriptor never revives a superseded view', async () => {
+    const m = await setup({}, [analysis(), analysis({ viewpoint: { azimuthDeg: -90, elevationDeg: 0 }, visibleFaces: ['left'] })]);
+    const productId = await product(m.deps, m.scope);
+    await ingestProduct({ productId, photoAssetIds: await photos(m.deps, m.scope, 1, 1) }, step, m.deps);
+    await ingestProduct({ productId, photoAssetIds: await photos(m.deps, m.scope, 1, 2) }, step, m.deps); // now only a left view
+    await expect(updateDescriptor(m.deps.db, { orgId: m.scope.orgId, tag: '@prod_sattvikoil_front', descriptor: DESC })).rejects.toThrow(/no active version/);
     expect(await m.deps.db.$count(libraryAssets)).toBe(2);
   });
 
@@ -231,6 +297,26 @@ describe('product.ingest', () => {
     expect(await m.deps.db.$count(libraryAssets)).toBe(0);
     expect(await m.deps.db.$count(providerCalls)).toBe(0);
     expect(m.calls.cutout).toBe(0);
+  });
+
+  it('refuses an unsupported image mime before any cutout or OCR', async () => {
+    const m = await setup();
+    const productId = await product(m.deps, m.scope);
+    const ids = await photos(m.deps, m.scope, 2);
+    await m.deps.db.update(assets).set({ mime: 'image/gif' }).where(eq(assets.id, ids[1]!));
+    await expect(ingestProduct({ productId, photoAssetIds: ids }, step, m.deps)).rejects.toThrow(/image\/gif.*not an analysable image/);
+    expect([m.calls.cutout, m.calls.ocr, await m.deps.db.$count(providerCalls), await m.deps.db.$count(libraryAssets)]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('a throw inside the analysis (e.g. storage.read) is recorded as a failed llm call', async () => {
+    const m = await setup();
+    const productId = await product(m.deps, m.scope);
+    const ids = await photos(m.deps, m.scope, 1);
+    m.deps.storage.read = async () => { throw new Error('disk gone'); };
+    await expect(ingestProduct({ productId, photoAssetIds: ids }, step, m.deps)).rejects.toThrow(/analysis failed: UNKNOWN disk gone/);
+    const [c] = await m.deps.db.select().from(providerCalls).where(eq(providerCalls.kind, 'llm'));
+    expect(c).toMatchObject({ status: 'failed', model: 'claude-sonnet-5-5', error: { code: 'UNKNOWN', message: 'disk gone', retryable: true } });
+    expect(await m.deps.db.$count(libraryAssets)).toBe(0);
   });
 
   it('the job config snapshot records the vision model, effort and both vision prompt hashes', async () => {

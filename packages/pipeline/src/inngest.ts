@@ -43,7 +43,7 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
   // finish 60m: up to 5 analysis calls (plus repairs) at the 5-min LLM timeout each.
   const ingest = inngest.createFunction(
     { id: 'product-ingest', triggers: [{ event: EVENTS.productIngest }], concurrency: HEAVY_CONCURRENCY, priority: { run: '600' }, retries: 2, timeouts: { start: '2h', finish: '60m' } },
-    async ({ event, step }) => ingestProduct(event.data, { run: (id, fn) => step.run(id, fn) as never }, deps),
+    async ({ event, step, runId }) => ingestProduct(event.data, { runId, run: (id, fn) => step.run(id, fn) as never }, deps),
   );
 
   const janitor = inngest.createFunction({ id: 'janitor', triggers: [{ cron: '*/5 * * * *' }], retries: 0, timeouts: { finish: '4m' }, concurrency: [{ limit: 1 }] }, async ({ step }) =>
