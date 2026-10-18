@@ -66,7 +66,8 @@ Same scheme as the P3–P8 run: the least capable model that can do the job well
 
 | Grade | Use for | Implementer | Task review |
 |---|---|---|---|
-| **Haiku** | transcription from a complete code-level plan; 1–2 files; mechanical edits, migrations written out in full, config, fixtures, docs | Haiku 5.5 | Sonnet |
+| **Worker** (free OpenCode worker) | "dumb enough" work: one-file mechanical edits where the brief fixes every value; docs/ADR/runbook text from listed facts; fixture/seed data; config and CI tweaks (e.g. timeouts); renames; test-name/assertion tidy-ups. **Never:** RLS, grants, auth, sessions, secrets, money/quota, migrations, concurrency or idempotency logic, or anything with a security review focus | any free OpenCode worker (spin one up per task) | Sonnet (same as Haiku tasks) |
+| **Haiku** | transcription from a complete code-level plan; 1–2 files; mechanical edits, migrations written out in full, config, fixtures, docs. Also the fallback when no worker is free or a worker task fails its review twice | Haiku 5.5 | Sonnet |
 | **Sonnet** | multi-file integration, provider adapters, pipeline wiring, UI pages, spikes with measurements | Sonnet 5.5 | Sonnet (Opus when the diff touches security or money) |
 | **Opus** | architecture and judgment: tenancy and RLS design, the recipe/edit model, the ledger, the prompt compiler, security-sensitive code, anything with a subtle concurrency or idempotency argument | Opus 5.5 | Opus |
 
