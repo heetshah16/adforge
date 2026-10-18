@@ -1,9 +1,10 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseEnv } from '../src/config/env';
 import { loadPrompt } from '../src/llm/prompts';
 import type { LlmDeps } from '../src/llm/strategize';
 import type { MediaRef, OcrItem } from '../src/providers/types';
-import { analyzePlate, analyzeProduct, renderOcr } from '../src/understand/analyze';
+import { analyzePlate, analyzeProduct, descriptorProblems, renderOcr } from '../src/understand/analyze';
 import { PlateAnalysis, ProductAnalysis, labelTextViolations } from '../src/understand/schemas';
 import { failed, fakeLLM } from './fake-llm';
 
@@ -175,5 +176,17 @@ describe('analyzePlate', () => {
     const r = await analyzePlate({ image: ref('p') }, deps(llm));
     expect(r.status).toBe('done');
     expect(llm.calls[0]!.system).toBe(loadPrompt('vision-plate').text);
+  });
+});
+
+describe('recorded live vision fixtures', () => {
+  const dir = new URL('../../providers/claude-agent-sdk/fixtures/', import.meta.url);
+  const files = readdirSync(dir).filter((f) => /^vision-.*\.live\.json$/.test(f));
+  it('finds the recorded fixtures', () => expect(files.length).toBeGreaterThanOrEqual(3));
+  it.each(files)('%s parses against the schema (products also pass the descriptor guard)', (f) => {
+    const { analysis } = JSON.parse(readFileSync(new URL(f, dir), 'utf8'));
+    if (f.startsWith('vision-plate')) return void expect(PlateAnalysis.safeParse(analysis).success).toBe(true);
+    const a = ProductAnalysis.parse(analysis);
+    expect(descriptorProblems(a.descriptor)).toBe('');
   });
 });

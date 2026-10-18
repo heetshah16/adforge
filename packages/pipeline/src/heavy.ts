@@ -1,4 +1,4 @@
-import { PIPELINE } from '@adforge/core/config/pipeline';
+import { PIPELINE, QwenSpeaker } from '@adforge/core/config/pipeline';
 import { TREATMENTS } from '@adforge/core/config/treatments';
 import type { DirectorVariant } from '@adforge/core/llm/schemas';
 import type { MediaRef, ProviderResult, VoiceBible } from '@adforge/core/providers/types';
@@ -32,6 +32,8 @@ type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallb
  * neither is the normal no-bible path (silent; still recorded as `config-defaults`). Unusable rows, unmakeable slugs and lookup errors always warn.
  */
 async function voiceBible(deps: PipelineDeps, orgId: string, brand: { explicit?: string; fromName?: string }): Promise<BibleLookup> {
+  // English must be on Qwen for a bible to apply; otherwise it is unused and must not be attributed.
+  if (PIPELINE.voice.engineByLanguage.en !== 'qwen') return { fallback: 'English voice engine is not qwen', triedTag: '(none)', warn: false };
   const name = brand.explicit ?? brand.fromName;
   if (!name) return { fallback: 'job names no brand', triedTag: '(none)', warn: !!brand.explicit };
   let tag: string;
@@ -47,6 +49,10 @@ async function voiceBible(deps: PipelineDeps, orgId: string, brand: { explicit?:
     const m = row.meta as { engine?: string; speaker?: unknown; baseInstruct?: unknown };
     if (m.engine !== 'qwen') return { fallback: `engine is ${JSON.stringify(m.engine)}, not qwen`, triedTag: tag, warn: true };
     if (typeof m.speaker !== 'string' || typeof m.baseInstruct !== 'string') return { fallback: 'meta lacks speaker/baseInstruct', triedTag: tag, warn: true };
+    // Unusable rows must fall back here: the Qwen request caps speaker (enum) and `base + ' ' + beat instruct` (300), and a 400 per beat would fail every beat.
+    if (!QwenSpeaker.safeParse(m.speaker).success) return { fallback: `speaker ${JSON.stringify(m.speaker)} is not a Qwen speaker`, triedTag: tag, warn: true };
+    const q = PIPELINE.voice.qwen;
+    if (m.baseInstruct.length + 1 + Math.max(q.calmInstruct.length, q.expressiveInstruct.length) > 300) return { fallback: 'baseInstruct too long (base + beat instruct exceeds 300 chars)', triedTag: tag, warn: true };
     return { bible: { speaker: m.speaker, baseInstruct: m.baseInstruct }, tag, version: row.version };
   } catch (e) {
     return { fallback: `lookup failed: ${e instanceof Error ? e.message : String(e)}`, triedTag: tag, warn: true };

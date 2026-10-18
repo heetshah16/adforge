@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
+import { loadPrompt } from '@adforge/core/llm/prompts';
+import { ProviderError } from '@adforge/core/providers/types';
 import { assets, jobs, orgs, projects, providerCalls, variants } from '@adforge/db/schema';
 import { seedOperator } from '@adforge/db/seed/seed';
 import { HEAVY } from '../src/heavy';
@@ -55,6 +57,25 @@ describe('generateAds', () => {
     const llm = (await m.deps.db.select().from(providerCalls)).filter((c) => c.idempotencyKey.includes(':plate-analysis:'));
     expect(llm).toHaveLength(plates.length);
     expect(llm.every((c) => c.model === 'claude-sonnet-5-5' && c.status === 'done')).toBe(true);
+  });
+
+  it('plate analyses run concurrently, all are stored, and the aggregate warning still counts the failures', async () => {
+    const m = await makeDeps({ plateTransient: 0 }); close = m.close;
+    const id = await newJob(m.deps);
+    const gen = m.deps.llm.generate.bind(m.deps.llm);
+    let live = 0, peak = 0, nth = 0;
+    m.deps.llm.generate = (async (req: Parameters<typeof gen>[0]) => {
+      if (req.system !== loadPrompt('vision-plate').text) return gen(req);
+      live++; peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 20));
+      live--;
+      return ++nth <= 2 ? { status: 'failed', error: new ProviderError('fake', 'INVALID_INPUT', 'nope'), retryable: false } : gen(req);
+    }) as typeof gen;
+    const r = await generateAds(id, memoStep(m.deps), m.deps);
+    const plates = await m.deps.db.select().from(assets).where(eq(assets.kind, 'plate'));
+    expect(peak).toBeGreaterThan(1);
+    expect(plates.filter((p) => p.analysis !== null)).toHaveLength(plates.length - 2);
+    expect(r.warnings.filter((w) => w.startsWith('plate analysis failed'))).toEqual([`plate analysis failed for 2/${plates.length} plates (first: nope)`]);
   });
 
   it('a retryable plate-analysis failure is retried once in-step; the retry is recorded', async () => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { loadPrompt } from '@adforge/core/llm/prompts';
-import type { LLMProvider, LLMRequest } from '@adforge/core/providers/types';
+import { ProviderError, type LLMProvider, type LLMRequest } from '@adforge/core/providers/types';
 import { labelTextViolations } from '@adforge/core/understand/schemas';
 import { assets, libraryAssets, orgs, products, projects, providerCalls } from '@adforge/db/schema';
 import { ingestProduct, updateDescriptor, type IngestStep } from '../src/ingest';
@@ -98,12 +98,12 @@ describe('product.ingest', () => {
     expect(cs.find((c) => c.kind === 'llm')!.model).toBe('claude-sonnet-5-5');
   });
 
-  it('3 photos → 3 rows named by face + azimuth bucket, the anchor at bestPhotoIndex', async () => {
+  it('3 photos → 3 rows named by azimuth bucket only (visibleFaces order is irrelevant), the anchor at bestPhotoIndex', async () => {
     // Joint call picks photo 1; photos 0 and 2 each get their own view analysis.
     const m = await setup({}, [
       analysis({ bestPhotoIndex: 1 }),
       analysis({ viewpoint: { azimuthDeg: -90, elevationDeg: 0 }, visibleFaces: ['left'], palette: ['#000000'], material: 'tin', finish: 'matte', shapeClass: 'can' }),
-      analysis({ viewpoint: { azimuthDeg: 45, elevationDeg: 5 }, visibleFaces: ['front', 'right'], lightDirection: null }),
+      analysis({ viewpoint: { azimuthDeg: 45, elevationDeg: 5 }, visibleFaces: ['right', 'front'], lightDirection: null }),
     ]);
     const productId = await product(m.deps, m.scope);
     const ids = await photos(m.deps, m.scope, 3);
@@ -111,7 +111,7 @@ describe('product.ingest', () => {
     expect(r.tags).toEqual([
       { tag: '@prod_sattvikoil_left', version: 1, anchor: false },
       { tag: '@prod_sattvikoil_front', version: 1, anchor: true },
-      { tag: '@prod_sattvikoil_front_threequarterright', version: 1, anchor: false },
+      { tag: '@prod_sattvikoil_threequarterright', version: 1, anchor: false },
     ]);
     expect(m.reqs.map((q) => q.user.filter((c) => c.type === 'image').length)).toEqual([3, 1, 1]);
     const rs = await rows(m.deps);
@@ -192,6 +192,25 @@ describe('product.ingest', () => {
     expect(s.ids.filter((id) => id.startsWith('analyze:')).map((id) => id.replace(sha, 'photo2'))).toEqual(['analyze:joint', expect.stringMatching(/^analyze:[0-9a-f]{64}$/), 'analyze:photo2', 'analyze:photo2']);
     const llm = await m.deps.db.select().from(providerCalls).where(eq(providerCalls.kind, 'llm'));
     expect(llm.map((c) => c.status).sort()).toEqual(['done', 'done', 'done']); // the failed row was replaced by the retry's success
+  });
+
+  it('a step retry re-bills attempt 0 and the repair under attempt-scoped keys: every paid attempt keeps its own row', async () => {
+    const short = analysis({ descriptor: 'too short' });
+    const m = await setup({}, [short, short, analysis()]);
+    const gen = m.deps.llm.generate.bind(m.deps.llm);
+    let n = 0;
+    // Execution 1: attempt 0 is paid but fails the guard, then the repair fails retryably. Execution 2 (Inngest attempt 1) succeeds.
+    m.deps.llm.generate = (async (req: LLMRequest<unknown>) => (++n === 2 ? { status: 'failed', error: new ProviderError('fake-llm', 'UPSTREAM', 'blip'), retryable: true } : gen(req))) as LLMProvider['generate'];
+    const productId = await product(m.deps, m.scope);
+    const ids = await photos(m.deps, m.scope, 1);
+    const retrying: IngestStep = {
+      runId: 'run-retry', attempt: 0,
+      run: async (_id, fn) => { for (;;) { try { return JSON.parse(JSON.stringify((await fn()) ?? null)); } catch (e) { if (retrying.attempt! >= 2) throw e; retrying.attempt!++; } } },
+    };
+    const r = await ingestProduct({ productId, photoAssetIds: ids }, retrying, m.deps);
+    expect(r.status).toBe('ingested');
+    const llm = await m.deps.db.select().from(providerCalls).where(eq(providerCalls.kind, 'llm'));
+    expect(llm.map((c) => [c.idempotencyKey.replace(/^.*analysis/, ''), c.status]).sort()).toEqual([['', 'done'], [':a1', 'done'], [':a1:repair1', 'done'], [':repair1', 'failed']]);
   });
 
   it('OCR [] → completes, and the descriptor carries no label text (an offending first draft is repaired)', async () => {

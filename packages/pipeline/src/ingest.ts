@@ -16,7 +16,7 @@ import { toWire, type WireResult } from './wire';
 /** `adforge/product.ingest`: the photos are named in the event (the product's own upload assets, 1-5, in display order). */
 export const IngestEvent = z.object({ productId: z.uuid(), photoAssetIds: z.array(z.uuid()).min(1).max(5) });
 /** Inngest's step plus the run id (it scopes the paid LLM keys, so a later run's calls are recorded, not folded into an earlier run's rows). */
-export interface IngestStep { runId: string; run<T>(id: string, fn: () => Promise<T>): Promise<T> }
+export interface IngestStep { runId: string; /** Inngest's retry attempt for the running step (0 = first); scopes the paid LLM keys so a retry's calls get their own rows. */ attempt?: number; run<T>(id: string, fn: () => Promise<T>): Promise<T> }
 type Tag = { tag: string; version: number; anchor: boolean };
 export interface IngestResult { status: 'ingested' | 'skipped'; tags: Tag[]; analysis: ReturnType<typeof visionConfig> }
 
@@ -64,14 +64,13 @@ async function productSlug(db: Db, orgId: string, p: { id: string; name: string 
   return taken ? `${base}${idPrefix(p.id)}` : base;
 }
 
-/** The camera's position as tag parts: the first visible face, plus the azimuth/elevation bucket when it says something new. */
-export function viewParts(a: Pick<ProductAnalysis, 'viewpoint' | 'visibleFaces'>): string[] {
+/** The camera's position as tag parts: the azimuth/elevation bucket only (the model doesn't order visibleFaces, so they can't name a view). */
+export function viewParts(a: Pick<ProductAnalysis, 'viewpoint'>): string[] {
   const { azimuthDeg: az, elevationDeg: el } = a.viewpoint;
   const side = az < 0 ? 'left' : 'right';
   const abs = Math.abs(az);
   const bucket = el >= 60 ? 'top' : el <= -60 ? 'bottom' : abs <= 22.5 ? 'front' : abs <= 67.5 ? `three-quarter-${side}` : abs <= 135 ? side : 'back';
-  const face = a.visibleFaces[0]!;
-  return face === bucket ? [face] : [face, bucket];
+  return [bucket];
 }
 
 /**
@@ -136,7 +135,8 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
   // One step per analysis, so Inngest memoizes each paid call and the joint result (the anchor) is a stable input to the rest.
   // The joint call over every photo picks the anchor and carries the product-level fields (shape, material, finish, palette);
   // each other photo's own call contributes only its view: viewpoint, faces, light and descriptor.
-  const analyze = async (idx: number[], key: string): Promise<ProductAnalysis> => {
+  const analyze = async (idx: number[], baseKey: string): Promise<ProductAnalysis> => {
+    const key = step.attempt ? `${baseKey}:a${step.attempt}` : baseKey;
     const a = await analyzeProduct(
       { images: idx.map((i) => ctx.photos[i]!.ref), ocr: idx.map((i) => ocr[i]!) },
       { llm: deps.llm, model: cfg.model, effort: cfg.effort, idempotencyKey: key, storage: deps.storage },

@@ -124,7 +124,7 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
   const plates = await step.heavy('plates', 'heavy:plates', { jobId, variants: vs, photoKey: input.photoKeys[0]! });
   await step.run('mark:plates:done', () => markProgress(db, jobId, 'plates', 'done').then(() => true));
 
-  // Plate analysis is best-effort: GPU phase (luma + depth, vision unloaded after), then ONE step per plate for the paid LLM call.
+  // Plate analysis is best-effort: GPU phase (luma + depth, vision unloaded after), then ONE step per plate (run in parallel) for the paid LLM call.
   // Any failure becomes a warning; the job continues.
   const plateKeys = [...new Set(Object.values(plates.plates).filter((k): k is string => !!k))];
   if (plateKeys.length) {
@@ -137,9 +137,10 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
     }
     const cfg = visionConfig(deps.env);
     const failures: string[] = [];
-    for (const [key, v] of Object.entries(vis)) {
-      if ('error' in v) { failures.push(v.error); continue; }
-      const why = await step.run(`plate-analysis:${key}`, async () => {
+    // Parallel: step ids are distinct per plate; each call keeps its own key, retry and recording.
+    const results = await Promise.all(Object.entries(vis).map(async ([key, v]): Promise<string> => {
+      if ('error' in v) return v.error;
+      return step.run(`plate-analysis:${key}`, async () => {
         const ikey = `${jobId}:plate-analysis:${key}`;
         try {
           if (!StorageKey.safeParse(v.depthKey).success) return `depth key ${JSON.stringify(v.depthKey)} is not a storage key`;
@@ -160,8 +161,8 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
           return e instanceof Error ? e.message : String(e);
         }
       });
-      if (why) failures.push(why);
-    }
+    }));
+    failures.push(...results.filter(Boolean));
     if (failures.length) warnings.push(`plate analysis failed for ${failures.length}/${plateKeys.length} plates (first: ${failures[0]})`);
     await step.run('mark:plate-analysis:done', () => markProgress(db, jobId, 'plate-analysis', 'done').then(() => true));
   }

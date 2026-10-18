@@ -63,6 +63,38 @@ describe('heavy tasks', () => {
     expect(bad.warning).toContain('not qwen');
   });
 
+  it('voice: an unusable bible row (bad speaker, over-long baseInstruct) falls back with a warning; never fails the beats', async () => {
+    const m = await makeDeps(); close = m.close;
+    const variants = anchor().variants.slice(0, 1);
+    const q = PIPELINE.voice.qwen;
+    const longest = Math.max(q.calmInstruct.length, q.expressiveInstruct.length);
+    const ins = async (brand: string, meta: Record<string, unknown>) =>
+      m.deps.db.insert(libraryAssets).values({ ...(await seedOperator(m.deps.db)), tag: `@voice_${brand}_en`, version: 1, kind: 'voice', descriptor: 'd', meta });
+    await ins('spk', { engine: 'qwen', speaker: 'Nobody', baseInstruct: 'Warm.' });
+    await ins('long', { engine: 'qwen', speaker: 'Ryan', baseInstruct: 'x'.repeat(300 - longest) }); // base + ' ' + beat = 301
+    await ins('edge', { engine: 'qwen', speaker: 'Ryan', baseInstruct: 'x'.repeat(299 - longest) }); // exactly 300: usable
+    const run = async (nameBrand: string) => HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, nameBrand });
+    expect(await run('Spk')).toMatchObject({ voiceUsed: 'config-defaults', warning: expect.stringContaining('not a Qwen speaker') });
+    const long = await run('Long');
+    expect(long).toMatchObject({ voiceUsed: 'config-defaults', warning: expect.stringContaining('too long') });
+    expect(Object.values(long.beats).every(Boolean)).toBe(true);
+    expect(m.ttsReqs.some((r) => r.voiceBible?.baseInstruct.startsWith('xxx') && r.voiceBible.baseInstruct.length === 300 - longest)).toBe(false);
+    expect(await run('Edge')).toMatchObject({ voiceUsed: '@voice_edge_en_v1' });
+  });
+
+  it('voice: a bible is not used (nor attributed) when English is not on qwen', async () => {
+    const m = await makeDeps(); close = m.close;
+    await m.deps.db.insert(libraryAssets).values({ ...(await seedOperator(m.deps.db)), tag: '@voice_krishna_en', version: 1, kind: 'voice', descriptor: 'd', meta: { engine: 'qwen', speaker: 'Ryan', baseInstruct: 'Warm.' } });
+    const en = PIPELINE.voice.engineByLanguage;
+    const was = en.en;
+    en.en = 'chatterbox';
+    try {
+      const r = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants: anchor().variants.slice(0, 1), nameBrand: 'Krishna' });
+      expect(r.voiceUsed).toBe('config-defaults');
+      expect(m.ttsReqs.every((x) => x.voiceBible === undefined)).toBe(true);
+    } finally { en.en = was; }
+  });
+
   it('voice: a throwing bible lookup falls back with a warning and never fails the step', async () => {
     const m = await makeDeps(); close = m.close;
     const jobId = await jobRow(m.deps);
