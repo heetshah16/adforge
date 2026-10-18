@@ -5,7 +5,7 @@ import { basename, extname, join, resolve } from 'node:path';
 import { REPO_ROOT, parseEnv } from '@adforge/core/config/env';
 import type { MediaRef } from '@adforge/core/providers/types';
 import { analyzePlate, analyzeProduct, type VisionDeps } from '@adforge/core/understand/analyze';
-import { createVisionProviders } from '../../vision-service/src/providers';
+import { createVisionProviders } from '@adforge/provider-vision-service';
 import { ClaudeAgentProvider } from './adapter';
 
 const env = parseEnv(process.env);

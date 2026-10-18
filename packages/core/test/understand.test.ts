@@ -61,7 +61,7 @@ describe('PlateAnalysis', () => {
 
 describe('frozen prompts', () => {
   it('golden bytes', () => {
-    expect(loadPrompt('vision-product').sha256).toBe('9a8ecd4ab673465f417d13ae93239843f866516ceb0d718aa17a46feb9bd7f73');
+    expect(loadPrompt('vision-product').sha256).toBe('fd76d9859ffa738d82fd5889e0b7ca8a140c78d0b8e0df7812a2b39a30db51b9');
     expect(loadPrompt('vision-plate').sha256).toBe('93b938e26bc378d91ecac929958a5c31c62c5be4ad19f2732376b2d001ce6b27');
   });
   it('carry no per-job content', () => {
@@ -110,8 +110,41 @@ describe('analyzeProduct', () => {
     expect(r.result.status).toBe('failed');
     if (r.result.status === 'failed') {
       expect(r.result.retryable).toBe(false);
-      expect(r.result.error.message).toMatch(/still contains label text/);
+      expect(r.result.error.message).toMatch(/still invalid.*label text/);
     }
+  });
+  const lastText = (llm: ReturnType<typeof fakeLLM>, i: number) => (llm.calls[i]!.user.at(-1) as { text: string }).text;
+  it('hands the model a descriptor with no word bound, so an overrun reaches the repair instead of failing the call', () => {
+    const llm = fakeLLM([{ ...ok, descriptor: words(122) }, ok]);
+    return analyzeProduct(input, deps(llm)).then(() => expect(llm.calls[0]!.schema.safeParse({ ...ok, descriptor: words(122) }).success).toBe(true));
+  });
+  it('repairs a 122-word descriptor on the second call, and returns the strictly parsed output', async () => {
+    const llm = fakeLLM([{ ...ok, descriptor: words(122) }, ok]);
+    const r = await analyzeProduct(input, deps(llm));
+    expect(r.repairs).toBe(1);
+    expect(lastText(llm, 1)).toContain('descriptor is 122 words, limit 40-120');
+    expect(r.result.status === 'done' && r.result.value.value).toEqual(ok);
+  });
+  it('fails non-retryable when a 122-word descriptor repeats', async () => {
+    const long = { ...ok, descriptor: words(122) };
+    const llm = fakeLLM([long, long]);
+    const r = await analyzeProduct(input, deps(llm));
+    expect(llm.calls).toHaveLength(2);
+    expect(r.result.status === 'failed' && r.result.retryable).toBe(false);
+    expect(r.result.status === 'failed' && r.result.error.message).toMatch(/122 words/);
+  });
+  it('repairs a 35-word descriptor', async () => {
+    const llm = fakeLLM([{ ...ok, descriptor: words(35) }, ok]);
+    const r = await analyzeProduct(input, deps(llm));
+    expect(r.repairs).toBe(1);
+    expect(lastText(llm, 1)).toContain('descriptor is 35 words');
+  });
+  it('a combined over-length plus label-text output gets one repair naming both', async () => {
+    const llm = fakeLLM([{ ...ok, descriptor: `${words(121)} KRISHNA` }, ok]);
+    const r = await analyzeProduct(input, deps(llm));
+    expect(llm.calls).toHaveLength(2);
+    expect(r.repairs).toBe(1);
+    expect(lastText(llm, 1)).toMatch(/122 words, limit 40-120; it contains label text: "KRISHNA"/);
   });
   it('passes a non-done generate result straight through with no repair', async () => {
     const llm = fakeLLM([failed('RATE_LIMIT')]);

@@ -2,7 +2,7 @@ import { PIPELINE } from '../config/pipeline';
 import { loadPrompt } from '../llm/prompts';
 import type { LlmDeps } from '../llm/strategize';
 import { ProviderError, type LLMContent, type LLMResult, type MediaRef, type OcrItem, type ProviderResult, type StorageProvider } from '../providers/types';
-import { PlateAnalysis, ProductAnalysis, labelTextViolations } from './schemas';
+import { PlateAnalysis, ProductAnalysis, ProductAnalysisModel, labelTextViolations, wordCount } from './schemas';
 
 const MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 type Mime = (typeof MIMES)[number];
@@ -22,8 +22,18 @@ export function renderOcr(ocr: OcrItem[][]): string {
   return `OCR text read from each photo, for your understanding only (it may contain misreads; never copy it into the descriptor):\n${blocks.join('\n')}`;
 }
 
+/** Everything wrong with a descriptor, as one repair-ready sentence; '' when it is fine. */
+function descriptorProblems(d: string): string {
+  const n = wordCount(d);
+  const leaked = labelTextViolations(d).map((t) => JSON.stringify(t));
+  return [
+    ...(n < 40 || n > 120 ? [`descriptor is ${n} words, limit 40-120`] : []),
+    ...(leaked.length ? [`it contains label text: ${leaked.join(', ')}`] : []),
+  ].join('; ');
+}
+
 /**
- * The model sees the plain schema; the label-text guard runs here so a violation gets one repair pass
+ * The model sees a loose schema; descriptor length and the label-text guard run here, so any violation gets ONE repair pass
  * naming the offending tokens (as direct() does), then fails non-retryable. `calls` is every attempt.
  */
 export async function analyzeProduct(
@@ -39,19 +49,19 @@ export async function analyzeProduct(
   const calls: ProductResult[] = [];
   for (let attempt = 0; ; attempt++) {
     const r = await deps.llm.generate({
-      system, user, schema: ProductAnalysis, model: deps.model, effort: deps.effort,
+      system, user, schema: ProductAnalysisModel, model: deps.model, effort: deps.effort,
       idempotencyKey: attempt === 0 ? deps.idempotencyKey : `${deps.idempotencyKey}:repair${attempt}`,
       timeoutMs: cfg.llm.timeoutMs,
     });
     calls.push(r);
     if (r.status !== 'done') return { result: r, repairs: attempt, calls };
-    const leaked = labelTextViolations(r.value.value.descriptor).map((b) => JSON.stringify(b)).join(', ');
-    if (!leaked) return { result: r, repairs: attempt, calls };
+    const problems = descriptorProblems(r.value.value.descriptor);
+    if (!problems) return { result: { ...r, value: { ...r.value, value: ProductAnalysis.parse(r.value.value) } }, repairs: attempt, calls };
     if (attempt >= 1) {
-      const error = new ProviderError('llm', 'UPSTREAM', `descriptor still contains label text: ${leaked}`);
+      const error = new ProviderError('llm', 'UPSTREAM', `descriptor still invalid: ${problems}`);
       return { result: { status: 'failed', error, retryable: false }, repairs: attempt, calls };
     }
-    user = [...base, { type: 'text', text: `Your descriptor contained label text: ${leaked}. Return the full analysis again with a descriptor that contains no label text at all (no quoted words, no ALL-CAPS words, no numbers), describing the label by layout, colour and script style. Previous output:\n${JSON.stringify(r.value.value)}` }];
+    user = [...base, { type: 'text', text: `Your descriptor was rejected: ${problems}. Return the full analysis again with a descriptor of about 70 to 90 words (never under 40 or over 120) that contains no label text at all (no quoted words, no ALL-CAPS words, no numbers), describing the label by layout, colour and script style. Previous output:\n${JSON.stringify(r.value.value)}` }];
   }
 }
 

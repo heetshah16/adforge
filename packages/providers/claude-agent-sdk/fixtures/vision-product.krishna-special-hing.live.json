@@ -41,13 +41,19 @@
     ],
     []
   ],
-  "repairs": 0,
+  "repairs": 1,
   "usage": [
     {
       "inputTokens": 2,
-      "outputTokens": 566,
-      "cacheReadTokens": 1796,
-      "cacheCreationTokens": 8047
+      "outputTokens": 575,
+      "cacheReadTokens": 1786,
+      "cacheCreationTokens": 8050
+    },
+    {
+      "inputTokens": 2,
+      "outputTokens": 548,
+      "cacheReadTokens": 9427,
+      "cacheCreationTokens": 915
     }
   ],
   "analysis": {
@@ -58,22 +64,21 @@
     },
     "lightDirection": {
       "azimuthDeg": -30,
-      "elevationDeg": 35
+      "elevationDeg": 40
     },
     "palette": [
-      "#F8C21A",
+      "#F9B71C",
+      "#E8531B",
       "#FFFFFF",
-      "#E8731A",
-      "#C8202A",
-      "#7A5CB0"
+      "#D2262B",
+      "#8E6BBF"
     ],
-    "material": "molded plastic with printed label",
+    "material": "Moulded plastic jar with printed label",
     "finish": "gloss",
     "visibleFaces": [
-      "front",
-      "top"
+      "front"
     ],
-    "descriptor": "squat cylindrical jar with a gently waisted body and rounded shoulders, bright yellow throughout. a deep yellow snap cap with softly rounded top edge covers about a quarter of the height. the front label is a tall white arch panel framed by an orange backing, holding a round yellow medallion with a blue skinned deity portrait wearing a crown, ringed by faint orange floral line art, a curved arc of small text above and two tiny ribbon banners at the sides. below sits a wide red rectangular band with bold white serif lettering, a tiny green dot square at its right, then black bold lines in two sizes. a pale embossed floral pattern rings the base.",
+    "descriptor": "a short squat cylindrical jar with rounded shoulders and a gently waisted body, glossy yellow plastic throughout. a wide yellow snap cap with rounded edges sits flush on top, about one quarter of the total height. a white arched label panel on an orange backdrop wraps the upper body, holding a round portrait of a blue skinned deity with a crown and garlands inside an orange ring, ornate scrollwork around it and a curved banner above. a red rectangular band with bold white serif lettering sits below, with a small green dot square at right, then black bold lines beneath. a faint embossed floral pattern rings the base.",
     "bestPhotoIndex": 2
   }
 }

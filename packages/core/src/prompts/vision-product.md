@@ -22,7 +22,7 @@ packaging is.
   completely, sharply and front-on.
 
 ## Descriptor
-Write one descriptor of 40 to 120 words (hard ceiling 100: stop at one dense paragraph) that lets an artist redraw the product
+Write one descriptor of about 70 to 90 words, as one dense paragraph, that lets an artist redraw the product
 shape from words alone. Describe the silhouette, proportions, colours, cap or
 closure, and how the label sits on the body: its position, its size, and the
 arrangement of its bands, seals, portraits and text blocks.

@@ -34,9 +34,9 @@
   "usage": [
     {
       "inputTokens": 2,
-      "outputTokens": 543,
+      "outputTokens": 536,
       "cacheReadTokens": 1089,
-      "cacheCreationTokens": 6717
+      "cacheCreationTokens": 6713
     }
   ],
   "analysis": {
@@ -47,20 +47,18 @@
     },
     "lightDirection": null,
     "palette": [
-      "#E8641E",
-      "#7A1F22",
-      "#F5E6A8",
-      "#E0A81E",
-      "#F2C230"
+      "#e8601c",
+      "#7a1c1c",
+      "#f5e3a0",
+      "#d9a21b",
+      "#ffffff"
     ],
-    "material": "printed tin with paper-style label wrap",
+    "material": "tin-plate metal with printed paper label",
     "finish": "mixed",
     "visibleFaces": [
-      "front",
-      "left",
-      "right"
+      "front"
     ],
-    "descriptor": "a squat upright cylindrical tin with straight sides, thin gold rolled rims at top and bottom, and a flat lid; the smallest size has a clear translucent snap-on cap. the body is deep maroon, wrapped by an orange label shaped like an arch with a cream and gold outline that rises over the front. at the centre sits a round portrait of a blue-skinned youth with a crown and peacock feather inside a yellow circle, with a small curled ribbon banner at each side and a tiny arc of text above. below it is a red rectangular plate with bold white serif lettering, then two lines of yellow and white capital lettering. a small green-dot mark sits at upper right.",
+    "descriptor": "three upright cylindrical tins in graduated sizes, tall, medium and short, each with a thin gold rolled rim at top and bottom, the smallest topped by a clear translucent snap lid. the wrap label is deep maroon at the edges with a large cream and gold arch outlining a bright orange panel. inside the arch sits a round portrait of a blue-skinned deity with a peacock feather crown on a pale yellow disc, flanked by small ribbon banners and a registered mark at upper right. a red rectangular plate with bold white lettering lies below, then yellow and white script lines, and a tiny green dot symbol sits at the side.",
     "bestPhotoIndex": 0
   }
 }
