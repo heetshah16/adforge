@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '../../lib/supabase/server';
 import { serverEnv } from '../../lib/server/env';
 import { sendLinkWith } from '../../lib/server/signin';
+import { StripFragment } from './strip-fragment';
 
 async function sendLink(form: FormData) {
   'use server';
@@ -12,6 +13,7 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<{
   const q = await searchParams;
   return (
     <>
+      <StripFragment />
       <h1>Sign in</h1>
       {q.sent ? (
         <p>If this address can sign in, a link is on its way. Asked recently? Wait a minute and try again.</p>

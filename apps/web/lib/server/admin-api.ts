@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isSiteOrigin } from './origin';
 import type { SessionUser } from './session';
 import type { WaitlistEntry } from './admin-owner';
 
@@ -19,7 +20,7 @@ export async function inviteHandler(ctx: AdminCtx, req: Request): Promise<Respon
   if (user instanceof Response) return user;
   if (!user.isAdmin) return json({ error: 'not found' }, 404);
   // CSRF: state-changing, so only our own origin may call it.
-  if (req.headers.get('origin') !== new URL(ctx.siteUrl).origin) return json({ error: 'forbidden' }, 403);
+  if (!isSiteOrigin(req, ctx.siteUrl)) return json({ error: 'forbidden' }, 403);
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return json({ error: 'invalid' }, 400);
   const entry = await ctx.get(parsed.data.waitlistId);

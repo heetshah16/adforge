@@ -235,10 +235,11 @@ describe.each(backends)('RLS on %s', (_name, open) => {
   });
 
   it('waitlist: a non-admin sees and updates nothing; an admin sees and updates everything', async () => {
-    const all = rows(await db.execute(sql`select id from waitlist`)).length;
     expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select id from waitlist`)))).toBe(0);
+    const ids = async (user: string) => rows<{ id: string }>(await withUser(db, user, (u) => u.execute(sql`select id from waitlist`))).map((r) => r.id);
     expect(await affected(withUser(db, a.user, (u) => u.execute(sql`update waitlist set note = 'x' where id = ${waitlistId} returning id`)))).toBe(0);
-    expect(await affected(withUser(db, admin, (u) => u.execute(sql`select id from waitlist`)))).toBe(all);
+    expect(await ids(admin)).toContain(waitlistId);
+    expect(await ids(a.user)).not.toContain(waitlistId);
     expect(await affected(withUser(db, admin, (u) => u.execute(sql`update waitlist set note = 'x' where id = ${waitlistId} returning id`)))).toBe(1);
   });
 

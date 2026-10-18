@@ -39,5 +39,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 fonts-noto-core
       - run: pnpm typecheck
+      # Migrate once up front: packages/db's globalSetup does too, but @adforge/web's Postgres tests run in parallel with it.
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ env.ADFORGE_TEST_DATABASE_URL }}
       - run: pnpm test
       - run: pnpm db:check

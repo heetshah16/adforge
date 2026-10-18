@@ -65,4 +65,4 @@ Add their email to `ADFORGE_ADMIN_EMAILS` (comma list) and restart the web app. 
 An auth user was deleted and re-invited, so the new `auth.users.id` differs from the stale `users` row with the same email. An admin deletes that stale `users` row (confirm it owns nothing worth keeping; FKs reference `users.id`). The user then signs in again and provision creates a fresh account.
 
 **Run `db:migrate`**
-`DATABASE_URL` must be set in the shell running it, otherwise it uses local PGlite.
+`DATABASE_URL` must be set in the shell running it, otherwise it exits with code 2 (there is no PGlite fallback).

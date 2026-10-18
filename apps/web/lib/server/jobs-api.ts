@@ -5,12 +5,14 @@ import { saveAsset } from '@adforge/pipeline/record';
 import type { UserDb } from '@adforge/db/with-user';
 import type { LocalDiskStorage } from '@adforge/provider-local-storage';
 import { approveVariant, createJobRow, ensureDefaultProject, getJobView } from '../data/jobs';
+import { isSiteOrigin } from './origin';
 import type { SessionUser } from './session';
 
 /** Everything the job routes touch, injected so tests can run them on PGlite with a fake session. */
 export type JobsCtx = {
   auth(): Promise<SessionUser | Response>;
   run<T>(userId: string, fn: (udb: UserDb) => Promise<T>): Promise<T>;
+  siteUrl: string;
   storage: LocalDiskStorage;
   send(jobId: string): Promise<void>;
   fail(jobId: string, reason: string, stage: string): Promise<void>;
@@ -22,10 +24,13 @@ const isRetryable = (e: unknown) => {
   return false;
 };
 const notFound = () => json({ error: 'not found' }, 404);
+// CSRF: state-changing, so only our own origin may call it.
+const forbidden = () => json({ error: 'forbidden' }, 403);
 
 export async function createJobHandler(ctx: JobsCtx, req: Request): Promise<Response> {
   const user = await ctx.auth();
   if (user instanceof Response) return user;
+  if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
   if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json({ error: 'upload larger than 30 MB' }, 413);
   let form: FormData;
   try { form = await req.formData(); } catch { return json({ error: 'expected multipart/form-data' }, 400); }
@@ -60,9 +65,10 @@ export async function getJobHandler(ctx: JobsCtx, id: string): Promise<Response>
   return view ? json(view) : notFound();
 }
 
-export async function approveHandler(ctx: JobsCtx, id: string, nRaw: string): Promise<Response> {
+export async function approveHandler(ctx: JobsCtx, req: Request, id: string, nRaw: string): Promise<Response> {
   const user = await ctx.auth();
   if (user instanceof Response) return user;
+  if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
   const n = Number(nRaw);
   if (!z.uuid().safeParse(id).success || !/^\d+$/.test(nRaw) || !Number.isSafeInteger(n) || n < 1 || n > 2 ** 31 - 1) return notFound();
   const attempt = () => ctx.run(user.userId, (udb) => approveVariant(udb, id, n));

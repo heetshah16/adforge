@@ -38,12 +38,12 @@ async function call(path, method, body) {
   return r.json();
 }
 
-// {{ .RedirectTo }} is the emailRedirectTo / invite redirectTo = <ADFORGE_SITE_URL>/auth/confirm.
+// Always point at <site>/auth/confirm via {{ .SiteURL }}: {{ .RedirectTo }} is the invite's /signin?invited=1, so appending a query to it breaks.
 // Do not use {{ .ConfirmationURL }}: it goes through Supabase's /verify and skips our /auth/confirm.
-const link = (type) => `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=${type}`;
+const link = (type) => `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=${type}`;
 const desiredAuth = {
   site_url: site,
-  uri_allow_list: `${site}/auth/confirm`, // exact entries only, comma-separated, no wildcards
+  uri_allow_list: `${site}/auth/confirm,${site}/signin?invited=1`, // exact entries only, comma-separated, no wildcards
   disable_signup: prod, // ADR 0015 recommends false even in prod: provision enforces the invite gate
   mailer_autoconfirm: false, // "Confirm email" ON: the invite gate trusts claims.email
 };

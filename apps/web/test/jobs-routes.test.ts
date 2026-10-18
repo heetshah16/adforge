@@ -21,7 +21,9 @@ const form = () => {
   for (const i of [1, 2, 3]) f.append('photos', new File([new Uint8Array([...PNG, i])], 'p.png', { type: 'image/png' }));
   return f;
 };
-const post = (body: FormData) => new Request('http://w/api/jobs', { method: 'POST', body });
+const SITE = 'http://w';
+const post = (body: FormData, origin: string | null = SITE) => new Request('http://w/api/jobs', { method: 'POST', body, ...(origin ? { headers: { origin } } : {}) });
+const appr = (origin: string | null = SITE) => new Request('http://w/api/jobs/x/variants/1/approve', { method: 'POST', ...(origin ? { headers: { origin } } : {}) });
 
 describe('job routes (pglite, fake session)', () => {
   let h: Awaited<ReturnType<typeof openDb>>;
@@ -31,6 +33,7 @@ describe('job routes (pglite, fake session)', () => {
   const failed: string[] = [];
   let sendError: Error | undefined;
   const ctxFor = (t: Tenant | null): JobsCtx => ({
+    siteUrl: SITE,
     auth: async () => (t ? { userId: t.userId, email: 'x@y.z', isAdmin: false, orgId: t.orgId } : Response.json({ error: 'unauthenticated' }, { status: 401 })),
     run: (userId, fn) => withUser(h.db, userId, fn),
     storage: new LocalDiskStorage(join(mkdtempSync(join(tmpdir(), 'adforge-web-')), 'media'), 'http://pub'),
@@ -49,7 +52,7 @@ describe('job routes (pglite, fake session)', () => {
     const c = ctxFor(null);
     expect((await createJobHandler(c, post(form()))).status).toBe(401);
     expect((await getJobHandler(c, a.jobId)).status).toBe(401);
-    expect((await approveHandler(c, a.jobId, '1')).status).toBe(401);
+    expect((await approveHandler(c, appr(), a.jobId, '1')).status).toBe(401);
   });
 
   it('a foreign job id is 404 on GET and approve (identical to a missing id), and nothing changes', async () => {
@@ -58,18 +61,26 @@ describe('job routes (pglite, fake session)', () => {
     expect(g.status).toBe(404);
     expect(await g.json()).toEqual({ error: 'not found' });
     expect(await (await getJobHandler(c, randomUUID())).json()).toEqual({ error: 'not found' });
-    expect((await approveHandler(c, b.jobId, '1')).status).toBe(404);
+    expect((await approveHandler(c, appr(), b.jobId, '1')).status).toBe(404);
     const own = (await (await getJobHandler(ctxFor(b), b.jobId)).json()) as { variants: { status: string }[] };
     expect(own.variants.map((v) => v.status)).toEqual(['completed', 'completed', 'pending']);
     expect((await getJobHandler(c, 'not-a-uuid')).status).toBe(404);
-    expect((await approveHandler(c, a.jobId, '1.5')).status).toBe(404);
+    expect((await approveHandler(c, appr(), a.jobId, '1.5')).status).toBe(404);
+  });
+
+  it('create and approve from a foreign or missing Origin -> 403, nothing written', async () => {
+    const c = ctxFor(a);
+    for (const o of ['http://evil.example', null]) {
+      expect((await createJobHandler(c, post(form(), o))).status).toBe(403);
+      expect((await approveHandler(c, appr(o), a.jobId, '1')).status).toBe(403);
+    }
   });
 
   it('approve: ok -> 200, pending -> 409', async () => {
     const c = ctxFor(a);
-    const ok = await approveHandler(c, a.jobId, '1');
+    const ok = await approveHandler(c, appr(), a.jobId, '1');
     expect([ok.status, await ok.json()]).toEqual([200, { approved: 1 }]);
-    expect((await approveHandler(c, a.jobId, '3')).status).toBe(409);
+    expect((await approveHandler(c, appr(), a.jobId, '3')).status).toBe(409);
   });
 
   it('POST creates the job in the caller org and default project, stores assets, then sends the event -> 202', async () => {
@@ -107,26 +118,26 @@ describe('job routes (pglite, fake session)', () => {
 });
 
 describe('route-level guards and retry', () => {
-  const base = { auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, send: async () => {}, fail: async () => {} };
+  const base = { siteUrl: SITE, auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, send: async () => {}, fail: async () => {} };
   it('declared Content-Length over 30 MB -> 413 before parsing', async () => {
     const ctx: JobsCtx = { ...base, run: async () => { throw new Error('must not touch the db'); } };
-    const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body: 'x', headers: { 'content-length': String(31 * 1024 * 1024) } }));
+    const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body: 'x', headers: { origin: SITE, 'content-length': String(31 * 1024 * 1024) } }));
     expect(res.status).toBe(413);
   });
   it('approve retries once on a deadlock (40P01, even wrapped) and then succeeds', async () => {
     let calls = 0;
     const ctx: JobsCtx = { ...base, run: async () => { if (++calls === 1) throw Object.assign(new Error('failed query'), { cause: { code: '40P01' } }); return 'ok' as never; } };
-    const res = await approveHandler(ctx, randomUUID(), '2');
+    const res = await approveHandler(ctx, appr(), randomUUID(), '2');
     expect([res.status, calls]).toEqual([200, 2]);
   });
   it('approve retries only once, and not for other errors', async () => {
     let calls = 0;
     const dead: JobsCtx = { ...base, run: async () => { calls++; throw Object.assign(new Error('x'), { code: '40001' }); } };
-    await expect(approveHandler(dead, randomUUID(), '2')).rejects.toThrow();
+    await expect(approveHandler(dead, appr(), randomUUID(), '2')).rejects.toThrow();
     expect(calls).toBe(2);
     calls = 0;
     const other: JobsCtx = { ...base, run: async () => { calls++; throw new Error('boom'); } };
-    await expect(approveHandler(other, randomUUID(), '2')).rejects.toThrow('boom');
+    await expect(approveHandler(other, appr(), randomUUID(), '2')).rejects.toThrow('boom');
     expect(calls).toBe(1);
   });
 });

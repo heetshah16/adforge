@@ -1,8 +1,12 @@
 import { z } from 'zod';
 
 const T = () => AbortSignal.timeout(10_000);
-/** Same-origin /api routes. A 401 means the session ended: go sign in again. */
-const signedOut = (res: Response) => { if (res.status === 401 && typeof location !== 'undefined') location.assign('/signin'); };
+/** Same-origin /api routes. 401 = the session ended: sign in again. 403 = signed in but not invited: waitlist. */
+const signedOut = (res: Response) => {
+  if (typeof location === 'undefined') return;
+  if (res.status === 401) location.assign('/signin');
+  else if (res.status === 403) location.assign('/waitlist');
+};
 
 const Progress = z.object({ stage: z.string(), status: z.enum(['running', 'done', 'failed', 'skipped']), at: z.string(), detail: z.string().optional() });
 const Variant = z.object({
