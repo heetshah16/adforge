@@ -58,20 +58,22 @@ describe('seedKrishna', () => {
 
 describe('readBrandFixture', () => {
   it('keeps valid fields', () => {
-    const f = readBrandFixture(fixtureDir({ palette: ['#AABBCC'], fonts: ["Noto Sans-1", "Bob's"], tone: 'warm', logoKey: KEY }), () => {});
-    expect(f).toEqual({ palette: ['#AABBCC'], fonts: ['Noto Sans-1', "Bob's"], tone: 'warm', logoKey: KEY });
+    const f = readBrandFixture(fixtureDir({ palette: ['#AABBCC'], fonts: ['Noto Sans-1', 'Poppins'], tone: 'warm', logoKey: KEY }), () => {});
+    expect(f).toEqual({ palette: ['#AABBCC'], fonts: ['Noto Sans-1', 'Poppins'], tone: 'warm', logoKey: KEY });
   });
   it.each([
     ['palette', ['red']],
     ['palette', ['#12345']],
     ['fonts', ['<script>']],
     ['fonts', ['a;b']],
+    ['fonts', ["Bob's"]],
+    ['fonts', ["x'; background:url(//evil)"]],
     ['fonts', ['x'.repeat(61)]],
     ['fonts', ['a', 'b', 'c', 'd', 'e', 'f', 'g']],
     ['tone', 'x'.repeat(301)],
     ['logoKey', '../etc/passwd'],
     ['logoKey', '/ab/x.png'],
-    ['logoKey', `ab\${'a'.repeat(64)}.png`],
+    ['logoKey', 'ab' + String.fromCharCode(92) + 'a'.repeat(64) + '.png'],
     ['logoKey', `https://x.com/${KEY}`],
     ['logoKey', 'ab/../' + 'a'.repeat(64) + '.png'],
   ])('drops invalid %s %j with a warning', (field, value) => {

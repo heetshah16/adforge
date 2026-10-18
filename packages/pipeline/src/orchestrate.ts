@@ -183,7 +183,7 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
   }
 
   await step.run('mark:voice', () => markProgress(db, jobId, 'voice', 'running').then(() => true));
-  const voiceRes = await step.heavy('voice', 'heavy:voice', { jobId, language: input.language, variants: vs, brand: input.product.brand ?? input.product.name.split(/\s+/)[0] });
+  const voiceRes = await step.heavy('voice', 'heavy:voice', { jobId, language: input.language, variants: vs, brand: input.product.brand, nameBrand: input.product.name.split(/\s+/)[0] });
   const voice = voiceRes.beats;
   if (voiceRes.warning) warnings.push(voiceRes.warning);
   await step.run('record:voice', async () => {

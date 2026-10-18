@@ -16,7 +16,7 @@ export interface BrandFixture { palette?: string[]; fonts?: string[]; tone?: str
 
 const FIELDS = {
   palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).min(1),
-  fonts: z.array(z.string().regex(/^[A-Za-z0-9 '-]{1,60}$/)).min(1).max(6),
+  fonts: z.array(z.string().regex(/^[A-Za-z0-9 -]{1,60}$/)).min(1).max(6),
   tone: z.string().trim().min(1).max(300),
   logoKey: StorageKey,
 } as const;

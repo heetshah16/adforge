@@ -33,24 +33,34 @@ describe('heavy tasks', () => {
     const m = await makeDeps(); close = m.close;
     const jobId = await jobRow(m.deps);
     const variants = anchor().variants.slice(0, 1);
-    const miss = await HEAVY.voice(m.deps, { jobId, language: 'en', variants, brand: 'Krishna' });
+    // The normal path: no explicit brand and no voice rows in the org -> silent, but recorded.
+    const quiet = await HEAVY.voice(m.deps, { jobId, language: 'en', variants, nameBrand: 'Krishna' });
     expect(m.ttsReqs.length).toBeGreaterThan(0);
     expect(m.ttsReqs.every((r) => r.voiceBible === undefined)).toBe(true);
+    expect(quiet).toMatchObject({ voiceUsed: 'config-defaults' });
+    expect(quiet.warning).toBeUndefined();
+    // An explicit brand with no row warns.
+    const miss = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, brand: 'Krishna' });
     expect(miss).toMatchObject({ voiceUsed: 'config-defaults', warning: 'voice bible @voice_krishna_en not used (no active row), using config defaults' });
     const bible = { engine: 'qwen', speaker: 'Ryan', baseInstruct: 'Warm and unhurried.' };
     await m.deps.db.insert(libraryAssets).values({ ...(await seedOperator(m.deps.db)), tag: '@voice_krishna_en', version: 1, kind: 'voice', descriptor: 'd', meta: bible });
     m.ttsReqs.length = 0;
-    const used = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, brand: 'Krishna' });
+    const used = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, nameBrand: 'Krishna' });
     expect(m.ttsReqs.every((r) => r.voiceBible?.speaker === 'Ryan' && r.voiceBible.baseInstruct === bible.baseInstruct)).toBe(true);
     expect(used.voiceUsed).toBe('@voice_krishna_en_v1');
     expect(used.warning).toBeUndefined();
     const rows = await m.deps.db.select().from(providerCalls).where(eq(providerCalls.kind, 'tts'));
     expect(rows.filter((r) => r.model === '@voice_krishna_en_v1').length).toBeGreaterThan(0);
     expect(rows.some((r) => r.model === 'config-defaults')).toBe(true);
-    const the = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, brand: 'The' });
+    // The org now has a voice row, so a name-derived miss ("The Krishna Hing" -> "the") is unexpected and warns.
+    const the = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, nameBrand: 'The' });
     expect(the.warning).toContain('@voice_the_en not used');
     const odd = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, brand: '!!!' });
     expect(odd).toMatchObject({ voiceUsed: 'config-defaults', warning: expect.stringContaining('not used') });
+    // An unusable row warns too.
+    await m.deps.db.insert(libraryAssets).values({ ...(await seedOperator(m.deps.db)), tag: '@voice_bad_en', version: 1, kind: 'voice', descriptor: 'd', meta: { engine: 'chatterbox' } });
+    const bad = await HEAVY.voice(m.deps, { jobId: await jobRow(m.deps), language: 'en', variants, nameBrand: 'Bad' });
+    expect(bad.warning).toContain('not qwen');
   });
 
   it('voice: a throwing bible lookup falls back with a warning and never fails the step', async () => {

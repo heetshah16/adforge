@@ -44,7 +44,7 @@ describe('generateAds', () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);
     const r = await generateAds(id, memoStep(m.deps), m.deps);
-    expect(r).toEqual({ status: 'completed', warnings: ['voice bible @voice_sattvik_en not used (no active row), using config defaults'] });
+    expect(r).toEqual({ status: 'completed', warnings: [] });
     const plates = await m.deps.db.select().from(assets).where(eq(assets.kind, 'plate'));
     expect(plates.length).toBeGreaterThan(0);
     for (const p of plates) {
@@ -69,13 +69,13 @@ describe('generateAds', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('records which voice the job used (config snapshot) and warns when a bible was not used', async () => {
+  it('records which voice the job used (config snapshot); no brand and no voice rows is silent', async () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);
     const r = await generateAds(id, memoStep(m.deps), m.deps);
     const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
     expect(j!.configSnapshot).toMatchObject({ voice: 'config-defaults', models: { director: 'claude-opus-5-5' } });
-    expect(r.warnings.some((w) => w.startsWith('voice bible @voice_sattvik_en not used'))).toBe(true);
+    expect(r.warnings).toEqual([]);
   });
 
   it.each([['depth service down', { depthDown: true }], ['plate LLM failing', { plateAnalysisFails: true }]])('%s → the job still completes, with warnings and no analysis', async (_n, ctl) => {
@@ -96,7 +96,7 @@ describe('generateAds', () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);
     const r = await generateAds(id, memoStep(m.deps), m.deps);
-    expect(r).toEqual({ status: 'completed', warnings: ['voice bible @voice_sattvik_en not used (no active row), using config defaults'] });
+    expect(r).toEqual({ status: 'completed', warnings: [] });
     const vs = await m.deps.db.select().from(variants).where(eq(variants.jobId, id));
     expect(vs.map((v) => v.status).sort()).toEqual(['completed', 'completed', 'completed']);
     expect(vs.every((v) => v.renderAssetId)).toBe(true);

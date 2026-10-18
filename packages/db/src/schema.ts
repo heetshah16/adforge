@@ -90,27 +90,28 @@ export const projects = pgTable(
 export const assets = pgTable(
   'assets',
   {
-    id: id(),
-    orgId: uuid().notNull().references(() => orgs.id),
-    projectId: uuid().notNull(),
-    kind: text().notNull(), // upload | cutout | plate | broll | voice | render
-    storageKey: text().notNull(),
-    mime: text().notNull(),
-    width: integer(),
-    height: integer(),
-    durationSec: doublePrecision(),
-    bytes: integer().notNull(),
-    sha256: text().notNull(),
-    sourceUrl: text(),
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: uuid('org_id').notNull().references(() => orgs.id),
+    projectId: uuid('project_id').notNull(),
+    kind: text('kind').notNull(), // upload | cutout | plate | broll | voice | render
+    storageKey: text('storage_key').notNull(),
+    mime: text('mime').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    durationSec: doublePrecision('duration_sec'),
+    bytes: integer('bytes').notNull(),
+    sha256: text('sha256').notNull(),
+    sourceUrl: text('source_url'),
+    // Every column is named explicitly, as in assetsForInsert (assets-insert.ts): drizzle's casing cache is keyed by table name.
     /** Plate assets: { plate: PlateAnalysis, lumaGrid: number[][], depthKey: string }. Null until (or unless) analysed. */
-    // Explicitly named: assetsForInsert (assets-insert.ts) shares this table name without it, and drizzle's casing cache is per table name.
     analysis: jsonb('analysis'),
-    createdAt: createdAt(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   // (org_id, sha256) doubles as the org_id index.
   (t) => [
-    unique().on(t.orgId, t.sha256),
-    unique().on(t.id, t.orgId),
+    // Constraint names pinned to their existing (key-derived) values, so naming the columns explicitly changes no migration.
+    unique('assets_orgId_sha256_unique').on(t.orgId, t.sha256),
+    unique('assets_id_orgId_unique').on(t.id, t.orgId),
     foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] }),
   ],
 );

@@ -25,23 +25,31 @@ type Scope = { orgId: string; projectId: string };
 const keep = async (deps: PipelineDeps, scope: Scope, kind: string, r: ProviderResult<MediaRef>) =>
   r.status === 'done' ? (await saveAsset(deps.db, scope, kind, r.value), r.value) : null;
 
-type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallback: string; triedTag: string };
-/** The brand's active English voice bible (`@voice_<brand>_en`) in this org. Never throws: every miss is a `fallback` with its reason. */
-async function voiceBible(deps: PipelineDeps, orgId: string, brand: string | undefined): Promise<BibleLookup> {
-  if (!brand) return { fallback: 'job names no brand', triedTag: '(none)' };
+type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallback: string; triedTag: string; warn: boolean };
+/**
+ * The brand's active English voice bible (`@voice_<brand>_en`) in this org. Never throws: every miss is a `fallback` with its reason.
+ * `warn` says a bible was expected: the job named its brand explicitly, or the org has any voice row. A plain miss for a job with
+ * neither is the normal no-bible path (silent; still recorded as `config-defaults`). Unusable rows, unmakeable slugs and lookup errors always warn.
+ */
+async function voiceBible(deps: PipelineDeps, orgId: string, brand: { explicit?: string; fromName?: string }): Promise<BibleLookup> {
+  const name = brand.explicit ?? brand.fromName;
+  if (!name) return { fallback: 'job names no brand', triedTag: '(none)', warn: !!brand.explicit };
   let tag: string;
-  try { tag = makeTag('voice', [brand, 'en']); } catch (e) { return { fallback: `no usable brand slug from "${brand}"`, triedTag: `(${brand})` }; }
+  try { tag = makeTag('voice', [name, 'en']); } catch { return { fallback: `no usable brand slug from "${name}"`, triedTag: `(${name})`, warn: true }; }
   try {
     const [row] = await deps.db.select({ meta: libraryAssets.meta, version: libraryAssets.version }).from(libraryAssets).where(and(
       eq(libraryAssets.orgId, orgId), eq(libraryAssets.tag, tag), eq(libraryAssets.kind, 'voice'), eq(libraryAssets.status, 'active'),
     )).orderBy(desc(libraryAssets.version)).limit(1);
-    if (!row) return { fallback: 'no active row', triedTag: tag };
+    if (!row) {
+      const [any] = brand.explicit ? [true] : await deps.db.select({ id: libraryAssets.id }).from(libraryAssets).where(and(eq(libraryAssets.orgId, orgId), eq(libraryAssets.kind, 'voice'))).limit(1);
+      return { fallback: 'no active row', triedTag: tag, warn: !!any };
+    }
     const m = row.meta as { engine?: string; speaker?: unknown; baseInstruct?: unknown };
-    if (m.engine !== 'qwen') return { fallback: `engine is ${JSON.stringify(m.engine)}, not qwen`, triedTag: tag };
-    if (typeof m.speaker !== 'string' || typeof m.baseInstruct !== 'string') return { fallback: 'meta lacks speaker/baseInstruct', triedTag: tag };
+    if (m.engine !== 'qwen') return { fallback: `engine is ${JSON.stringify(m.engine)}, not qwen`, triedTag: tag, warn: true };
+    if (typeof m.speaker !== 'string' || typeof m.baseInstruct !== 'string') return { fallback: 'meta lacks speaker/baseInstruct', triedTag: tag, warn: true };
     return { bible: { speaker: m.speaker, baseInstruct: m.baseInstruct }, tag, version: row.version };
   } catch (e) {
-    return { fallback: `lookup failed: ${e instanceof Error ? e.message : String(e)}`, triedTag: tag };
+    return { fallback: `lookup failed: ${e instanceof Error ? e.message : String(e)}`, triedTag: tag, warn: true };
   }
 }
 
@@ -148,14 +156,14 @@ export const HEAVY = {
     }
   },
 
-  async voice(deps: PipelineDeps, p: { jobId: string; language: Language; variants: DirectorVariant[]; brand?: string }): Promise<VoiceResult> {
+  async voice(deps: PipelineDeps, p: { jobId: string; language: Language; variants: DirectorVariant[]; brand?: string; nameBrand?: string }): Promise<VoiceResult> {
     const out: VoiceBeats = {};
     try {
       const scope = await jobScope(deps.db, p.jobId);
-      const found = p.language === 'en' ? await voiceBible(deps, scope.orgId, p.brand) : undefined;
+      const found = p.language === 'en' ? await voiceBible(deps, scope.orgId, { explicit: p.brand, fromName: p.nameBrand }) : undefined;
       const bible = found && 'bible' in found ? found.bible : undefined;
       const voiceUsed = found && 'bible' in found ? formatTag(found.tag, found.version) : 'config-defaults';
-      const warning = found && 'fallback' in found ? `voice bible ${found.triedTag} not used (${found.fallback}), using config defaults` : undefined;
+      const warning = found && 'fallback' in found && found.warn ? `voice bible ${found.triedTag} not used (${found.fallback}), using config defaults` : undefined;
       // The plates batch freed ComfyUI; confirm VRAM actually dropped before the voice model loads (best-effort, 20 s).
       for (let waited = 0; waited < 20_000; waited += 1000) {
         const st = await deps.comfy.systemStats().catch(() => null);
