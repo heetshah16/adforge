@@ -1,0 +1,16 @@
+import { describe, expect, it } from 'vitest';
+import { config } from '../proxy';
+import { routeAccess } from '../lib/route-access';
+
+describe('routeAccess (deny by default)', () => {
+  it.each(['/signin', '/waitlist', '/favicon.ico', '/auth/confirm', '/auth/signout', '/_next/static/x.js'])('%s is public', (p) => expect(routeAccess(p)).toBe('public'));
+  it.each(['/api/jobs', '/api/jobs/1'])('%s is api', (p) => expect(routeAccess(p)).toBe('api'));
+  it.each(['/', '/jobs/x', '/jobs/x.js', '/anything', '/signin/x', '/waitlist/x', '/authx', '/x.png', '/admin'])('%s is gated', (p) => expect(routeAccess(p)).toBe('gated'));
+});
+
+describe('proxy matcher', () => {
+  // Next compiles the matcher source to an anchored regex; mirror that.
+  const re = new RegExp(`^${config.matcher[0]}$`);
+  it.each(['/', '/jobs/x', '/signin', '/api/jobs', '/favicon.ico/x', '/faviconXico', '/favicon.icox'])('%s runs the proxy', (p) => expect(re.test(p)).toBe(true));
+  it.each(['/favicon.ico', '/_next/static/a.js', '/auth/confirm'])('%s skips the proxy', (p) => expect(re.test(p)).toBe(false));
+});

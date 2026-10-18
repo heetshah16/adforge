@@ -7,9 +7,18 @@
     "build": "next build",
     "test": "vitest run --dir test",
     "typecheck": "next typegen && tsc -p .",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:tenancy": "playwright test e2e/tenancy.spec.ts"
   },
   "dependencies": {
+    "@adforge/core": "workspace:*",
+    "@adforge/db": "workspace:*",
+    "@adforge/pipeline": "workspace:*",
+    "@adforge/provider-local-storage": "workspace:*",
+    "@supabase/ssr": "catalog:",
+    "@supabase/supabase-js": "catalog:",
+    "drizzle-orm": "catalog:",
+    "inngest": "catalog:",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Db } from '../client';
-import { archetypes, formats, hookArchetypes, projects, users, vocabFamilies } from '../schema';
+import { archetypes, formats, hookArchetypes, memberships, orgs, projects, users, vocabFamilies } from '../schema';
 import { VOCAB, type VocabSeed } from './vocabulary';
 
 /**
@@ -60,18 +60,23 @@ export async function seedVocabulary(db: Db, vocab: VocabSeed = VOCAB): Promise<
 }
 
 const LOCAL_EMAIL = 'local@adforge.dev';
+/** Fixed so the tenancy backfill migration (0004) and this seed agree on one org. Never change it. */
+export const OPERATOR_ORG_ID = '00000000-0000-4000-8000-000000000001';
 
-/** POC stand-in for Supabase Auth: one user, one project. */
-export async function seedLocalUser(db: Db): Promise<{ userId: string; projectId: string }> {
+/** The operator's own org, a local user (its owner) and a project — for dev scripts and the worker's dev route. */
+export async function seedOperator(db: Db): Promise<{ orgId: string; userId: string; projectId: string }> {
   return db.transaction(async (tx) => {
+    const orgId = OPERATOR_ORG_ID;
+    await tx.insert(orgs).values({ id: orgId, name: 'Operator' }).onConflictDoNothing();
     const [user] = await tx
       .insert(users)
       .values({ email: LOCAL_EMAIL })
       .onConflictDoUpdate({ target: users.email, set: { email: LOCAL_EMAIL } })
       .returning();
     const userId = user!.id;
-    const [existing] = await tx.select().from(projects).where(eq(projects.userId, userId)).limit(1);
-    const project = existing ?? (await tx.insert(projects).values({ userId, name: 'Local' }).returning())[0]!;
-    return { userId, projectId: project.id };
+    await tx.insert(memberships).values({ orgId, userId, role: 'owner' }).onConflictDoNothing();
+    const [existing] = await tx.select().from(projects).where(and(eq(projects.orgId, orgId), eq(projects.userId, userId))).limit(1);
+    const project = existing ?? (await tx.insert(projects).values({ orgId, userId, name: 'Local' }).returning())[0]!;
+    return { orgId, userId, projectId: project.id };
   });
 }

@@ -1,31 +1,22 @@
-import { and, eq, ne } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { Language } from '@adforge/core/vocab/enums';
 import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, variants } from '@adforge/db/schema';
 import type { PipelineDeps } from '@adforge/pipeline';
+import { MAX_BODY, parseJobUpload } from '@adforge/pipeline/job-input';
 import { failJob } from '@adforge/pipeline/progress';
 import { saveAsset } from '@adforge/pipeline/record';
 import type { LocalDiskStorage } from '@adforge/provider-local-storage';
 
-const MAX_BODY = 30 * 1024 * 1024;
-const MAX_PHOTO = 5 * 1024 * 1024;
-const TYPES = { 'image/png': [0x89, 0x50, 0x4e, 0x47], 'image/jpeg': [0xff, 0xd8, 0xff], 'image/webp': [0x52, 0x49, 0x46, 0x46] } as const;
-const Fields = z.object({
-  name: z.string().trim().min(1, 'name is required').max(120),
-  price: z.string().trim().min(1, 'price is required').max(40),
-  description: z.string().trim().min(1, 'description is required').max(2000),
-  /** Optional; the brand the hook must not name. Falls back to a guarded first word of `name` (P5 direct.ts). */
-  brand: z.string().trim().max(60).optional(),
-  language: Language,
-  broll: z.boolean(),
-});
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-const bad = (error: string, issues?: unknown) => json({ error, issues }, 400);
-const sniff = (b: Uint8Array, type: keyof typeof TYPES) => TYPES[type].every((x, i) => b[i] === x) && (type !== 'image/webp' || String.fromCharCode(...b.slice(8, 12)) === 'WEBP');
+const bad = (error: string) => json({ error }, 400);
 
-export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage; sendEvent(name: string, data: unknown, id?: string): Promise<void> }) {
-  const { deps, storage } = ctx;
+/** `operator` (seedOperator's ids) owns every job the dev route creates. */
+export function makeRoutes(ctx: {
+  deps: PipelineDeps; storage: LocalDiskStorage; operator: { orgId: string; userId: string; projectId: string };
+  sendEvent(name: string, data: unknown, id?: string): Promise<void>;
+}) {
+  const { deps, storage, operator } = ctx;
 
   return {
     async health() {
@@ -36,32 +27,17 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
       if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json({ error: 'upload larger than 30 MB' }, 413);
       let form: FormData;
       try { form = await req.formData(); } catch { return bad('expected multipart/form-data'); }
-      const fields = Fields.safeParse({
-        name: form.get('name') ?? '', price: form.get('price') ?? '', description: form.get('description') ?? '',
-        brand: form.get('brand') || undefined,
-        language: form.get('language'), broll: ['on', 'true'].includes(String(form.get('broll') ?? '')),
-      });
-      if (!fields.success) return bad('invalid fields', z.flattenError(fields.error).fieldErrors);
-      const photos = form.getAll('photos').filter((p): p is File => p instanceof File);
-      if (photos.length < 3 || photos.length > 5) return bad(`need 3–5 photos, got ${photos.length}`);
-      // Validate everything before storing anything: a rejected upload leaves no files, assets or job behind.
-      const loaded: { bytes: Uint8Array; type: keyof typeof TYPES }[] = [];
-      for (const p of photos) {
-        if (!Object.hasOwn(TYPES, p.type)) return bad(`${p.name}: unsupported type ${p.type || 'unknown'} (png, jpeg, webp only)`);
-        if (p.size > MAX_PHOTO) return bad(`${p.name}: larger than 5 MB`);
-        const bytes = new Uint8Array(await p.arrayBuffer());
-        if (!sniff(bytes, p.type as keyof typeof TYPES)) return bad(`${p.name}: not a real ${p.type} file`);
-        loaded.push({ bytes, type: p.type as keyof typeof TYPES });
-      }
+      const parsed = await parseJobUpload(form);
+      if (!parsed.ok) return json({ error: parsed.error, issues: parsed.issues }, parsed.status);
+      const { fields: f, photos: loaded } = parsed;
       const photoKeys: string[] = [];
       for (const { bytes, type } of loaded) {
         const ref = await storage.put(bytes, { mime: type });
-        await saveAsset(deps.db, deps.projectId, 'upload', ref);
+        await saveAsset(deps.db, operator, 'upload', ref);
         photoKeys.push(ref.id);
       }
-      const f = fields.data;
       const [job] = await deps.db.insert(jobs).values({
-        projectId: deps.projectId, userId: deps.userId,
+        ...operator,
         inputSpec: { product: { name: f.name, price: f.price, description: f.description, ...(f.brand ? { brand: f.brand } : {}) }, language: f.language, broll: f.broll, photoKeys },
       }).returning();
       try {
@@ -73,6 +49,7 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
       return json({ jobId: job!.id }, 202);
     },
 
+    /** Dev-only: apps/worker/src/e2e.ts polls it. The product API is apps/web's /api/jobs/[id] under RLS. */
     async getJob(req: Request): Promise<Response> {
       const id = new URL(req.url).pathname.split('/').pop() ?? '';
       if (!z.uuid().safeParse(id).success) return json({ error: 'not found' }, 404);
@@ -92,23 +69,6 @@ export function makeRoutes(ctx: { deps: PipelineDeps; storage: LocalDiskStorage;
           }))
           .sort((a, b) => a.variantNo - b.variantNo),
       });
-    },
-
-    async approve(req: Request): Promise<Response> {
-      const m = new URL(req.url).pathname.match(/^\/api\/jobs\/([^/]+)\/variants\/(\d+)\/approve$/);
-      const id = m?.[1] ?? '';
-      const n = Number(m?.[2]);
-      if (!z.uuid().safeParse(id).success || !Number.isSafeInteger(n) || n < 1 || n > 2 ** 31 - 1) return json({ error: 'not found' }, 404);
-      // Check and set in one transaction so a concurrent status change can't be approved over.
-      const refusal = await deps.db.transaction(async (tx) => {
-        const [v] = await tx.select().from(variants).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
-        if (!v) return json({ error: 'not found' }, 404);
-        if (v.status !== 'completed' && v.status !== 'approved') return json({ error: `variant ${n} is ${v.status}` }, 409);
-        await tx.update(variants).set({ status: 'completed' }).where(and(eq(variants.jobId, id), eq(variants.status, 'approved'), ne(variants.variantNo, n)));
-        await tx.update(variants).set({ status: 'approved' }).where(and(eq(variants.jobId, id), eq(variants.variantNo, n)));
-        return null;
-      });
-      return refusal ?? json({ approved: n });
     },
 
     async getMedia(req: Request): Promise<Response> {

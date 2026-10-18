@@ -10,7 +10,7 @@ describe('runJanitor', () => {
     const m = await makeDeps();
     try {
       const old = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
-      const [stale] = await m.deps.db.insert(jobs).values({ projectId: m.deps.projectId, userId: m.deps.userId, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: old }] }).returning();
+      const [stale] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: old }] }).returning();
       const r = await runJanitor(m.deps);
       expect(r.stalled).toEqual([stale!.id]);
       const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, stale!.id));
@@ -27,7 +27,7 @@ describe('runJanitor', () => {
   it('leaves a job with recent progress alone and does not free the GPU under it', async () => {
     const m = await makeDeps();
     try {
-      await m.deps.db.insert(jobs).values({ projectId: m.deps.projectId, userId: m.deps.userId, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: new Date().toISOString() }] });
+      await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: new Date().toISOString() }] });
       const r = await runJanitor(m.deps);
       expect(r).toEqual({ freed: false, stalled: [] });
       expect(m.calls.free + m.calls.unload).toBe(0);
@@ -41,8 +41,8 @@ describe('failJob', () => {
   it('fails a running job with the inngest stage and one progress entry, never a completed one', async () => {
     const m = await makeDeps();
     try {
-      const [run] = await m.deps.db.insert(jobs).values({ projectId: m.deps.projectId, userId: m.deps.userId, inputSpec: {}, status: 'running' }).returning();
-      const [done] = await m.deps.db.insert(jobs).values({ projectId: m.deps.projectId, userId: m.deps.userId, inputSpec: {}, status: 'completed' }).returning();
+      const [run] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running' }).returning();
+      const [done] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'completed' }).returning();
       expect(await failJob(m.deps.db, run!.id, 'boom')).toBe(true);
       expect(await failJob(m.deps.db, done!.id, 'boom')).toBe(false);
       const [a] = await m.deps.db.select().from(jobs).where(eq(jobs.id, run!.id));

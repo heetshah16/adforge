@@ -52,13 +52,13 @@ export default function JobPage() {
     }
   }
 
-  if (!view) return <p>{offline ? 'Worker unreachable, retrying…' : 'Loading…'}</p>;
+  if (!view) return <p>{offline ? 'Server unreachable, retrying…' : 'Loading…'}</p>;
   const brief = briefSummary(view.job.brief);
   const done = isTerminal(view.job.status);
 
   return (
     <>
-      {offline && <div className="banner" role="status">Worker unreachable, retrying — showing the last known state.</div>}
+      {offline && <div className="banner" role="status">Server unreachable, retrying — showing the last known state.</div>}
       <h1>Job <span className="muted">{view.job.status}</span></h1>
       {brief && (
         <section>

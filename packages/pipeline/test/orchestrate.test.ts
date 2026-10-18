@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { jobs, providerCalls, variants } from '@adforge/db/schema';
+import { assets, jobs, orgs, projects, providerCalls, variants } from '@adforge/db/schema';
+import { seedOperator } from '@adforge/db/seed/seed';
 import { HEAVY } from '../src/heavy';
 import { generateAds } from '../src/orchestrate';
 import type { PipelineDeps, StepLike } from '../src/types';
@@ -29,10 +30,10 @@ function memoStep(deps: PipelineDeps, cache = new Map<string, unknown>()): StepL
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; specFault.variantNo = 0; });
 
-async function newJob(deps: PipelineDeps, broll = false) {
+async function newJob(deps: PipelineDeps, broll = false, scope?: { orgId: string; projectId: string; userId: string }) {
   const photos = await Promise.all([1, 2, 3].map((i) => deps.storage.put(new Uint8Array([i, 9, 9]), { mime: 'image/png' })));
   const [job] = await deps.db.insert(jobs).values({
-    projectId: deps.projectId, userId: deps.userId,
+    ...(scope ?? (await seedOperator(deps.db))),
     inputSpec: { product: { name: 'Sattvik Oil', price: '₹450', description: 'Wood-pressed groundnut oil.' }, language: 'en', broll, photoKeys: photos.map((p) => p.id) },
   }).returning();
   return job!.id;
@@ -55,6 +56,21 @@ describe('generateAds', () => {
     expect(await m.deps.db.$count(providerCalls)).toBeGreaterThanOrEqual(12 + 1 + 24 + 3);
     expect(m.calls.free).toBeGreaterThanOrEqual(1);
     expect(m.calls.unload).toBe(1);
+  });
+
+  it('a job in org X writes its assets, variants and provider calls with orgId = X', async () => {
+    const m = await makeDeps(); close = m.close;
+    const [x] = await m.deps.db.insert(orgs).values({ name: 'X' }).returning();
+    const [px] = await m.deps.db.insert(projects).values({ orgId: x!.id, userId: m.op.userId, name: 'x' }).returning();
+    const id = await newJob(m.deps, true, { orgId: x!.id, projectId: px!.id, userId: m.op.userId });
+    expect((await generateAds(id, memoStep(m.deps), m.deps)).status).toBe('completed');
+    const as = await m.deps.db.select().from(assets);
+    expect(as.length).toBeGreaterThan(0);
+    expect(as.every((a) => a.orgId === x!.id && a.projectId === px!.id)).toBe(true);
+    const vs = await m.deps.db.select().from(variants);
+    expect(vs.length === 3 && vs.every((v) => v.orgId === x!.id)).toBe(true);
+    const cs = await m.deps.db.select().from(providerCalls);
+    expect(cs.length > 0 && cs.every((c) => c.orgId === x!.id)).toBe(true);
   });
 
   it('a retried run with the same step cache calls no provider twice', async () => {

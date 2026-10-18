@@ -12,7 +12,7 @@ import postgres from 'postgres';
 import type { Env } from '@adforge/core/config/env';
 import * as schema from './schema';
 
-const MIGRATIONS = fileURLToPath(new URL('../drizzle', import.meta.url));
+const MIGRATIONS = join(fileURLToPath(import.meta.url), '..', '..', 'drizzle');
 
 function makeDb(client: PGlite) {
   return drizzle({ client, schema, casing: 'snake_case' });
@@ -105,12 +105,12 @@ export async function openDb(dataDir?: string): Promise<{ db: Db; close(): Promi
   }
 }
 
-/** Applies all migrations before returning. `prepare: false` keeps it working behind Supabase's transaction pooler. */
-export async function openPostgres(url: string, opts: { connectTimeoutSec?: number } = {}): Promise<{ db: Db; close(): Promise<void> }> {
+/** Applies migrations before returning unless `migrate: false` (the web app). `prepare: false` keeps it working behind Supabase's transaction pooler. */
+export async function openPostgres(url: string, opts: { connectTimeoutSec?: number; migrate?: boolean } = {}): Promise<{ db: Db; close(): Promise<void> }> {
   const client = postgres(url, { prepare: false, max: 5, connect_timeout: opts.connectTimeoutSec ?? 10 });
   const db = drizzlePg({ client, schema, casing: 'snake_case' });
   try {
-    await migratePg(db, { migrationsFolder: MIGRATIONS });
+    if (opts.migrate ?? true) await migratePg(db, { migrationsFolder: MIGRATIONS });
   } catch (e) {
     await client.end();
     throw e;
@@ -118,11 +118,9 @@ export async function openPostgres(url: string, opts: { connectTimeoutSec?: numb
   return { db, close: () => client.end({ timeout: 5 }) };
 }
 
-/** prod = Postgres at DATABASE_URL (Env guarantees it is set); dev = PGlite under the data dir. */
+/** Postgres whenever DATABASE_URL is set (dev or prod); otherwise PGlite under the data dir (dev only - Env requires the URL in prod). */
 export function openDbForEnv(env: Pick<Env, 'ADFORGE_ENV' | 'ADFORGE_DATA_DIR' | 'DATABASE_URL'>): Promise<{ db: Db; close(): Promise<void> }> {
-  if (env.ADFORGE_ENV === 'prod') {
-    if (!env.DATABASE_URL) throw new Error('DATABASE_URL is required when ADFORGE_ENV=prod');
-    return openPostgres(env.DATABASE_URL);
-  }
+  if (env.DATABASE_URL) return openPostgres(env.DATABASE_URL);
+  if (env.ADFORGE_ENV === 'prod') throw new Error('DATABASE_URL is required when ADFORGE_ENV=prod');
   return openDb(env.ADFORGE_DATA_DIR);
 }

@@ -26,7 +26,5 @@ export interface PipelineDeps {
   renderer: RendererProvider;
   llm: LLMProvider;
   env: Env;
-  projectId: string;
-  userId: string;
   sleep(ms: number): Promise<void>;
 }

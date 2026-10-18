@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '@adforge/db/client';
-import { jobs, providerCalls } from '@adforge/db/schema';
-import { seedLocalUser } from '@adforge/db/seed/seed';
+import { assets, jobs, orgs, projects, providerCalls } from '@adforge/db/schema';
+import { seedOperator } from '@adforge/db/seed/seed';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
 import { buildConfigSnapshot } from '../src/snapshot';
-import { recordCall, refFromKey } from '../src/record';
+import { recordCall, refFromKey, saveAsset } from '../src/record';
 import { markProgress } from '../src/progress';
 import { parseEnv } from '@adforge/core/config/env';
 import { eq } from 'drizzle-orm';
@@ -16,8 +16,8 @@ describe('recordCall', () => {
   it('records once per idempotency key, flattening provider errors', async () => {
     const { db, close } = await openDb();
     try {
-      const { userId, projectId } = await seedLocalUser(db);
-      const [job] = await db.insert(jobs).values({ projectId, userId, inputSpec: {} }).returning();
+      const { orgId, userId, projectId } = await seedOperator(db);
+      const [job] = await db.insert(jobs).values({ orgId, projectId, userId, inputSpec: {} }).returning();
       const row = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'j:plate:1:0', result: { ok: false as const, code: 'UPSTREAM' as const, message: 'oom', retryable: true } };
       await recordCall(db, row);
       await recordCall(db, row); // retry re-entry
@@ -41,8 +41,8 @@ describe('recordCall upsert', () => {
   it('a later success replaces an earlier failure with the same key', async () => {
     const { db, close } = await openDb();
     try {
-      const { userId, projectId } = await seedLocalUser(db);
-      const [job] = await db.insert(jobs).values({ projectId, userId, inputSpec: {} }).returning();
+      const { orgId, userId, projectId } = await seedOperator(db);
+      const [job] = await db.insert(jobs).values({ orgId, projectId, userId, inputSpec: {} }).returning();
       const base = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'k:retry' };
       await recordCall(db, { ...base, result: fail });
       await recordCall(db, { ...base, result: ok, costUsd: 0.02 });
@@ -57,8 +57,8 @@ describe('recordCall upsert', () => {
   it('a late failure never overwrites a done row', async () => {
     const { db, close } = await openDb();
     try {
-      const { userId, projectId } = await seedLocalUser(db);
-      const [job] = await db.insert(jobs).values({ projectId, userId, inputSpec: {} }).returning();
+      const { orgId, userId, projectId } = await seedOperator(db);
+      const [job] = await db.insert(jobs).values({ orgId, projectId, userId, inputSpec: {} }).returning();
       const base = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'k:late' };
       await recordCall(db, { ...base, result: ok });
       await recordCall(db, { ...base, result: fail });
@@ -73,12 +73,33 @@ describe('recordCall upsert', () => {
   it('two successes with the same key leave one row', async () => {
     const { db, close } = await openDb();
     try {
-      const { userId, projectId } = await seedLocalUser(db);
-      const [job] = await db.insert(jobs).values({ projectId, userId, inputSpec: {} }).returning();
+      const { orgId, userId, projectId } = await seedOperator(db);
+      const [job] = await db.insert(jobs).values({ orgId, projectId, userId, inputSpec: {} }).returning();
       const base = { jobId: job!.id, kind: 'image', provider: 'comfyui', idempotencyKey: 'k:twice' };
       await recordCall(db, { ...base, result: ok });
       await recordCall(db, { ...base, result: ok });
       expect(await db.select().from(providerCalls)).toHaveLength(1);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('saveAsset', () => {
+  it('dedupes by (org, sha256): same org twice -> one row, another org -> its own row', async () => {
+    const { db, close } = await openDb();
+    try {
+      const op = await seedOperator(db);
+      const [x] = await db.insert(orgs).values({ name: 'X' }).returning();
+      const [px] = await db.insert(projects).values({ orgId: x!.id, userId: op.userId, name: 'x' }).returning();
+      const ref = { id: 'sha/k.png', url: 'http://localhost:3000/media/sha/k.png', mime: 'image/png', sha256: 'f'.repeat(64), bytes: 3 };
+      const a = await saveAsset(db, op, 'upload', ref);
+      expect(await saveAsset(db, op, 'upload', ref)).toBe(a);
+      const b = await saveAsset(db, { orgId: x!.id, projectId: px!.id }, 'upload', ref);
+      expect(b).not.toBe(a);
+      const rows = await db.select({ id: assets.id, orgId: assets.orgId }).from(assets);
+      expect(rows).toHaveLength(2);
+      expect(rows.find((r) => r.id === b)!.orgId).toBe(x!.id);
     } finally {
       await close();
     }

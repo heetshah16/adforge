@@ -1,10 +1,13 @@
 import {
   boolean,
   doublePrecision,
+  foreignKey,
+  index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -19,26 +22,75 @@ export const vocabStatus = pgEnum('vocab_status', ['proposed', 'experimental', '
 export const jobStatus = pgEnum('job_status', ['queued', 'running', 'completed', 'failed']);
 export const variantStatus = pgEnum('variant_status', ['pending', 'running', 'completed', 'failed', 'approved']);
 export const callStatus = pgEnum('call_status', ['pending', 'done', 'failed']);
+export const membershipRole = pgEnum('membership_role', ['owner', 'member']);
+export const waitlistStatus = pgEnum('waitlist_status', ['new', 'invited', 'joined']);
 
+/**
+ * `id` equals the Supabase `auth.users.id` of the same person. There is no FK: `auth` is
+ * Supabase's schema (absent on PGlite), so provisioning writes the id explicitly. The default only serves local seeds.
+ */
 export const users = pgTable('users', {
   id: id(),
   email: text().notNull().unique(),
+  isAdmin: boolean().notNull().default(false),
   createdAt: createdAt(),
 });
 
-export const projects = pgTable('projects', {
+// --- tenancy -----------------------------------------------------------------
+// Every tenant row carries org_id: it is what RLS filters on, so it is indexed.
+// Parent references are composite, (parent_id, org_id) -> parent (id, org_id): a row can never point into another org.
+
+export const orgs = pgTable('orgs', {
   id: id(),
-  userId: uuid().notNull().references(() => users.id),
   name: text().notNull(),
-  brandKit: jsonb().notNull().default({}),
   createdAt: createdAt(),
 });
+
+export const memberships = pgTable(
+  'memberships',
+  {
+    orgId: uuid().notNull().references(() => orgs.id),
+    userId: uuid().notNull().references(() => users.id),
+    role: membershipRole().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.userId] }), index().on(t.userId)],
+);
+
+/** Public sign-up queue; not tenant data (admin-only under RLS). */
+export const waitlist = pgTable('waitlist', {
+  id: id(),
+  name: text().notNull(),
+  email: text().notNull().unique(),
+  brand: text().notNull(),
+  website: text(),
+  category: text().notNull(),
+  country: text().notNull(),
+  note: text(),
+  status: waitlistStatus().notNull().default('new'),
+  createdAt: createdAt(),
+  invitedAt: timestamp({ withTimezone: true }),
+});
+
+export const projects = pgTable(
+  'projects',
+  {
+    id: id(),
+    orgId: uuid().notNull().references(() => orgs.id),
+    userId: uuid().notNull().references(() => users.id),
+    name: text().notNull(),
+    brandKit: jsonb().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [unique().on(t.id, t.orgId), unique().on(t.orgId, t.name), index().on(t.orgId)],
+);
 
 export const assets = pgTable(
   'assets',
   {
     id: id(),
-    projectId: uuid().notNull().references(() => projects.id),
+    orgId: uuid().notNull().references(() => orgs.id),
+    projectId: uuid().notNull(),
     kind: text().notNull(), // upload | cutout | plate | broll | voice | render
     storageKey: text().notNull(),
     mime: text().notNull(),
@@ -50,7 +102,24 @@ export const assets = pgTable(
     sourceUrl: text(),
     createdAt: createdAt(),
   },
-  (t) => [unique().on(t.projectId, t.sha256)],
+  // (org_id, sha256) doubles as the org_id index.
+  (t) => [
+    unique().on(t.orgId, t.sha256),
+    unique().on(t.id, t.orgId),
+    foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] }),
+  ],
+);
+
+export const products = pgTable(
+  'products',
+  {
+    id: id(),
+    orgId: uuid().notNull().references(() => orgs.id),
+    projectId: uuid().notNull(),
+    name: text().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.orgId), foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] })],
 );
 
 // --- the adaptive vocabulary (architecture §5.1) ----------------------------
@@ -111,7 +180,8 @@ export type ProgressEntry = { stage: string; status: 'running' | 'done' | 'faile
 
 export const jobs = pgTable('jobs', {
   id: id(),
-  projectId: uuid().notNull().references(() => projects.id),
+  orgId: uuid().notNull().references(() => orgs.id),
+  projectId: uuid().notNull(),
   userId: uuid().notNull().references(() => users.id),
   status: jobStatus().notNull().default('queued'),
   inputSpec: jsonb().notNull(),
@@ -125,14 +195,19 @@ export const jobs = pgTable('jobs', {
   error: jsonb(),
   createdAt: createdAt(),
   completedAt: timestamp({ withTimezone: true }),
-});
+}, (t) => [
+  unique().on(t.id, t.orgId),
+  index().on(t.orgId),
+  foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] }),
+]);
 
 /** Slugs, not foreign keys — a retired registry row can never orphan a historical variant. */
 export const variants = pgTable(
   'variants',
   {
     id: id(),
-    jobId: uuid().notNull().references(() => jobs.id),
+    orgId: uuid().notNull().references(() => orgs.id),
+    jobId: uuid().notNull(),
     variantNo: integer().notNull(),
     formatSlug: text().notNull(),
     hookSlug: text().notNull(),
@@ -143,18 +218,26 @@ export const variants = pgTable(
     direction: jsonb(),
     spec: jsonb(),
     status: variantStatus().notNull().default('pending'),
-    renderAssetId: uuid().references(() => assets.id),
+    renderAssetId: uuid(),
     costUsd: doublePrecision().notNull().default(0),
     error: jsonb(),
     createdAt: createdAt(),
   },
-  (t) => [unique().on(t.jobId, t.variantNo)],
+  (t) => [
+    unique().on(t.jobId, t.variantNo),
+    unique().on(t.id, t.orgId),
+    index().on(t.orgId),
+    foreignKey({ columns: [t.jobId, t.orgId], foreignColumns: [jobs.id, jobs.orgId] }),
+    // MATCH SIMPLE: a NULL render_asset_id is not checked.
+    foreignKey({ columns: [t.renderAssetId, t.orgId], foreignColumns: [assets.id, assets.orgId] }),
+  ],
 );
 
 export const providerCalls = pgTable('provider_calls', {
   id: id(),
-  jobId: uuid().references(() => jobs.id),
-  variantId: uuid().references(() => variants.id),
+  orgId: uuid().notNull().references(() => orgs.id),
+  jobId: uuid(),
+  variantId: uuid(),
   kind: text().notNull(),
   provider: text().notNull(),
   model: text(),
@@ -166,4 +249,8 @@ export const providerCalls = pgTable('provider_calls', {
   status: callStatus().notNull().default('pending'),
   error: jsonb(),
   createdAt: createdAt(),
-});
+}, (t) => [
+  index().on(t.orgId),
+  foreignKey({ columns: [t.jobId, t.orgId], foreignColumns: [jobs.id, jobs.orgId] }),
+  foreignKey({ columns: [t.variantId, t.orgId], foreignColumns: [variants.id, variants.orgId] }),
+]);

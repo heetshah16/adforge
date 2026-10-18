@@ -1,9 +1,18 @@
 import { createHash } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import type { MediaRef, ProviderResult, StorageProvider } from '@adforge/core/providers/types';
 import type { Db } from '@adforge/db/client';
-import { assets, providerCalls } from '@adforge/db/schema';
+import { assets, jobs, providerCalls } from '@adforge/db/schema';
 import { toWire, type WireResult } from './wire';
+
+/** The job row is the only source of a pipeline write's org and project — never the worker's own config. */
+export async function jobScope(db: Db, jobId: string): Promise<{ orgId: string; projectId: string }> {
+  const [j] = await db.select({ orgId: jobs.orgId, projectId: jobs.projectId }).from(jobs).where(eq(jobs.id, jobId));
+  if (!j) throw new Error(`job ${jobId} not found`);
+  return j;
+}
+/** The same, inline in an insert: one statement, no extra round trip. */
+export const orgOfJob = (jobId: string): SQL => sql`(select ${jobs.orgId} from ${jobs} where ${jobs.id} = ${jobId})`;
 
 const isWire = (r: unknown): r is WireResult<unknown> => typeof r === 'object' && r !== null && 'ok' in r;
 
@@ -33,6 +42,7 @@ export async function recordCall(
     .insert(providerCalls)
     .values({
       ...fields,
+      orgId: orgOfJob(row.jobId),
       requestHash: createHash('sha256').update(row.idempotencyKey).digest('hex'),
       idempotencyKey: row.idempotencyKey,
     })
@@ -43,12 +53,14 @@ export async function recordCall(
     });
 }
 
-export async function saveAsset(db: Db, projectId: string, kind: string, ref: MediaRef): Promise<string> {
+/** Dedupes by (org, sha256): the same bytes uploaded twice in one org are one asset. */
+export async function saveAsset(db: Db, scope: { orgId: string; projectId: string }, kind: string, ref: MediaRef): Promise<string> {
+  const { orgId, projectId } = scope;
   await db
     .insert(assets)
-    .values({ projectId, kind, storageKey: ref.id, mime: ref.mime, width: ref.width, height: ref.height, durationSec: ref.durationSec, bytes: ref.bytes, sha256: ref.sha256 })
+    .values({ orgId, projectId, kind, storageKey: ref.id, mime: ref.mime, width: ref.width, height: ref.height, durationSec: ref.durationSec, bytes: ref.bytes, sha256: ref.sha256 })
     .onConflictDoNothing();
-  const [row] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.projectId, projectId), eq(assets.sha256, ref.sha256)));
+  const [row] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.orgId, orgId), eq(assets.sha256, ref.sha256)));
   return row!.id;
 }
 
