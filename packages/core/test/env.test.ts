@@ -27,6 +27,11 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ ADFORGE_PROVIDER_TTS: 'kokoro' })).toThrow(/ADFORGE_PROVIDER_TTS/);
   });
 
+  it('defaults the vision URL and strips trailing slashes', () => {
+    expect(parseEnv({}).ADFORGE_VISION_URL).toBe('http://127.0.0.1:8192');
+    expect(parseEnv({ ADFORGE_VISION_URL: 'http://h:1//' }).ADFORGE_VISION_URL).toBe('http://h:1');
+  });
+
   it('applies defaults to an empty environment', () => {
     const env = parseEnv({});
     expect(env.COMFYUI_URL).toBe('http://127.0.0.1:8188');

@@ -1,0 +1,23 @@
+{
+  "name": "@adforge/provider-vision-service",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "record": "tsx src/record-fixtures.ts"
+  },
+  "dependencies": {
+    "@adforge/core": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  }
+}

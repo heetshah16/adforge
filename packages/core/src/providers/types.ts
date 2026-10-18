@@ -160,5 +160,11 @@ export interface TTSProvider { readonly id: string; synthesize(req: TTSRequest):
 export interface AlignedWord { text: string; startSec: number; endSec: number }
 export interface AlignRequest { audio: MediaRef; text: string; language: Language; idempotencyKey: string }
 export interface CaptionAligner { readonly id: string; align(req: AlignRequest): Promise<ProviderResult<{ words: AlignedWord[] }>> }
+/** box = [x, y, w, h] as fractions of the image. */
+export interface OcrItem { text: string; box: [number, number, number, number]; conf: number }
+/** estimate() resolves to a stored 16-bit PNG (larger = nearer). */
+export interface DepthProvider { readonly id: string; estimate(image: MediaRef, key: string): Promise<ProviderResult<MediaRef>> }
+export interface OcrProvider { readonly id: string; read(image: MediaRef, langs?: ('en' | 'hi')[]): Promise<ProviderResult<OcrItem[]>> }
+export interface LumaProvider { readonly id: string; grid(image: MediaRef, n?: number): Promise<ProviderResult<number[][]>> }
 export interface LLMResult<T> { value: T; usage: LLMUsage }
 export interface LLMProvider { readonly id: string; generate<T>(req: LLMRequest<T>): Promise<ProviderResult<LLMResult<T>>> }
