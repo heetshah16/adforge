@@ -102,6 +102,8 @@ export const assets = pgTable(
     bytes: integer().notNull(),
     sha256: text().notNull(),
     sourceUrl: text(),
+    /** Plate assets: { plate: PlateAnalysis, lumaGrid: number[][], depthKey: string }. Null until (or unless) analysed. */
+    analysis: jsonb(),
     createdAt: createdAt(),
   },
   // (org_id, sha256) doubles as the org_id index.

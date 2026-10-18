@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PIPELINE } from '@adforge/core/config/pipeline';
 import { ProviderError } from '@adforge/core/providers/types';
-import { providerCalls } from '@adforge/db/schema';
+import { libraryAssets, providerCalls } from '@adforge/db/schema';
+import { seedOperator } from '@adforge/db/seed/seed';
 import { HEAVY } from '../src/heavy';
 import type { PipelineDeps } from '../src/types';
 import { anchor, jobRow, makeDeps } from './fakes';
@@ -25,6 +26,32 @@ describe('heavy tasks', () => {
     expect(r.cutout).toMatch(/\.png$/);
     expect(m.calls.free).toBe(1);
     expect(await m.deps.db.$count(providerCalls)).toBe(13);
+  });
+
+  it('voice: the active @voice_<brand>_en bible rides on every English TTS request; none → config defaults', async () => {
+    const m = await makeDeps(); close = m.close;
+    const jobId = await jobRow(m.deps);
+    const variants = anchor().variants.slice(0, 1);
+    await HEAVY.voice(m.deps, { jobId, language: 'en', variants, brand: 'Krishna' });
+    expect(m.ttsReqs.length).toBeGreaterThan(0);
+    expect(m.ttsReqs.every((r) => r.voiceBible === undefined)).toBe(true);
+    const bible = { engine: 'qwen', speaker: 'Ryan', baseInstruct: 'Warm and unhurried.' };
+    await m.deps.db.insert(libraryAssets).values({ ...(await seedOperator(m.deps.db)), tag: '@voice_krishna_en', version: 1, kind: 'voice', descriptor: 'd', meta: bible });
+    m.ttsReqs.length = 0;
+    await HEAVY.voice(m.deps, { jobId, language: 'en', variants, brand: 'Krishna' });
+    expect(m.ttsReqs.every((r) => r.voiceBible?.speaker === 'Ryan' && r.voiceBible.baseInstruct === bible.baseInstruct)).toBe(true);
+    m.ttsReqs.length = 0;
+    await HEAVY.voice(m.deps, { jobId, language: 'en', variants, brand: 'Other' });
+    expect(m.ttsReqs.every((r) => r.voiceBible === undefined)).toBe(true);
+  });
+
+  it('plateVision: luma + depth per plate, recorded, vision unloaded even when a plate fails', async () => {
+    const m = await makeDeps({ depthDown: true }); close = m.close;
+    const jobId = await jobRow(m.deps);
+    const plate = await m.deps.storage.put(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 9]), { mime: 'image/png' });
+    const r = await HEAVY.plateVision(m.deps, { jobId, plateKeys: [plate.id] });
+    expect(r[plate.id]).toMatchObject({ error: expect.any(String) });
+    expect(m.calls.visionUnload).toBe(1);
   });
 
   it('broll: one clip per variant on its first absent beat, and a failed poll re-submits once', async () => {

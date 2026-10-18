@@ -5,7 +5,7 @@ import { seedOperator } from '@adforge/db/seed/seed';
 import { HEAVY } from '../src/heavy';
 import { generateAds } from '../src/orchestrate';
 import type { PipelineDeps, StepLike } from '../src/types';
-import { anchor, makeDeps } from './fakes';
+import { PLATE, anchor, makeDeps } from './fakes';
 
 /** buildSpec stays real; a test can make one variant's spec throw. */
 const specFault = vi.hoisted(() => ({ variantNo: 0 }));
@@ -40,6 +40,36 @@ async function newJob(deps: PipelineDeps, broll = false, scope?: { orgId: string
 }
 
 describe('generateAds', () => {
+  it('analyses every plate: PlateAnalysis + luma grid + depth key stored on the plate asset, one recorded LLM call each, vision unloaded', async () => {
+    const m = await makeDeps(); close = m.close;
+    const id = await newJob(m.deps);
+    const r = await generateAds(id, memoStep(m.deps), m.deps);
+    expect(r).toEqual({ status: 'completed', warnings: [] });
+    const plates = await m.deps.db.select().from(assets).where(eq(assets.kind, 'plate'));
+    expect(plates.length).toBeGreaterThan(0);
+    for (const p of plates) {
+      expect(p.analysis).toMatchObject({ plate: PLATE, lumaGrid: [[10, 20], [30, 40]], depthKey: expect.stringMatching(/\.png$/) });
+    }
+    expect([m.calls.plateLlm, m.calls.luma, m.calls.depth]).toEqual([plates.length, plates.length, plates.length]);
+    expect(m.calls.visionUnload).toBe(1);
+    const llm = (await m.deps.db.select().from(providerCalls)).filter((c) => c.idempotencyKey.includes(':plate-analysis:'));
+    expect(llm).toHaveLength(plates.length);
+    expect(llm.every((c) => c.model === 'claude-sonnet-5-5' && c.status === 'done')).toBe(true);
+  });
+
+  it.each([['depth service down', { depthDown: true }], ['plate LLM failing', { plateAnalysisFails: true }]])('%s → the job still completes, with warnings and no analysis', async (_n, ctl) => {
+    const m = await makeDeps(ctl); close = m.close;
+    const id = await newJob(m.deps);
+    const r = await generateAds(id, memoStep(m.deps), m.deps);
+    expect(r.status).toBe('completed');
+    expect(r.warnings.length).toBeGreaterThan(0);
+    expect(r.warnings.every((w) => w.startsWith('plate analysis failed'))).toBe(true);
+    const plates = await m.deps.db.select().from(assets).where(eq(assets.kind, 'plate'));
+    expect(plates.every((p) => p.analysis === null)).toBe(true);
+    const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    expect(j!.error).toMatchObject({ warnings: r.warnings });
+  });
+
   it('runs end to end: 3 completed variants with renders, progress, snapshot and recorded calls', async () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);

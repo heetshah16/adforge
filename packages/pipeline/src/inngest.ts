@@ -19,7 +19,7 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
       { id: `heavy-${task}`, concurrency: HEAVY_CONCURRENCY, retries: 2, timeouts: { start: '2h', finish } },
       async ({ event, step }) => step.run(task, () => (HEAVY[task] as (d: PipelineDeps, p: unknown) => Promise<unknown>)(deps, event.data)),
     );
-  const heavy = { plates: heavyFn('plates', '30m'), broll: heavyFn('broll', '60m'), voice: heavyFn('voice', '30m'), render: heavyFn('render', '30m') };
+  const heavy = { plates: heavyFn('plates', '30m'), plateVision: heavyFn('plateVision', '30m'), broll: heavyFn('broll', '60m'), voice: heavyFn('voice', '30m'), render: heavyFn('render', '30m') };
 
   const generate = inngest.createFunction(
     { id: 'generate-ads', triggers: [{ event: EVENTS.jobRequested }], retries: 2, concurrency: [{ limit: 2 }], timeouts: { finish: '4h' },
@@ -49,5 +49,5 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
   const janitor = inngest.createFunction({ id: 'janitor', triggers: [{ cron: '*/5 * * * *' }], retries: 0, timeouts: { finish: '4m' }, concurrency: [{ limit: 1 }] }, async ({ step }) =>
     step.run('sweep', () => runJanitor(deps)),
   );
-  return [generate, heavy.plates, heavy.broll, heavy.voice, heavy.render, ingest, janitor];
+  return [generate, heavy.plates, heavy.plateVision, heavy.broll, heavy.voice, heavy.render, ingest, janitor];
 }

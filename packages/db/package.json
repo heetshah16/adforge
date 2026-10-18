@@ -8,6 +8,7 @@
     "typecheck": "tsc -p .",
     "generate": "drizzle-kit generate",
     "seed": "tsx src/seed/run.ts",
+    "seed:brand": "tsx src/seed/brand.ts",
     "e2e:shortlist": "tsx src/e2e-shortlist.ts",
     "db:check": "tsx src/db-check.ts",
     "db:migrate": "tsx src/migrate.ts"

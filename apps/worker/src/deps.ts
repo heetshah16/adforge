@@ -28,7 +28,7 @@ export async function buildDeps(env: Env): Promise<{ deps: PipelineDeps; storage
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       comfy: { image: comfy.image, cutout: comfy.cutout, video: comfy.video, preflight: comfy.preflight, free: comfy.free, systemStats: comfy.systemStats, workflowHashes: comfy.workflowHashes },
       voice: { tts: voice.tts, aligner: voice.aligner, health: voice.health, unload: voice.unload },
-      vision: { ocr: vision.ocr, unload: vision.unload },
+      vision: { ocr: vision.ocr, depth: vision.depth, luma: vision.luma, unload: vision.unload },
       renderer: new HyperframesRenderer({ storage, workDir: join(env.ADFORGE_DATA_DIR, 'render-work') }),
       llm: new ClaudeAgentProvider(),
     };

@@ -155,7 +155,9 @@ export interface LLMRequest<T> {
   timeoutMs: number;
 }
 export interface LLMUsage { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }
-export interface TTSRequest { text: string; language: Language; emotion: number; idempotencyKey: string }
+/** The brand's locked voice (library kind 'voice'): the speaker verbatim, and the instruct every beat's style line follows. */
+export interface VoiceBible { speaker: string; baseInstruct: string }
+export interface TTSRequest { text: string; language: Language; emotion: number; idempotencyKey: string; voiceBible?: VoiceBible }
 export interface TTSProvider { readonly id: string; synthesize(req: TTSRequest): Promise<ProviderResult<MediaRef>> }
 export interface AlignedWord { text: string; startSec: number; endSec: number }
 export interface AlignRequest { audio: MediaRef; text: string; language: Language; idempotencyKey: string }

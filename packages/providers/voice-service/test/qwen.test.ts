@@ -6,6 +6,7 @@ import { parseEnv } from '@adforge/core/config/env';
 import { createVoiceProviders } from '../src/providers';
 import { QwenClient, QwenBody, createQwenTTS, qwenParams } from '../src/qwen';
 
+const BIBLE = { speaker: 'Ryan', baseInstruct: 'Warm, trustworthy Gujarati family-brand voice; clear and unhurried.' };
 const BASE = 'http://127.0.0.1:8190';
 const QBASE = 'http://127.0.0.1:8191';
 const live = JSON.parse(readFileSync(new URL('../fixtures/qwen-synthesize.live.json', import.meta.url), 'utf8'));
@@ -75,6 +76,21 @@ describe('qwenParams', () => {
   });
   it('produces the golden request body', async () => {
     await expect(JSON.stringify(qwenParams('Nobody tells you how oil is made.', 0.9), null, 2) + '\n').toMatchFileSnapshot('./golden/qwen-synthesize-body.json');
+  });
+  it('with a voice bible: speaker verbatim, instruct = baseInstruct + beat instruct (golden body)', async () => {
+    const body = qwenParams('Nobody tells you how oil is made.', 0.9, undefined, BIBLE);
+    expect(body.speaker).toBe(BIBLE.speaker);
+    expect(body.instruct).toBe(`${BIBLE.baseInstruct} ${DEFAULT_PIPELINE.voice.qwen.expressiveInstruct}`);
+    await expect(JSON.stringify(body, null, 2) + '\n').toMatchFileSnapshot('./golden/qwen-synthesize-body-bible.json');
+  });
+  it('an over-long bible instruct fails INVALID_INPUT before dispatch (never truncated); the bible reaches the wire', async () => {
+    const f = fake({ 'POST 8191 /synthesize': wav });
+    const { tts } = createVoiceProviders({ baseUrl: BASE, qwenBaseUrl: QBASE, cfg: withEngines('qwen'), storage: memStorage(), fetchImpl: f });
+    expect((await tts.synthesize({ ...req('en', 0.9), voiceBible: BIBLE })).status).toBe('done');
+    expect(f.bodies['POST 8191 /synthesize']).toMatchObject({ speaker: 'Ryan', instruct: expect.stringContaining(BIBLE.baseInstruct) });
+    const long = await tts.synthesize({ ...req('en'), voiceBible: { ...BIBLE, baseInstruct: 'x'.repeat(300) } });
+    expect(long).toMatchObject({ status: 'failed', retryable: false, error: { code: 'INVALID_INPUT' } });
+    expect(f.calls).toHaveLength(1);
   });
 });
 

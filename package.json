@@ -11,6 +11,7 @@
     "boot-check": "pnpm --filter @adforge/core boot-check",
     "db:generate": "pnpm --filter @adforge/db generate",
     "db:seed": "pnpm --filter @adforge/db seed",
+    "seed:brand": "pnpm --filter @adforge/db seed:brand",
     "db:migrate": "pnpm --filter @adforge/db db:migrate",
     "db:check": "pnpm --filter @adforge/db db:check",
     "smoke:comfy": "pnpm --filter @adforge/provider-comfyui smoke",

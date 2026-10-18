@@ -1,7 +1,7 @@
 import type { Env } from '@adforge/core/config/env';
 import type { ProductInput } from '@adforge/core/llm/render';
 import type {
-  AlignedWord, CaptionAligner, CutoutProvider, ImageProvider, LLMProvider, OcrProvider, RendererProvider, StorageProvider, TTSProvider, VideoProvider,
+  AlignedWord, CaptionAligner, CutoutProvider, DepthProvider, ImageProvider, LLMProvider, LumaProvider, OcrProvider, RendererProvider, StorageProvider, TTSProvider, VideoProvider,
 } from '@adforge/core/providers/types';
 import type { Language } from '@adforge/core/vocab/enums';
 import type { Db } from '@adforge/db/client';
@@ -11,6 +11,8 @@ export type HeavyTasks = typeof HEAVY;
 export interface JobInput { product: ProductInput; language: Language; broll: boolean; photoKeys: string[] }
 export type BeatKey = `${number}:${number}`;            // `${variantNo}:${beatIndex}`
 export interface PlateResult { cutout: string | null; plates: Record<string, string | null> }
+/** Per distinct plate key: its luma grid and stored depth map, or why the vision pass failed (best-effort). */
+export type PlateVisionResult = Record<string, { lumaGrid: number[][]; depthKey: string } | { error: string }>;
 export type BrollResult = Record<string, { beat: number; key: string; durationSec: number } | null>;   // by variantNo
 export type VoiceResult = Record<string, { key: string; durationSec: number; words: AlignedWord[] } | null>;
 export type RenderResult = { key: string; assetId: string } | { error: string };
@@ -23,7 +25,7 @@ export interface PipelineDeps {
   storage: StorageProvider;
   comfy: { image: ImageProvider; cutout: CutoutProvider; video: VideoProvider; preflight(): Promise<void>; free(): Promise<void>; systemStats(): Promise<{ vramUsedBytes: number; vramTotalBytes: number }>; workflowHashes: Record<string, string> };
   voice: { tts: TTSProvider & { idFor?(language: Language): string }; aligner: CaptionAligner; health(): Promise<{ ok: boolean; sm120: boolean }>; unload(): Promise<unknown> };
-  vision: { ocr: OcrProvider; unload(): Promise<unknown> };
+  vision: { ocr: OcrProvider; depth: DepthProvider; luma: LumaProvider; unload(): Promise<unknown> };
   renderer: RendererProvider;
   llm: LLMProvider;
   env: Env;

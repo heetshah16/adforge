@@ -2,15 +2,16 @@ import { and, eq } from 'drizzle-orm';
 import { direct } from '@adforge/core/llm/direct';
 import { strategize } from '@adforge/core/llm/strategize';
 import type { DirectorVariant, StrategistOutput } from '@adforge/core/llm/schemas';
+import { analyzePlate } from '@adforge/core/understand/analyze';
 import { buildSpec } from '@adforge/core/spec/build-spec';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import { shortlist, type Shortlist } from '@adforge/core/vocab/shortlist';
 import { loadRegistry } from '@adforge/db/registry';
-import { jobs, providerCalls, variants } from '@adforge/db/schema';
+import { assets, jobs, providerCalls, variants } from '@adforge/db/schema';
 import { markProgress, setJobStatus } from './progress';
-import { orgOfJob, recordCall } from './record';
-import { buildConfigSnapshot } from './snapshot';
-import type { JobInput, PipelineDeps, StepLike } from './types';
+import { jobScope, orgOfJob, recordCall, refFromKey } from './record';
+import { buildConfigSnapshot, visionConfig } from './snapshot';
+import type { JobInput, PipelineDeps, PlateVisionResult, StepLike } from './types';
 import { toWire } from './wire';
 
 class Retry extends Error {}
@@ -122,6 +123,39 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
   const plates = await step.heavy('plates', 'heavy:plates', { jobId, variants: vs, photoKey: input.photoKeys[0]! });
   await step.run('mark:plates:done', () => markProgress(db, jobId, 'plates', 'done').then(() => true));
 
+  // Plate analysis is best-effort: GPU phase (luma + depth, vision unloaded after), then ONE step per plate for the paid LLM call.
+  // Any failure becomes a warning; the job continues.
+  const plateKeys = [...new Set(Object.values(plates.plates).filter((k): k is string => !!k))];
+  if (plateKeys.length) {
+    await step.run('mark:plate-analysis', () => markProgress(db, jobId, 'plate-analysis', 'running').then(() => true));
+    let vis: PlateVisionResult = {};
+    try {
+      vis = await step.heavy('plateVision', 'heavy:plateVision', { jobId, plateKeys });
+    } catch (e) {
+      warnings.push(`plate analysis unavailable: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const cfg = visionConfig(deps.env);
+    for (const [key, v] of Object.entries(vis)) {
+      if ('error' in v) { warnings.push(`plate analysis failed for ${key}: ${v.error}`); continue; }
+      const why = await step.run(`plate-analysis:${key}`, async () => {
+        const ikey = `${jobId}:plate-analysis:${key}`;
+        try {
+          const scope = await jobScope(db, jobId);
+          const a = await analyzePlate({ image: await refFromKey(deps.storage, key) }, { llm: deps.llm, model: cfg.model, effort: cfg.effort, idempotencyKey: ikey, storage: deps.storage });
+          await recordCall(db, { jobId, kind: 'llm', provider: deps.llm.id, model: cfg.model, idempotencyKey: ikey, result: a, latencyMs: a.status === 'done' ? a.latencyMs : undefined, costUsd: a.status === 'done' ? a.cost.amountUsd : 0 });
+          if (a.status !== 'done') return a.status === 'failed' ? a.error.message : 'pending';
+          await db.update(assets).set({ analysis: { plate: a.value.value, lumaGrid: v.lumaGrid, depthKey: v.depthKey } })
+            .where(and(eq(assets.orgId, scope.orgId), eq(assets.storageKey, key)));
+          return '';
+        } catch (e) {
+          return e instanceof Error ? e.message : String(e);
+        }
+      });
+      if (why) warnings.push(`plate analysis failed for ${key}: ${why}`);
+    }
+    await step.run('mark:plate-analysis:done', () => markProgress(db, jobId, 'plate-analysis', 'done').then(() => true));
+  }
+
   let broll: Record<string, { beat: number; key: string; durationSec: number } | null> = {};
   if (input.broll) {
     await step.run('mark:broll', () => markProgress(db, jobId, 'broll', 'running').then(() => true));
@@ -139,7 +173,7 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
   }
 
   await step.run('mark:voice', () => markProgress(db, jobId, 'voice', 'running').then(() => true));
-  const voice = await step.heavy('voice', 'heavy:voice', { jobId, language: input.language, variants: vs });
+  const voice = await step.heavy('voice', 'heavy:voice', { jobId, language: input.language, variants: vs, brand: input.product.brand ?? input.product.name.split(/\s+/)[0] });
   await step.run('mark:voice:done', () => markProgress(db, jobId, 'voice', 'done').then(() => true));
 
   let completed = 0;

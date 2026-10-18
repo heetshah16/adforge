@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProviderError, type StorageProvider, type TTSProvider } from '@adforge/core/providers/types';
+import { ProviderError, type StorageProvider, type TTSProvider, type VoiceBible } from '@adforge/core/providers/types';
 import { PIPELINE, type PipelineConfig } from '@adforge/core/config/pipeline';
 import { QwenSpeaker } from '@adforge/core/config/pipeline';
 import { VoiceClient } from './client';
@@ -28,9 +28,11 @@ export class QwenClient {
 }
 
 /** Director emotion (0..1) -> Qwen speaker + style instruction. Pure. */
-export function qwenParams(text: string, emotion: number, cfg: PipelineConfig = PIPELINE): QwenBody {
+export function qwenParams(text: string, emotion: number, cfg: PipelineConfig = PIPELINE, bible?: VoiceBible): QwenBody {
   const q = cfg.voice.qwen;
-  return { text, speaker: q.speaker, instruct: emotion > q.instructExpressiveAbove ? q.expressiveInstruct : q.calmInstruct };
+  const beat = emotion > q.instructExpressiveAbove ? q.expressiveInstruct : q.calmInstruct;
+  // A voice bible wins: its speaker verbatim, its baseInstruct as the prefix of the beat's style line. An over-long result fails QwenBody (INVALID_INPUT), it is never truncated.
+  return bible ? { text, speaker: bible.speaker as QwenBody['speaker'], instruct: `${bible.baseInstruct} ${beat}` } : { text, speaker: q.speaker, instruct: beat };
 }
 
 export function createQwenTTS(o: { client: QwenClient; storage: StorageProvider; cfg?: PipelineConfig }): TTSProvider {
@@ -40,7 +42,7 @@ export function createQwenTTS(o: { client: QwenClient; storage: StorageProvider;
       const parsed = TtsReq.safeParse(req);
       if (!parsed.success) return { status: 'failed', error: new ProviderError('qwen-tts', 'INVALID_INPUT', z.prettifyError(parsed.error)), retryable: false };
       if (req.language !== 'en') return { status: 'failed', error: new ProviderError('qwen-tts', 'INVALID_INPUT', `qwen-tts is English only, got "${req.language}"`), retryable: false };
-      const body = QwenBody.safeParse(qwenParams(req.text, req.emotion, o.cfg));
+      const body = QwenBody.safeParse(qwenParams(req.text, req.emotion, o.cfg, req.voiceBible));
       if (!body.success) return { status: 'failed', error: new ProviderError('qwen-tts', 'INVALID_INPUT', z.prettifyError(body.error)), retryable: false };
       const started = Date.now();
       try {
