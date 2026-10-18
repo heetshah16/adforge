@@ -44,7 +44,7 @@ describe('generateAds', () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);
     const r = await generateAds(id, memoStep(m.deps), m.deps);
-    expect(r).toEqual({ status: 'completed', warnings: [] });
+    expect(r).toEqual({ status: 'completed', warnings: ['voice bible @voice_sattvik_en not used (no active row), using config defaults'] });
     const plates = await m.deps.db.select().from(assets).where(eq(assets.kind, 'plate'));
     expect(plates.length).toBeGreaterThan(0);
     for (const p of plates) {
@@ -57,13 +57,35 @@ describe('generateAds', () => {
     expect(llm.every((c) => c.model === 'claude-sonnet-5-5' && c.status === 'done')).toBe(true);
   });
 
+  it('a retryable plate-analysis failure is retried once in-step; the retry is recorded', async () => {
+    const m = await makeDeps({ plateTransient: 1 }); close = m.close;
+    const id = await newJob(m.deps);
+    const r = await generateAds(id, memoStep(m.deps), m.deps);
+    expect(r.warnings.filter((w) => !w.startsWith('voice bible'))).toEqual([]);
+    const plates = await m.deps.db.select().from(assets).where(eq(assets.kind, 'plate'));
+    expect(plates.every((p) => p.analysis !== null)).toBe(true);
+    expect(m.calls.plateLlm).toBe(plates.length + 1);
+    const rows = (await m.deps.db.select().from(providerCalls)).filter((c) => c.idempotencyKey.endsWith(':retry1'));
+    expect(rows).toHaveLength(1);
+  });
+
+  it('records which voice the job used (config snapshot) and warns when a bible was not used', async () => {
+    const m = await makeDeps(); close = m.close;
+    const id = await newJob(m.deps);
+    const r = await generateAds(id, memoStep(m.deps), m.deps);
+    const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    expect(j!.configSnapshot).toMatchObject({ voice: 'config-defaults', models: { director: 'claude-opus-5-5' } });
+    expect(r.warnings.some((w) => w.startsWith('voice bible @voice_sattvik_en not used'))).toBe(true);
+  });
+
   it.each([['depth service down', { depthDown: true }], ['plate LLM failing', { plateAnalysisFails: true }]])('%s → the job still completes, with warnings and no analysis', async (_n, ctl) => {
     const m = await makeDeps(ctl); close = m.close;
     const id = await newJob(m.deps);
     const r = await generateAds(id, memoStep(m.deps), m.deps);
     expect(r.status).toBe('completed');
     expect(r.warnings.length).toBeGreaterThan(0);
-    expect(r.warnings.every((w) => w.startsWith('plate analysis failed'))).toBe(true);
+    expect(r.warnings.filter((w) => w.startsWith('plate analysis failed'))).toHaveLength(1);
+    expect(r.warnings[0]).toMatch(/^plate analysis failed for \d+\/\d+ plates \(first: .+\)$/);
     const plates = await m.deps.db.select().from(assets).where(eq(assets.kind, 'plate'));
     expect(plates.every((p) => p.analysis === null)).toBe(true);
     const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
@@ -74,7 +96,7 @@ describe('generateAds', () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);
     const r = await generateAds(id, memoStep(m.deps), m.deps);
-    expect(r).toEqual({ status: 'completed', warnings: [] });
+    expect(r).toEqual({ status: 'completed', warnings: ['voice bible @voice_sattvik_en not used (no active row), using config defaults'] });
     const vs = await m.deps.db.select().from(variants).where(eq(variants.jobId, id));
     expect(vs.map((v) => v.status).sort()).toEqual(['completed', 'completed', 'completed']);
     expect(vs.every((v) => v.renderAssetId)).toBe(true);

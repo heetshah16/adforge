@@ -1,7 +1,8 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { direct } from '@adforge/core/llm/direct';
 import { strategize } from '@adforge/core/llm/strategize';
 import type { DirectorVariant, StrategistOutput } from '@adforge/core/llm/schemas';
+import { StorageKey } from '@adforge/core/spec/video-spec';
 import { analyzePlate } from '@adforge/core/understand/analyze';
 import { buildSpec } from '@adforge/core/spec/build-spec';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
@@ -135,24 +136,33 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
       warnings.push(`plate analysis unavailable: ${e instanceof Error ? e.message : String(e)}`);
     }
     const cfg = visionConfig(deps.env);
+    const failures: string[] = [];
     for (const [key, v] of Object.entries(vis)) {
-      if ('error' in v) { warnings.push(`plate analysis failed for ${key}: ${v.error}`); continue; }
+      if ('error' in v) { failures.push(v.error); continue; }
       const why = await step.run(`plate-analysis:${key}`, async () => {
         const ikey = `${jobId}:plate-analysis:${key}`;
         try {
+          if (!StorageKey.safeParse(v.depthKey).success) return `depth key ${JSON.stringify(v.depthKey)} is not a storage key`;
           const scope = await jobScope(db, jobId);
-          const a = await analyzePlate({ image: await refFromKey(deps.storage, key) }, { llm: deps.llm, model: cfg.model, effort: cfg.effort, idempotencyKey: ikey, storage: deps.storage });
-          await recordCall(db, { jobId, kind: 'llm', provider: deps.llm.id, model: cfg.model, idempotencyKey: ikey, result: a, latencyMs: a.status === 'done' ? a.latencyMs : undefined, costUsd: a.status === 'done' ? a.cost.amountUsd : 0 });
+          const image = await refFromKey(deps.storage, key);
+          // One in-step retry when the first result is retryable; the retry has its own recorded key.
+          let a = await analyzePlate({ image }, { llm: deps.llm, model: cfg.model, effort: cfg.effort, idempotencyKey: ikey, storage: deps.storage });
+          for (const [n, k] of [ikey, `${ikey}:retry1`].entries()) {
+            if (n) a = await analyzePlate({ image }, { llm: deps.llm, model: cfg.model, effort: cfg.effort, idempotencyKey: k, storage: deps.storage });
+            await recordCall(db, { jobId, kind: 'llm', provider: deps.llm.id, model: cfg.model, idempotencyKey: k, result: a, latencyMs: a.status === 'done' ? a.latencyMs : undefined, costUsd: a.status === 'done' ? a.cost.amountUsd : 0 });
+            if (a.status !== 'failed' || !a.retryable) break;
+          }
           if (a.status !== 'done') return a.status === 'failed' ? a.error.message : 'pending';
-          await db.update(assets).set({ analysis: { plate: a.value.value, lumaGrid: v.lumaGrid, depthKey: v.depthKey } })
-            .where(and(eq(assets.orgId, scope.orgId), eq(assets.storageKey, key)));
-          return '';
+          const hit = await db.update(assets).set({ analysis: { plate: a.value.value, lumaGrid: v.lumaGrid, depthKey: v.depthKey } })
+            .where(and(eq(assets.orgId, scope.orgId), eq(assets.storageKey, key))).returning({ id: assets.id });
+          return hit.length === 1 ? '' : `analysis stored on ${hit.length} asset rows, expected 1`;
         } catch (e) {
           return e instanceof Error ? e.message : String(e);
         }
       });
-      if (why) warnings.push(`plate analysis failed for ${key}: ${why}`);
+      if (why) failures.push(why);
     }
+    if (failures.length) warnings.push(`plate analysis failed for ${failures.length}/${plateKeys.length} plates (first: ${failures[0]})`);
     await step.run('mark:plate-analysis:done', () => markProgress(db, jobId, 'plate-analysis', 'done').then(() => true));
   }
 
@@ -173,7 +183,13 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
   }
 
   await step.run('mark:voice', () => markProgress(db, jobId, 'voice', 'running').then(() => true));
-  const voice = await step.heavy('voice', 'heavy:voice', { jobId, language: input.language, variants: vs, brand: input.product.brand ?? input.product.name.split(/\s+/)[0] });
+  const voiceRes = await step.heavy('voice', 'heavy:voice', { jobId, language: input.language, variants: vs, brand: input.product.brand ?? input.product.name.split(/\s+/)[0] });
+  const voice = voiceRes.beats;
+  if (voiceRes.warning) warnings.push(voiceRes.warning);
+  await step.run('record:voice', async () => {
+    await db.update(jobs).set({ configSnapshot: sql`${jobs.configSnapshot} || ${JSON.stringify({ voice: voiceRes.voiceUsed })}::jsonb` }).where(eq(jobs.id, jobId));
+    return true;
+  });
   await step.run('mark:voice:done', () => markProgress(db, jobId, 'voice', 'done').then(() => true));
 
   let completed = 0;

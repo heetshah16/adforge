@@ -4,6 +4,7 @@ import { PgTable } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { assetsForInsert } from '../src/assets-insert';
 import { openDb, type Db } from '../src/client';
 import * as schema from '../src/schema';
 import { withUser } from '../src/with-user';
@@ -24,7 +25,7 @@ const UPDATABLE: Partial<Record<Tenant, string>> = { projects: 'name', products:
 const PRIVILEGES: Record<string, string[]> = {
   projects: ['SELECT', 'INSERT', 'UPDATE(brand_kit,name)'],
   products: ['SELECT', 'INSERT', 'UPDATE(name)'],
-  assets: ['SELECT', 'INSERT'],
+  assets: ['SELECT', 'INSERT(bytes,created_at,duration_sec,height,id,kind,mime,org_id,project_id,sha256,source_url,storage_key,width)'],
   jobs: ['SELECT', 'INSERT'],
   variants: ['SELECT', 'UPDATE(status)'],
   provider_calls: ['SELECT'],
@@ -70,7 +71,7 @@ const ROW: Record<Tenant, (db: Db, f: Fixture, id: string) => Promise<unknown>> 
   projects: (db, f, id) => db.insert(schema.projects).values({ id, orgId: f.org, userId: f.user, name: `rls-${id}` }),
   products: (db, f, id) => db.insert(schema.products).values({ id, orgId: f.org, projectId: f.projects, name: 'rls' }),
   assets: (db, f, id) =>
-    db.insert(schema.assets).values({ id, orgId: f.org, projectId: f.projects, kind: 'render', storageKey: id, mime: 'video/mp4', bytes: 1, sha256: id }),
+    db.insert(assetsForInsert).values({ id, orgId: f.org, projectId: f.projects, kind: 'render', storageKey: id, mime: 'video/mp4', bytes: 1, sha256: id }),
   jobs: (db, f, id) => db.insert(schema.jobs).values({ id, orgId: f.org, projectId: f.projects, userId: f.user, inputSpec: {} }),
   variants: (db, f, id) =>
     db.insert(schema.variants).values({
@@ -172,6 +173,10 @@ describe.each(backends)('RLS on %s', (_name, open) => {
       select c.relname as name, array_remove(array[
         case when has_table_privilege('authenticated', c.oid, 'SELECT') then 'SELECT' end,
         case when has_table_privilege('authenticated', c.oid, 'INSERT') then 'INSERT' end,
+        case when not has_table_privilege('authenticated', c.oid, 'INSERT') and has_any_column_privilege('authenticated', c.oid, 'INSERT')
+          then 'INSERT(' || (select string_agg(a.attname::text, ',' order by a.attname) from pg_attribute a
+            where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+              and has_column_privilege('authenticated', c.oid, a.attnum, 'INSERT')) || ')' end,
         case when has_table_privilege('authenticated', c.oid, 'UPDATE') then 'UPDATE' end,
         case when has_table_privilege('authenticated', c.oid, 'DELETE') then 'DELETE' end,
         case when has_table_privilege('authenticated', c.oid, 'TRUNCATE,REFERENCES,TRIGGER') then 'TRUNCATE/REFERENCES/TRIGGER' end,
@@ -217,6 +222,17 @@ describe.each(backends)('RLS on %s', (_name, open) => {
         if (INSERTABLE.includes(t)) await own;
         else expect(await errorCode(own)).toBe('42501'); // written by the worker only
       });
+
+      if (t === 'assets') {
+        it('a member cannot write assets.analysis (worker-owned), on insert or update', async () => {
+          const id = randomUUID();
+          const withAnalysis = withUser(db, a.user, (u) => u.execute(sql`
+            insert into assets (id, org_id, project_id, kind, storage_key, mime, bytes, sha256, analysis)
+            values (${id}, ${a.org}, ${a.projects}, 'upload', ${id}, 'image/png', 1, ${id}, '{"x":1}'::jsonb)`));
+          expect(await errorCode(withAnalysis)).toBe('42501');
+          expect(await affected(update(a.assets, 'analysis'))).toBe('denied');
+        });
+      }
 
       if (t !== 'projects') {
         it(`a row in org A cannot reference org B's parents (composite FK, even for the owner)`, async () => {

@@ -7,16 +7,16 @@ import { alignCaptions } from '@adforge/core/spec/align-captions';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import type { Language } from '@adforge/core/vocab/enums';
 import { and, desc, eq } from 'drizzle-orm';
-import { makeTag } from '@adforge/core/library/tags';
+import { formatTag, makeTag } from '@adforge/core/library/tags';
 import { libraryAssets } from '@adforge/db/schema';
 import { jobScope, recordCall, refFromKey, saveAsset } from './record';
-import type { BrollResult, PipelineDeps, PlateResult, PlateVisionResult, RenderResult, VoiceResult } from './types';
+import type { BrollResult, PipelineDeps, PlateResult, PlateVisionResult, RenderResult, VoiceBeats, VoiceResult } from './types';
 import { toWire } from './wire';
 
-async function call<T>(deps: PipelineDeps, jobId: string, kind: string, provider: string, idempotencyKey: string, run: () => Promise<ProviderResult<T>>) {
+async function call<T>(deps: PipelineDeps, jobId: string, kind: string, provider: string, idempotencyKey: string, run: () => Promise<ProviderResult<T>>, model?: string) {
   const r = await run();
   await recordCall(deps.db, {
-    jobId, kind, provider, idempotencyKey, result: r,
+    jobId, kind, provider, model, idempotencyKey, result: r,
     latencyMs: r.status === 'done' ? r.latencyMs : undefined, costUsd: r.status === 'done' ? r.cost.amountUsd : 0,
   });
   return r;
@@ -25,16 +25,24 @@ type Scope = { orgId: string; projectId: string };
 const keep = async (deps: PipelineDeps, scope: Scope, kind: string, r: ProviderResult<MediaRef>) =>
   r.status === 'done' ? (await saveAsset(deps.db, scope, kind, r.value), r.value) : null;
 
-/** The brand's active English voice bible (`@voice_<brand>_en`) in this org, or undefined: today's config defaults then stand. */
-async function voiceBible(deps: PipelineDeps, orgId: string, brand: string | undefined): Promise<VoiceBible | undefined> {
-  if (!brand) return undefined;
+type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallback: string; triedTag: string };
+/** The brand's active English voice bible (`@voice_<brand>_en`) in this org. Never throws: every miss is a `fallback` with its reason. */
+async function voiceBible(deps: PipelineDeps, orgId: string, brand: string | undefined): Promise<BibleLookup> {
+  if (!brand) return { fallback: 'job names no brand', triedTag: '(none)' };
   let tag: string;
-  try { tag = makeTag('voice', [brand, 'en']); } catch { return undefined; }
-  const [row] = await deps.db.select({ meta: libraryAssets.meta }).from(libraryAssets).where(and(
-    eq(libraryAssets.orgId, orgId), eq(libraryAssets.tag, tag), eq(libraryAssets.kind, 'voice'), eq(libraryAssets.status, 'active'),
-  )).orderBy(desc(libraryAssets.version)).limit(1);
-  const m = row?.meta as { engine?: string; speaker?: unknown; baseInstruct?: unknown } | undefined;
-  return m?.engine === 'qwen' && typeof m.speaker === 'string' && typeof m.baseInstruct === 'string' ? { speaker: m.speaker, baseInstruct: m.baseInstruct } : undefined;
+  try { tag = makeTag('voice', [brand, 'en']); } catch (e) { return { fallback: `no usable brand slug from "${brand}"`, triedTag: `(${brand})` }; }
+  try {
+    const [row] = await deps.db.select({ meta: libraryAssets.meta, version: libraryAssets.version }).from(libraryAssets).where(and(
+      eq(libraryAssets.orgId, orgId), eq(libraryAssets.tag, tag), eq(libraryAssets.kind, 'voice'), eq(libraryAssets.status, 'active'),
+    )).orderBy(desc(libraryAssets.version)).limit(1);
+    if (!row) return { fallback: 'no active row', triedTag: tag };
+    const m = row.meta as { engine?: string; speaker?: unknown; baseInstruct?: unknown };
+    if (m.engine !== 'qwen') return { fallback: `engine is ${JSON.stringify(m.engine)}, not qwen`, triedTag: tag };
+    if (typeof m.speaker !== 'string' || typeof m.baseInstruct !== 'string') return { fallback: 'meta lacks speaker/baseInstruct', triedTag: tag };
+    return { bible: { speaker: m.speaker, baseInstruct: m.baseInstruct }, tag, version: row.version };
+  } catch (e) {
+    return { fallback: `lookup failed: ${e instanceof Error ? e.message : String(e)}`, triedTag: tag };
+  }
 }
 
 export const HEAVY = {
@@ -141,10 +149,13 @@ export const HEAVY = {
   },
 
   async voice(deps: PipelineDeps, p: { jobId: string; language: Language; variants: DirectorVariant[]; brand?: string }): Promise<VoiceResult> {
-    const out: VoiceResult = {};
+    const out: VoiceBeats = {};
     try {
       const scope = await jobScope(deps.db, p.jobId);
-      const bible = p.language === 'en' ? await voiceBible(deps, scope.orgId, p.brand) : undefined;
+      const found = p.language === 'en' ? await voiceBible(deps, scope.orgId, p.brand) : undefined;
+      const bible = found && 'bible' in found ? found.bible : undefined;
+      const voiceUsed = found && 'bible' in found ? formatTag(found.tag, found.version) : 'config-defaults';
+      const warning = found && 'fallback' in found ? `voice bible ${found.triedTag} not used (${found.fallback}), using config defaults` : undefined;
       // The plates batch freed ComfyUI; confirm VRAM actually dropped before the voice model loads (best-effort, 20 s).
       for (let waited = 0; waited < 20_000; waited += 1000) {
         const st = await deps.comfy.systemStats().catch(() => null);
@@ -159,6 +170,7 @@ export const HEAVY = {
           const tKey = `${p.jobId}:tts:${v.variant_no}:${b}`;
           const t = await call(deps, p.jobId, 'tts', deps.voice.tts.idFor?.(p.language) ?? deps.voice.tts.id, tKey, () =>
             deps.voice.tts.synthesize({ text, language: p.language, emotion: s.emotion, idempotencyKey: tKey, ...(bible ? { voiceBible: bible } : {}) }),
+            voiceUsed,
           );
           const audio = await keep(deps, scope, 'voice', t);
           if (!audio) { out[`${v.variant_no}:${b}`] = null; continue; }
@@ -171,7 +183,7 @@ export const HEAVY = {
           out[`${v.variant_no}:${b}`] = { key: audio.id, durationSec: dur, words };
         }
       }
-      return out;
+      return { beats: out, voiceUsed, ...(warning ? { warning } : {}) };
     } finally {
       await deps.voice.unload().catch(() => {});
     }

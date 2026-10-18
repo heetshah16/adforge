@@ -103,7 +103,8 @@ export const assets = pgTable(
     sha256: text().notNull(),
     sourceUrl: text(),
     /** Plate assets: { plate: PlateAnalysis, lumaGrid: number[][], depthKey: string }. Null until (or unless) analysed. */
-    analysis: jsonb(),
+    // Explicitly named: assetsForInsert (assets-insert.ts) shares this table name without it, and drizzle's casing cache is per table name.
+    analysis: jsonb('analysis'),
     createdAt: createdAt(),
   },
   // (org_id, sha256) doubles as the org_id index.

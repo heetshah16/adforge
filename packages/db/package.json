@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@adforge/core": "workspace:*",
+    "zod": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "drizzle-orm": "catalog:",
     "postgres": "catalog:"

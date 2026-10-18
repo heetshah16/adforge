@@ -14,7 +14,9 @@ export interface PlateResult { cutout: string | null; plates: Record<string, str
 /** Per distinct plate key: its luma grid and stored depth map, or why the vision pass failed (best-effort). */
 export type PlateVisionResult = Record<string, { lumaGrid: number[][]; depthKey: string } | { error: string }>;
 export type BrollResult = Record<string, { beat: number; key: string; durationSec: number } | null>;   // by variantNo
-export type VoiceResult = Record<string, { key: string; durationSec: number; words: AlignedWord[] } | null>;
+export type VoiceBeats = Record<string, { key: string; durationSec: number; words: AlignedWord[] } | null>;
+/** `voiceUsed` is `<tag>_v<version>` (a voice bible) or `config-defaults`; `warning` says why a bible was not used. */
+export interface VoiceResult { beats: VoiceBeats; voiceUsed: string; warning?: string }
 export type RenderResult = { key: string; assetId: string } | { error: string };
 export interface StepLike {
   run<T>(id: string, fn: () => Promise<T>): Promise<T>;

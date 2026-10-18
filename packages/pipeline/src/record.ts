@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import type { MediaRef, ProviderResult, StorageProvider } from '@adforge/core/providers/types';
 import type { Db } from '@adforge/db/client';
+import { assetsForInsert } from '@adforge/db/assets-insert';
 import { assets, jobs, providerCalls } from '@adforge/db/schema';
 import { toWire, type WireResult } from './wire';
 
@@ -58,7 +59,7 @@ export async function recordCall(
 export async function saveAsset(db: Db, scope: { orgId: string; projectId: string }, kind: string, ref: MediaRef): Promise<string> {
   const { orgId, projectId } = scope;
   await db
-    .insert(assets)
+    .insert(assetsForInsert)
     .values({ orgId, projectId, kind, storageKey: ref.id, mime: ref.mime, width: ref.width, height: ref.height, durationSec: ref.durationSec, bytes: ref.bytes, sha256: ref.sha256 })
     .onConflictDoNothing();
   const [row] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.orgId, orgId), eq(assets.sha256, ref.sha256)));

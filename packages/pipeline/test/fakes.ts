@@ -33,6 +33,7 @@ export interface FakeControls {
   comfyDown?: boolean;
   ocr?: OcrItem[];            // what every OCR read returns (default: one label line)
   plateAnalysisFails?: boolean; // every plate-analysis LLM call fails (non-retryable)
+  plateTransient?: number;    // the first N plate-analysis LLM calls fail retryably
   depthDown?: boolean;        // every depth estimate fails
   visionDown?: boolean;       // every OCR read fails (retryable UPSTREAM)
 }
@@ -94,6 +95,7 @@ export async function makeDeps(ctl: FakeControls = {}) {
         if (req.system === loadPrompt('vision-plate').text) {
           calls.plateLlm++;
           if (ctl.plateAnalysisFails) return fail('INVALID_INPUT', false);
+          if (calls.plateLlm <= (ctl.plateTransient ?? 0)) return fail('UPSTREAM', true);
           const value = req.schema.parse(PLATE);
           return { status: 'done', value: { value, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0 } }, cost: { amountUsd: 0.02, estimated: true }, latencyMs: 1 };
         }
