@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import app as a
-from vision_core import Watchdog
+from vision_core import Watchdog, prep_image
 
 c = TestClient(a.app)
 
@@ -166,6 +166,18 @@ def test_model_load_uses_load_budget_not_call_budget(monkeypatch):
     monkeypatch.setattr(a, "Watchdog", W)
     assert a._get(Slot()) == "m"
     assert seen == [a.LOAD_TIMEOUT_S] and a.LOAD_TIMEOUT_S != a.CALL_TIMEOUT_S
+
+
+def test_exif_orientation_is_applied():
+    arr = np.zeros((20, 40, 3), "uint8")
+    arr[:, 20:] = 255
+    img = Image.fromarray(arr)
+    exif = img.getexif()
+    exif[0x0112] = 6
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", exif=exif.tobytes())
+    out = prep_image(buf.getvalue())
+    assert out.size == (20, 40)
 
 
 def test_watchdog_fires_on_overrun_and_not_otherwise():

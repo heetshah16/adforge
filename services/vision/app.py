@@ -136,7 +136,8 @@ def ocr_ep(image: bytes = File(...), langs: str = Form("en,hi")):
     with gpu:
         reader = _get(ocr)
         with Watchdog(CALL_TIMEOUT_S):
-            res = reader.readtext(arr)
+            # EasyOCR expects BGR channel order for arrays.
+            res = reader.readtext(arr[..., ::-1])
             ocr.touch()
     w, h = im.size
     items = []

@@ -37,3 +37,6 @@ KRISHNA, SPECIAL HING, COMPOUNDED ASAFOETIDA, SINCE 1925 (read "925", Devanagari
 
 ## Debt
 ponytail: `ModelSlot` and `Watchdog` are copied from `services/voice-qwen/qwen_core.py` (and originally `services/voice/voice_core.py`), not shared. Extract a shared package once a fourth service needs them.
+
+## Prompt caching note
+The VisionAnalyzer system prompts (`vision-product.md`, `vision-plate.md`) are shorter than Sonnet's 1024-token prompt-cache minimum, so they never cache. That is harmless on the local subscription; revisit before switching to the Anthropic API (B6).

@@ -164,8 +164,7 @@ export interface AlignRequest { audio: MediaRef; text: string; language: Languag
 export interface CaptionAligner { readonly id: string; align(req: AlignRequest): Promise<ProviderResult<{ words: AlignedWord[] }>> }
 /** box = [x, y, w, h] as fractions of the image. */
 export interface OcrItem { text: string; box: [number, number, number, number]; conf: number }
-/** estimate() resolves to a stored 16-bit PNG (larger = nearer). */
-/** `key` is a reserved idempotency key (unused today; kept for symmetry with other providers' requests). */
+/** estimate() resolves to a stored 16-bit PNG (larger = nearer). `key` is a reserved idempotency key (unused today; kept for symmetry with other providers' requests). */
 export interface DepthProvider { readonly id: string; estimate(image: MediaRef, key: string): Promise<ProviderResult<MediaRef>> }
 export interface OcrProvider { readonly id: string; read(image: MediaRef, langs?: ('en' | 'hi')[]): Promise<ProviderResult<OcrItem[]>> }
 /** grid() resolves to n x n mean Rec.709 luma per cell, 0..255. */

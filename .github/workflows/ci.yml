@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
 
-# Python services (services/voice, services/voice-qwen) are deliberately not in CI:
+# Python services (services/voice, services/voice-qwen, services/vision) are deliberately not in CI:
 # their torch/CUDA stacks are GPU-machine only.
 
 permissions:

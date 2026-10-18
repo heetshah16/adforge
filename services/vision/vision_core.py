@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 MAX_BYTES = 20 * 1024 * 1024
 MAX_SIDE = 2048
@@ -82,6 +82,8 @@ def prep_image(data: bytes, max_side: int = MAX_SIDE) -> Image.Image:
     try:
         im = Image.open(io.BytesIO(data))
         im.load()
+        # Phone JPEGs store rotation in EXIF; analyse the upright image.
+        im = ImageOps.exif_transpose(im)
     except Exception as e:
         raise ValueError(f"not a decodable image: {e}")
     if im.mode in ("RGBA", "LA", "P"):
