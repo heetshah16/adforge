@@ -51,6 +51,10 @@ fixtures/eval-products/
 
 services/voice/.venv/
 services/voice-qwen/.venv/
+services/vision/.venv/
+services/vision/**/__pycache__/
+services/vision/__pycache__/
+services/vision/.pytest_cache/
 services/voice-qwen/**/__pycache__/
 services/voice-qwen/__pycache__/
 services/voice/**/__pycache__/

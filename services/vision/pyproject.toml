@@ -1,0 +1,35 @@
+[project]
+name = "adforge-vision"
+version = "0.1.0"
+description = "AdForge local vision service: Depth-Anything-V2 Small depth + EasyOCR + luma grid"
+requires-python = "==3.13.*"
+dependencies = [
+  "transformers==5.18.0",
+  "easyocr==1.7.2",
+  "fastapi==0.142.2",
+  "uvicorn==0.54.0",
+  "python-multipart==0.0.32",
+  "pillow==13.0.0",
+  "numpy==2.5.4",
+  "torch==2.12.1",
+  "torchvision==0.27.1",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "httpx==0.28.1"]
+
+[tool.uv]
+# easyocr / transformers must not drag in a CPU or older torch: keep the cu130 build the other services run on (RTX 5070 Ti, sm_120).
+override-dependencies = ["torch==2.12.1", "torchvision==0.27.1"]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+
+[tool.pytest.ini_options]
+markers = ["live: loads models on the GPU (needs --live)"]
