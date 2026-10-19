@@ -9,6 +9,7 @@ import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import { shortlist, type Shortlist } from '@adforge/core/vocab/shortlist';
 import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, providerCalls, variants } from '@adforge/db/schema';
+import { Rejected, normalizeStored } from './normalize';
 import { markProgress, setJobStatus } from './progress';
 import { jobScope, orgOfJob, recordCall, refFromKey } from './record';
 import { buildConfigSnapshot, visionConfig } from './snapshot';
@@ -36,6 +37,22 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
     return j.inputSpec as JobInput;
   });
 
+  // Browsers upload straight to storage, so every photo is re-validated and re-encoded here before first use.
+  const norm = await step.run('normalize', async () => {
+    await markProgress(db, jobId, 'normalize', 'running');
+    try {
+      const keys: string[] = [];
+      for (const [i, k] of input.photoKeys.entries()) keys.push((await normalizeStored(deps.storage, k, i + 1)).id);
+      await markProgress(db, jobId, 'normalize', 'done');
+      return { keys };
+    } catch (e) {
+      if (e instanceof Rejected) return { error: e.message };
+      throw e;
+    }
+  });
+  if ('error' in norm) return fail('normalize', norm.error);
+  const photoKeys = norm.keys;
+
   const pre = await step.run('preflight', async () => {
     await markProgress(db, jobId, 'preflight', 'running');
     try {
@@ -56,7 +73,7 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
     await markProgress(db, jobId, 'strategize', 'running');
     const registry = await loadRegistry(db);
     const images = await Promise.all(
-      input.photoKeys.map(async (k) => ({ mime: (k.endsWith('.png') ? 'image/png' : k.endsWith('.webp') ? 'image/webp' : 'image/jpeg') as 'image/png', data: await deps.storage.read(k) })),
+      photoKeys.map(async (k) => ({ mime: (k.endsWith('.png') ? 'image/png' : k.endsWith('.webp') ? 'image/webp' : 'image/jpeg') as 'image/png', data: await deps.storage.read(k) })),
     );
     const r = await strategize({ product: input.product, images }, registry, {
       llm: deps.llm, model: deps.env.ADFORGE_LLM_STRATEGIST, effort: deps.env.ADFORGE_LLM_EFFORT_STRATEGIST, idempotencyKey: `${jobId}:strategize`,
@@ -121,7 +138,7 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
 
   // --- heavy lane, batched by model -----------------------------------------------------------
   await step.run('mark:plates', () => markProgress(db, jobId, 'plates', 'running').then(() => true));
-  const plates = await step.heavy('plates', 'heavy:plates', { jobId, variants: vs, photoKey: input.photoKeys[0]! });
+  const plates = await step.heavy('plates', 'heavy:plates', { jobId, variants: vs, photoKey: photoKeys[0]! });
   await step.run('mark:plates:done', () => markProgress(db, jobId, 'plates', 'done').then(() => true));
 
   // Plate analysis is best-effort: GPU phase (luma + depth, vision unloaded after), then ONE step per plate (run in parallel) for the paid LLM call.

@@ -8,6 +8,7 @@ import { IMAGE_MIMES, analyzeProduct, descriptorProblems } from '@adforge/core/u
 import type { ProductAnalysis } from '@adforge/core/understand/schemas';
 import type { Db } from '@adforge/db/client';
 import { assets, libraryAssets, products } from '@adforge/db/schema';
+import { Rejected, normalizeStored } from './normalize';
 import { recordCall, saveAsset } from './record';
 import { visionConfig } from './snapshot';
 import type { PipelineDeps } from './types';
@@ -107,10 +108,20 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
   if (ctx.existing.length) return { status: 'skipped', tags: ctx.existing, analysis: cfg };
   const { orgId, projectId } = ctx.product;
 
+  // Uploads come straight from browsers: re-validate and re-encode each photo, then use the normalized ref everywhere after.
+  const photos = await step.run('normalize', async () => {
+    const out: typeof ctx.photos = [];
+    for (const [i, ph] of ctx.photos.entries()) {
+      try { out.push({ assetId: ph.assetId, ref: await normalizeStored(deps.storage, ph.ref.id, i + 1) }); }
+      catch (e) { throw e instanceof Rejected ? new NonRetriableError(e.message) : e; }
+    }
+    return out;
+  });
+
   const cutouts = await step.run('cutouts', async () => {
     try {
       const keys: string[] = [];
-      for (const ph of ctx.photos) {
+      for (const ph of photos) {
         const key = `${ctx.ns}:cutout:${ph.ref.sha256}`;
         const ref = await call(deps, orgId, 'cutout', deps.comfy.cutout.id, key, () => deps.comfy.cutout.cutout({ image: ph.ref, idempotencyKey: key }));
         await saveAsset(db, { orgId, projectId }, 'cutout', ref);
@@ -125,7 +136,7 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
   const ocr = await step.run('ocr', async () => {
     try {
       const out: OcrItem[][] = [];
-      for (const ph of ctx.photos) out.push(await call(deps, orgId, 'ocr', deps.vision.ocr.id, `${ctx.ns}:ocr:${ph.ref.sha256}`, () => deps.vision.ocr.read(ph.ref)));
+      for (const ph of photos) out.push(await call(deps, orgId, 'ocr', deps.vision.ocr.id, `${ctx.ns}:ocr:${ph.ref.sha256}`, () => deps.vision.ocr.read(ph.ref)));
       return out;
     } finally {
       await deps.vision.unload().catch(() => {});
@@ -138,7 +149,7 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
   const analyze = async (idx: number[], baseKey: string): Promise<ProductAnalysis> => {
     const key = step.attempt ? `${baseKey}:a${step.attempt}` : baseKey;
     const a = await analyzeProduct(
-      { images: idx.map((i) => ctx.photos[i]!.ref), ocr: idx.map((i) => ocr[i]!) },
+      { images: idx.map((i) => photos[i]!.ref), ocr: idx.map((i) => ocr[i]!) },
       { llm: deps.llm, model: cfg.model, effort: cfg.effort, idempotencyKey: key, storage: deps.storage },
     ).catch((e): Awaited<ReturnType<typeof analyzeProduct>> => ({
       result: { status: 'failed', error: new ProviderError(deps.llm.id, 'UNKNOWN', e instanceof Error ? e.message : String(e)), retryable: true }, repairs: 0, calls: [],
@@ -155,7 +166,7 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
     return a.result.status === 'done' ? a.result.value.value : fail('analysis', key, toWire(a.result));
   };
   const llmKey = `${ctx.ingestKey}:${step.runId}:analysis`;
-  const all = ctx.photos.map((_, i) => i);
+  const all = photos.map((_, i) => i);
   const joint = await step.run('analyze:joint', async () => {
     const j = await analyze(all, llmKey);
     if (j.bestPhotoIndex >= all.length) throw new NonRetriableError(`analysis picked photo ${j.bestPhotoIndex} of ${all.length}`);
@@ -165,7 +176,7 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
   const views: ProductAnalysis[] = [];
   for (const i of all) {
     if (i === best) { views.push(joint); continue; }
-    const sha = ctx.photos[i]!.ref.sha256;
+    const sha = photos[i]!.ref.sha256;
     const v = await step.run(`analyze:${sha}`, () => analyze([i], `${llmKey}:${sha}`));
     views.push({ ...joint, viewpoint: v.viewpoint, visibleFaces: v.visibleFaces, lightDirection: v.lightDirection, descriptor: v.descriptor });
   }
@@ -196,9 +207,9 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
         const { descriptor, bestPhotoIndex: _best, ...view } = analyzed.views[i]!;
         const anchor = i === analyzed.best;
         await tx.insert(libraryAssets).values({
-          orgId, projectId, productId: ctx.product.id, tag, version, kind: 'product_view', descriptor, storageKey: ctx.photos[i]!.ref.id,
+          orgId, projectId, productId: ctx.product.id, tag, version, kind: 'product_view', descriptor, storageKey: photos[i]!.ref.id,
           meta: {
-            ...view, anchor, sourceAssetId: ctx.photos[i]!.assetId, cutoutKey: cutouts[i]!, ocr: ocr[i]!,
+            ...view, anchor, sourceAssetId: photos[i]!.assetId, cutoutKey: cutouts[i]!, ocr: ocr[i]!,
             analysisModel: cfg.model, analysisPrompt: cfg.prompts.visionProduct, ingestKey: ctx.ingestKey,
           },
         });

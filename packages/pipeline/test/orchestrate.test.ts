@@ -7,7 +7,7 @@ import { seedOperator } from '@adforge/db/seed/seed';
 import { HEAVY } from '../src/heavy';
 import { generateAds } from '../src/orchestrate';
 import type { PipelineDeps, StepLike } from '../src/types';
-import { PLATE, anchor, makeDeps } from './fakes';
+import { PLATE, anchor, makeDeps, realPng } from './fakes';
 
 /** buildSpec stays real; a test can make one variant's spec throw. */
 const specFault = vi.hoisted(() => ({ variantNo: 0 }));
@@ -33,7 +33,7 @@ let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; specFault.variantNo = 0; });
 
 async function newJob(deps: PipelineDeps, broll = false, scope?: { orgId: string; projectId: string; userId: string }) {
-  const photos = await Promise.all([1, 2, 3].map((i) => deps.storage.put(new Uint8Array([i, 9, 9]), { mime: 'image/png' })));
+  const photos = await Promise.all([1, 2, 3].map((i) => realPng(i).then((b) => deps.storage.put(b, { mime: 'image/png' }))));
   const [job] = await deps.db.insert(jobs).values({
     ...(scope ?? (await seedOperator(deps.db))),
     inputSpec: { product: { name: 'Sattvik Oil', price: '₹450', description: 'Wood-pressed groundnut oil.' }, language: 'en', broll, photoKeys: photos.map((p) => p.id) },
@@ -42,6 +42,37 @@ async function newJob(deps: PipelineDeps, broll = false, scope?: { orgId: string
 }
 
 describe('generateAds', () => {
+  it('a rejected photo fails the job at stage normalize with the message; no plates step runs', async () => {
+    const m = await makeDeps(); close = m.close;
+    const id = await newJob(m.deps);
+    const [j0] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    const spec = j0!.inputSpec as { photoKeys: string[] };
+    spec.photoKeys[1] = (await m.deps.storage.put(new Uint8Array([137, 80, 78, 71, 9, 9]), { mime: 'image/png' })).id;
+    await m.deps.db.update(jobs).set({ inputSpec: spec }).where(eq(jobs.id, id));
+    const step = memoStep(m.deps);
+    const r = await generateAds(id, step, m.deps);
+    expect(r.status).toBe('failed');
+    const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    expect(j!.status).toBe('failed');
+    expect(j!.error).toMatchObject({ stage: 'normalize', reason: 'photo 2: could not read this image' });
+    expect(j!.progress.findLast((p) => p.stage === 'normalize')?.status).toBe('failed');
+    expect([...step.cache.keys()].some((k) => k.includes('plates'))).toBe(false);
+    expect(m.calls.llm).toBe(0);
+  });
+
+  it('a photo whose stored bytes no longer match its key sha fails the job at normalize as corrupted', async () => {
+    const m = await makeDeps(); close = m.close;
+    const id = await newJob(m.deps);
+    const [j0] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    const keys = (j0!.inputSpec as { photoKeys: string[] }).photoKeys;
+    const read = m.deps.storage.read.bind(m.deps.storage);
+    m.deps.storage.read = async (k: string) => (k === keys[0] ? read(keys[1]!) : read(k));
+    const r = await generateAds(id, memoStep(m.deps), m.deps);
+    expect(r.status).toBe('failed');
+    const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    expect(j!.error).toMatchObject({ stage: 'normalize', reason: 'photo 1 is corrupted — upload it again' });
+  });
+
   it('analyses every plate: PlateAnalysis + luma grid + depth key stored on the plate asset, one recorded LLM call each, vision unloaded', async () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);

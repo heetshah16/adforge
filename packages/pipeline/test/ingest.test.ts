@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+import { NonRetriableError } from 'inngest';
 import { loadPrompt } from '@adforge/core/llm/prompts';
 import { ProviderError, type LLMProvider, type LLMRequest } from '@adforge/core/providers/types';
 import { labelTextViolations } from '@adforge/core/understand/schemas';
@@ -8,7 +9,7 @@ import { ingestProduct, updateDescriptor, type IngestStep } from '../src/ingest'
 import { saveAsset } from '../src/record';
 import { buildConfigSnapshot } from '../src/snapshot';
 import type { PipelineDeps } from '../src/types';
-import { makeDeps, type FakeControls } from './fakes';
+import { makeDeps, realPng, type FakeControls } from './fakes';
 
 const DESC =
   'a slim cylindrical amber glass bottle with a tall narrow neck and a matte black screw cap, the body wrapped by a wide cream paper label ' +
@@ -65,13 +66,23 @@ async function product(deps: PipelineDeps, scope: Scope, name = 'Sattvik Oil') {
 }
 async function photos(deps: PipelineDeps, scope: Scope, n: number, seed = 0, kind = 'upload') {
   const ids: string[] = [];
-  for (let i = 0; i < n; i++) ids.push(await saveAsset(deps.db, scope, kind, await deps.storage.put(new Uint8Array([137, 80, 78, 71, seed, i]), { mime: 'image/png' })));
+  for (let i = 0; i < n; i++) ids.push(await saveAsset(deps.db, scope, kind, await deps.storage.put(await realPng(seed, i), { mime: 'image/png' })));
   return ids;
 }
 const rows = (deps: PipelineDeps, orgId?: string) =>
   deps.db.select().from(libraryAssets).where(orgId ? eq(libraryAssets.orgId, orgId) : undefined).orderBy(libraryAssets.tag);
 
 describe('product.ingest', () => {
+  it('a photo that will not decode is rejected non-retryably, before any provider call', async () => {
+    const m = await setup();
+    const productId = await product(m.deps, m.scope);
+    const bad = await saveAsset(m.deps.db, m.scope, 'upload', await m.deps.storage.put(new Uint8Array([137, 80, 78, 71, 1, 2, 3]), { mime: 'image/png' }));
+    const e = await ingestProduct({ productId, photoAssetIds: [bad] }, step, m.deps).catch((x) => x);
+    expect(e).toBeInstanceOf(NonRetriableError);
+    expect(e.message).toBe('photo 1: could not read this image');
+    expect(m.calls.cutout).toBe(0);
+  });
+
   it('1 photo → 1 anchor row with every meta field; GPU freed after each phase; calls recorded and attributable', async () => {
     const m = await setup();
     const productId = await product(m.deps, m.scope);
@@ -331,7 +342,9 @@ describe('product.ingest', () => {
     const m = await setup();
     const productId = await product(m.deps, m.scope);
     const ids = await photos(m.deps, m.scope, 1);
-    m.deps.storage.read = async () => { throw new Error('disk gone'); };
+    const read = m.deps.storage.read.bind(m.deps.storage);
+    let reads = 0; // the first read is the normalize step's; the analysis's own read is the one that dies
+    m.deps.storage.read = async (k: string) => { if (reads++) throw new Error('disk gone'); return read(k); };
     await expect(ingestProduct({ productId, photoAssetIds: ids }, step, m.deps)).rejects.toThrow(/analysis failed: UNKNOWN disk gone/);
     const [c] = await m.deps.db.select().from(providerCalls).where(eq(providerCalls.kind, 'llm'));
     expect(c).toMatchObject({ status: 'failed', model: 'claude-sonnet-5-5', error: { code: 'UNKNOWN', message: 'disk gone', retryable: true } });

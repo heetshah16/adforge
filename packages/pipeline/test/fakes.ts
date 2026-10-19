@@ -8,8 +8,13 @@ import { ProviderError, type MediaRef, type OcrItem, type ProviderResult, type T
 import { jobs } from '@adforge/db/schema';
 import { openDb } from '@adforge/db/client';
 import { seedOperator, seedVocabulary } from '@adforge/db/seed/seed';
+import sharp from 'sharp';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
 import type { PipelineDeps } from '../src/types';
+
+/** A tiny decodable PNG, distinct per (a, b): uploads are re-decoded by the normalize step, so fake bytes no longer pass. */
+export const realPng = (a: number, b = 0) =>
+  sharp({ create: { width: 8, height: 8, channels: 3, background: { r: (a * 37) % 256, g: (b * 53) % 256, b: 90 } } }).png().toBuffer().then((x) => new Uint8Array(x));
 
 export const anchor = (): DirectorOutput => {
   const t = loadPrompt('director').text;
