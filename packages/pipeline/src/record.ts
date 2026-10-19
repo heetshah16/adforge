@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { NonRetriableError } from 'inngest';
 import { z } from 'zod';
-import { MIME_EXT, STORAGE_KEY_RE } from '@adforge/core/providers/storage-scope';
+import { MIME_EXT, STORAGE_KEY_RE } from '@adforge/core/providers/storage-key';
 import type { MediaRef, ProviderResult, StorageProvider } from '@adforge/core/providers/types';
 import type { Db } from '@adforge/db/client';
 import { assetsForInsert } from '@adforge/db/assets-insert';

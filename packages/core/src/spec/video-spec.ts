@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { STORAGE_KEY_RE } from '../providers/storage-scope';
+import { STORAGE_KEY_RE } from '../providers/storage-key';
 import { Motion } from '../vocab/enums';
 
 /** Our IR. Frames are the source of truth; layers reference storage keys, never URLs. */

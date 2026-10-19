@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MIME_EXT, orgKey, orgOfKey, storageOrg, withStorageOrg } from '../src/providers/storage-scope';
+import { MIME_EXT, orgKey, orgOfKey } from '../src/providers/storage-key';
+import { storageOrg, withStorageOrg } from '../src/providers/storage-scope';
 import { StorageKey } from '../src/spec/video-spec';
 
 const ORG_A = '0a1b2c3d-0000-4000-8000-00000000000a';

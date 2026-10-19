@@ -5,7 +5,7 @@ import { storageOrg } from '@adforge/core/providers/storage-scope';
 import { jobs, orgs, products, projects } from '@adforge/db/schema';
 import { HEAVY } from '../src/heavy';
 import { createFunctions, inngest } from '../src/inngest';
-import { makeDeps } from './fakes';
+import { jobRow, makeDeps } from './fakes';
 
 // The bodies are replaced by probes that record storageOrg() in the body and inside a step.run callback.
 const seen = vi.hoisted(() => [] as [string, string | undefined][]);
@@ -51,19 +51,20 @@ async function setup() {
   const [j] = await m.deps.db.insert(jobs).values({ orgId, projectId: p!.id, userId: m.op.userId, inputSpec: {} }).returning();
   const [pr] = await m.deps.db.insert(products).values({ orgId, projectId: p!.id, name: 'Oil' }).returning();
   const fns = new Map(createFunctions(m.deps).map((f) => [f.id(), f]));
-  return { orgId, jobId: j!.id, productId: pr!.id, fns };
+  return { orgId, jobId: j!.id, productId: pr!.id, operatorJobId: await jobRow(m.deps), fns };
 }
 
 const TASKS = Object.keys(HEAVY) as (keyof typeof HEAVY)[];
 
 describe('Inngest handlers run inside the owning org storage scope', () => {
   it('generate-ads, heavy-* and product-ingest run their bodies inside the owning org scope', async () => {
-    const { orgId, jobId, productId, fns } = await setup();
+    const { orgId, jobId, productId, operatorJobId, fns } = await setup();
     for (const t of TASKS) vi.spyOn(HEAVY, t).mockImplementation((async () => { seen.push([`heavy-${t} step`, storageOrg()]); return null; }) as never);
 
     for (const t of TASKS) expect((await execute(fns.get(`heavy-${t}`)!, { jobId })).type).toBe('step-ran');
     expect((await execute(fns.get('generate-ads')!, { jobId })).type).toBe('step-ran');
-    expect((await execute(fns.get('product-ingest')!, { productId, photoAssetIds: [randomUUID()] })).type).toBe('step-ran');
+    // A stray jobId (of another org) on an ingest event must not pick the scope: the product's org owns the puts.
+    expect((await execute(fns.get('product-ingest')!, { productId, jobId: operatorJobId, photoAssetIds: [randomUUID()] })).type).toBe('step-ran');
 
     expect(seen).toEqual([
       ...TASKS.map((t) => [`heavy-${t} step`, orgId]),

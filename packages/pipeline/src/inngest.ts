@@ -57,7 +57,7 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
   const ingest = inngest.createFunction(
     { id: 'product-ingest', triggers: [{ event: EVENTS.productIngest }], concurrency: HEAVY_CONCURRENCY, priority: { run: '600' }, retries: 2, timeouts: { start: '2h', finish: '60m' } },
     async ({ event, step, runId, attempt }) => {
-      const org = await orgForEvent(deps.db, event.data);
+      const org = await orgForEvent(deps.db, { productId: (event.data as { productId?: string }).productId }); // never a jobId: the product's org owns its puts
       return withStorageOrg(org, () => ingestProduct(event.data, { runId, attempt, run: (id, fn) => step.run(id, scoped(org, fn)) as never }, deps));
     },
   );

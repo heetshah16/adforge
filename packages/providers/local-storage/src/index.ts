@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { MIME_EXT } from '@adforge/core/providers/storage-scope';
+import { MIME_EXT } from '@adforge/core/providers/storage-key';
 import type { MediaRef, PutOptions, StorageProvider } from '@adforge/core/providers/types';
 
 /** Dev keys only: unprefixed (no org), unlike prod's org-scoped keys. */
