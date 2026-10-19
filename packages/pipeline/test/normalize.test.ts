@@ -38,6 +38,15 @@ describe('normalizeImage', () => {
     const png = await sharp({ create: { width: 9000, height: 9000, channels: 3, background: '#fff' } }).png({ compressionLevel: 9 }).toBuffer();
     expect(await normalizeImage(png)).toEqual({ ok: false, error: 'photo larger than 8192 px' });
   });
+  it('8192x8192 PNG exceeds the pixel limit with a size message', async () => {
+    const png = await sharp({ create: { width: 8192, height: 8192, channels: 3, background: '#fff' } }).png({ compressionLevel: 9 }).toBuffer();
+    expect(await normalizeImage(png)).toEqual({ ok: false, error: 'photo larger than 50 megapixels' });
+  });
+  it('fully transparent WebP → white JPEG', async () => {
+    const webp = await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).webp().toBuffer();
+    const { data } = await sharp((await ok(webp)).bytes).raw().toBuffer({ resolveWithObject: true });
+    expect([...data.subarray(0, 3)].every((v) => v >= 250)).toBe(true);
+  });
   it('HEIC magic', async () => {
     const heic = new Uint8Array([0, 0, 0, 24, ...Buffer.from('ftypheic'), 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(await normalizeImage(heic)).toEqual({ ok: false, error: "HEIC isn't supported yet — export the photo as JPEG" });
@@ -60,6 +69,11 @@ describe('normalizeStored', () => {
     expect(ref.sha256).not.toBe(src.sha256);
     expect(ref.sha256).toBe(createHash('sha256').update(await s.read(ref.id)).digest('hex'));
     expect([ref.width, ref.height]).toEqual([40, 20]);
+  });
+  it('over 10 MB is rejected before hashing or decoding', async () => {
+    const s = store();
+    const big = await s.put(new Uint8Array(11 * 1024 * 1024), { mime: 'image/png' });
+    await expect(normalizeStored(s, big.id, 3)).rejects.toThrow('photo 3 is larger than 10 MB');
   });
   it('bytes that do not hash to the key sha are rejected before decoding', async () => {
     const s = store();

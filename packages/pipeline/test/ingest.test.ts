@@ -73,6 +73,19 @@ const rows = (deps: PipelineDeps, orgId?: string) =>
   deps.db.select().from(libraryAssets).where(orgId ? eq(libraryAssets.orgId, orgId) : undefined).orderBy(libraryAssets.tag);
 
 describe('product.ingest', () => {
+  it('stored bytes that do not match the key sha are rejected non-retryably as corrupted', async () => {
+    const m = await setup();
+    const productId = await product(m.deps, m.scope);
+    const ids = await photos(m.deps, m.scope, 2);
+    const [a] = await m.deps.db.select().from(assets).where(eq(assets.id, ids[1]!));
+    const read = m.deps.storage.read.bind(m.deps.storage);
+    m.deps.storage.read = async (k: string) => read(k === a!.storageKey ? (await m.deps.db.select().from(assets).where(eq(assets.id, ids[0]!)))[0]!.storageKey : k);
+    const e = await ingestProduct({ productId, photoAssetIds: ids }, step, m.deps).catch((x) => x);
+    expect(e).toBeInstanceOf(NonRetriableError);
+    expect(e.message).toBe('photo 2 is corrupted — upload it again');
+    expect(m.calls.cutout).toBe(0);
+  });
+
   it('a photo that will not decode is rejected non-retryably, before any provider call', async () => {
     const m = await setup();
     const productId = await product(m.deps, m.scope);

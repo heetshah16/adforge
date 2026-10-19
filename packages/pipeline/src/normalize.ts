@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { parseKey } from '@adforge/core/providers/storage-key';
 import type { MediaRef, StorageProvider } from '@adforge/core/providers/types';
+import { MAX_PHOTO } from './job-input';
 
 export type Normalized =
   | { ok: true; bytes: Uint8Array; mime: 'image/png' | 'image/jpeg'; width: number; height: number }
@@ -23,24 +24,28 @@ export async function normalizeImage(bytes: Uint8Array): Promise<Normalized> {
   try {
     const opts = { limitInputPixels: MAX_PIXELS, failOn: 'error' as const };
     const meta = await sharp(bytes, { failOn: 'error' }).metadata(); // header only; the pixel limit applies to the decode below
-    if ((meta.width ?? 0) > MAX_SIDE || (meta.height ?? 0) > MAX_SIDE) return { ok: false, error: 'photo larger than 8192 px' };
+    const [w, h] = [meta.width ?? 0, meta.height ?? 0];
+    if (w > MAX_SIDE || h > MAX_SIDE) return { ok: false, error: 'photo larger than 8192 px' };
+    if (w * h > MAX_PIXELS) return { ok: false, error: 'photo larger than 50 megapixels' };
     const img = sharp(bytes, opts).rotate().toColorspace('srgb');
-    const { data, info } = await (kind === 'png' ? img.png() : img.jpeg({ quality: 92 })).toBuffer({ resolveWithObject: true });
+    const { data, info } = await (kind === 'png' ? img.png() : img.flatten({ background: '#ffffff' }).jpeg({ quality: 92 })).toBuffer({ resolveWithObject: true });
     return { ok: true, bytes: new Uint8Array(data), mime: kind === 'png' ? 'image/png' : 'image/jpeg', width: info.width, height: info.height };
   } catch {
     return { ok: false, error: 'could not read this image' };
   }
 }
 
+export class Rejected extends Error {}
+
 /**
  * Reads an uploaded photo back from storage, checks the bytes still hash to the sha in their key (a presigned browser PUT body is unsigned),
  * then normalizes and stores the result. `n` is the 1-based photo number used in messages. Throws `Rejected` on a bad photo.
  */
-export class Rejected extends Error {}
 export async function normalizeStored(storage: StorageProvider, key: string, n: number): Promise<MediaRef> {
   const parsed = parseKey(key);
   if (!parsed) throw new Rejected(`photo ${n}: not a storage key`);
   const bytes = await storage.read(key);
+  if (bytes.length > MAX_PHOTO) throw new Rejected(`photo ${n} is larger than 10 MB`);
   if (createHash('sha256').update(bytes).digest('hex') !== parsed.sha) throw new Rejected(`photo ${n} is corrupted — upload it again`);
   const r = await normalizeImage(bytes);
   if (!r.ok) throw new Rejected(`photo ${n}: ${r.error}`);
