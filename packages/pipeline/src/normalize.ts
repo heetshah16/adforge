@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { parseKey } from '@adforge/core/providers/storage-key';
+import { storageOrg } from '@adforge/core/providers/storage-scope';
 import type { MediaRef, StorageProvider } from '@adforge/core/providers/types';
 import { MAX_PHOTO } from './job-input';
 
@@ -44,6 +45,7 @@ export class Rejected extends Error {}
 export async function normalizeStored(storage: StorageProvider, key: string, n: number): Promise<MediaRef> {
   const parsed = parseKey(key);
   if (!parsed) throw new Rejected(`photo ${n}: not a storage key`);
+  if (parsed.org !== null && parsed.org !== storageOrg()) throw new Rejected(`photo ${n} belongs to another account`);
   const bytes = await storage.read(key);
   if (bytes.length > MAX_PHOTO) throw new Rejected(`photo ${n} is larger than 10 MB`);
   if (createHash('sha256').update(bytes).digest('hex') !== parsed.sha) throw new Rejected(`photo ${n} is corrupted — upload it again`);

@@ -32,6 +32,12 @@ describe('storage profile', () => {
   it('prod must use r2', () => {
     expect(() => parseServerEnv({ ...PROD, ADFORGE_PROVIDER_STORAGE: 'local' })).toThrow(/ADFORGE_PROVIDER_STORAGE/);
   });
+  it('r2 shape-checks R2_ACCOUNT_ID and R2_BUCKET and does not need ADFORGE_DATA_DIR', () => {
+    expect(() => parseServerEnv({ ...OK, ...R2P, R2_ACCOUNT_ID: 'not-hex' })).toThrow(/R2_ACCOUNT_ID/);
+    expect(() => parseServerEnv({ ...OK, ...R2P, R2_BUCKET: 'Bad_Bucket' })).toThrow(/R2_BUCKET/);
+    const { ADFORGE_DATA_DIR: _, ...noDir } = OK;
+    expect(parseServerEnv({ ...noDir, ...R2P }).ADFORGE_PROVIDER_STORAGE).toBe('r2');
+  });
   it('r2 without R2_BUCKET names it', () => {
     const { R2_BUCKET: _, ...noBucket } = R2P;
     expect(() => parseServerEnv({ ...OK, ...noBucket })).toThrow(/R2_BUCKET/);

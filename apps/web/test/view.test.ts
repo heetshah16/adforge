@@ -31,6 +31,7 @@ describe('stageRows', () => {
       { stage: 'render', status: 'running', at: 't4', detail: 'variant 2' },
     ]);
     expect(rows.map((r) => r.stage)).toEqual([...STAGES]);
+    expect(rows.find((r) => r.stage === 'normalize')).toMatchObject({ label: 'Checking photos', status: 'pending' });
     expect(rows.find((r) => r.stage === 'preflight')!.status).toBe('done');
     expect(rows.find((r) => r.stage === 'broll')!.status).toBe('skipped');
     expect(rows.find((r) => r.stage === 'render')).toMatchObject({ status: 'running', detail: 'variant 2' });

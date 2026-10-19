@@ -15,6 +15,11 @@ export const MIME_EXT: Readonly<Record<string, string>> = Object.freeze({
   'application/json': 'json',
 });
 
+/** The dev (unprefixed) key: `<sha[0..2]>/<sha>.<ext>`. */
+export function devKey(sha256: string, ext: string): string {
+  return `${sha256.slice(0, 2)}/${sha256}.${ext}`;
+}
+
 export function orgKey(orgId: string, sha256: string, ext: string): string {
   const key = `org/${orgId}/${sha256.slice(0, 2)}/${sha256}.${ext}`;
   if (!STORAGE_KEY_RE.test(key)) throw new Error(`not a storage key: ${key}`);

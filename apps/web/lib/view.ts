@@ -1,8 +1,8 @@
 import type { JobView } from './api';
 
-export const STAGES = ['preflight', 'strategize', 'direct', 'plates', 'broll', 'voice', 'render', 'finalize'] as const;
+export const STAGES = ['preflight', 'normalize', 'strategize', 'direct', 'plates', 'broll', 'voice', 'render', 'finalize'] as const;
 const LABELS: Record<(typeof STAGES)[number], string> = {
-  preflight: 'Checking services', strategize: 'Reading the product', direct: 'Writing three variants', plates: 'Generating scenes',
+  preflight: 'Checking services', normalize: 'Checking photos', strategize: 'Reading the product', direct: 'Writing three variants', plates: 'Generating scenes',
   broll: 'AI b-roll', voice: 'Voice-over + captions', render: 'Rendering videos', finalize: 'Finishing',
 };
 const TYPES = ['image/png', 'image/jpeg', 'image/webp'];

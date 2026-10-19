@@ -126,7 +126,7 @@ describe('R2Storage', () => {
     expect(isRetryable(e.code)).toBe(true);
   });
 
-  it('5xx is retryable UPSTREAM; 403 is non-retryable INVALID_INPUT', async () => {
+  it('5xx is retryable UPSTREAM; 403 is non-retryable AUTH', async () => {
     const mk = (status: number) => new R2Storage(CFG, (async () => new Response('x', { status })) as typeof fetch);
     const e5 = await mk(503).head(KEY_A).catch((e) => e);
     expect([e5.code, isRetryable(e5.code)]).toEqual(['UPSTREAM', true]);

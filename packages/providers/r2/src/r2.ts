@@ -72,7 +72,7 @@ export class R2Storage implements StorageProvider {
     const signed = await this.sign(this.endpoint(key), method, headers, body);
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), this.cfg.timeoutMs);
-    const what = `${method} /${this.cfg.bucket}/${key}`;
+    const what = `${method} ${key}`;
     try {
       let res: Response;
       try {

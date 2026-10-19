@@ -172,3 +172,16 @@ describe('getMedia ?download=1', () => {
     } finally { await s.close(); }
   });
 });
+
+describe('dev job API is local-disk only', () => {
+  it('createJob and getJob 404 under a non-local (r2) store', async () => {
+    const s = await setup();
+    const m = s;
+    try {
+      const { jobId } = (await (await s.routes.createJob(post(form()))).json()) as { jobId: string };
+      const routes = makeRoutes({ deps: m.deps, operator: m.op, storage: { id: 'r2' } as never, sendEvent: async () => {} });
+      expect((await routes.createJob(post(form()))).status).toBe(404);
+      expect((await routes.getJob(new Request(`http://w/api/jobs/${jobId}`))).status).toBe(404);
+    } finally { await m.close(); }
+  });
+});

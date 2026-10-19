@@ -74,7 +74,7 @@ An auth user was deleted and re-invited, so the new `auth.users.id` differs from
 - Created with `npx wrangler@4 r2 bucket create <name>`.
 
 **Dev bucket CORS**
-Set with `npx wrangler@4 r2 bucket cors set adforge-dev --file cors-dev.json --force`.
+Create `cors-dev.json` from the JSON block below (it is not in the repo), then set it with `npx wrangler@4 r2 bucket cors set adforge-dev --file cors-dev.json --force`.
 ```json
 {"rules":[{"allowed":{"origins":["http://localhost:3000"],"methods":["PUT","GET","HEAD"],"headers":["content-type","x-amz-checksum-sha256","if-none-match"]},"exposeHeaders":["ETag","Content-Length","Content-Type"],"maxAgeSeconds":3600}]}
 ```
@@ -91,7 +91,9 @@ Not set yet. Set it in B4 when the site domain exists, with the same rule and or
 In `.env` for the worker; in `apps/web/.env.local` / Vercel env for the web app.
 - `ADFORGE_PROVIDER_STORAGE=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
 - Optional `R2_TIMEOUT_MS` (default 30000) and `ADFORGE_MEDIA_TTL_SEC` (default 900, range 60–3600).
-- Prod requires `r2`. Never commit or paste these values anywhere.
+- Prod requires `r2`. Web and worker must use the same `ADFORGE_PROVIDER_STORAGE` profile.
+- Under r2 the web's media URLs (`/media/<key>`) are built from `ADFORGE_SITE_URL`, not `ADFORGE_PUBLIC_URL` (that one is the worker's).
+- Never commit or paste these values anywhere.
 
 **Rotate the R2 token**
 1. Cloudflare dashboard > R2 > Manage R2 API Tokens: create a new token (Object Read & Write, both buckets).
@@ -106,4 +108,10 @@ In `.env` for the worker; in `apps/web/.env.local` / Vercel env for the web app.
 `pnpm --filter @adforge/provider-r2 record:live` (writes only to `adforge-dev`).
 
 **Run the media e2e**
-`pnpm e2e:r2` (dev bucket + dev Supabase; no GPU; needs FFmpeg on PATH).
+`pnpm e2e:r2` (no GPU). Required env:
+- `ADFORGE_ENV=prod` and `ADFORGE_PROVIDER_STORAGE=r2`.
+- `DATABASE_URL` = the dev Supabase database.
+- The `R2_*` vars. The bucket is hardcoded to `adforge-dev`.
+- FFmpeg on PATH.
+
+A re-PUT of an existing key into the locked prod bucket is refused (412/403), which is why `R2Storage.put` HEADs first and skips the PUT when the object exists.

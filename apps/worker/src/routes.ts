@@ -25,6 +25,7 @@ export function makeRoutes(ctx: {
     },
 
     async createJob(req: Request): Promise<Response> {
+      if (!(storage instanceof LocalDiskStorage)) return json({ error: 'not found' }, 404); // dev API only; r2 jobs go through apps/web
       if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json({ error: 'upload larger than 30 MB' }, 413);
       let form: FormData;
       try { form = await req.formData(); } catch { return bad('expected multipart/form-data'); }
@@ -52,6 +53,7 @@ export function makeRoutes(ctx: {
 
     /** Dev-only: apps/worker/src/e2e.ts polls it. The product API is apps/web's /api/jobs/[id] under RLS. */
     async getJob(req: Request): Promise<Response> {
+      if (!(storage instanceof LocalDiskStorage)) return json({ error: 'not found' }, 404);
       const id = new URL(req.url).pathname.split('/').pop() ?? '';
       if (!z.uuid().safeParse(id).success) return json({ error: 'not found' }, 404);
       const [j] = await deps.db.select().from(jobs).where(eq(jobs.id, id));

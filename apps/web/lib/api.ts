@@ -45,6 +45,8 @@ export async function createJob(form: FormData, fetchImpl: typeof fetch = fetch)
       });
       if (!put) return { ok: false, error: `photo ${i + 1}: upload timed out` };
       // 412: the signed if-none-match found the object already stored (content-addressed), so the upload is done.
+      // R2 error responses may lack CORS headers, so the browser can report a network error instead of the 412;
+      // a retry recovers because mint then returns exists:true.
       if (!put.ok && put.status !== 412) return { ok: false, error: `photo ${i + 1}: upload failed (HTTP ${put.status})` };
     }
     photoKeys.push(m.key);

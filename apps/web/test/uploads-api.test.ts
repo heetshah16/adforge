@@ -33,6 +33,12 @@ describe('POST /api/uploads', () => {
     const r = await mintUploadHandler(ctxR2(), mint({ mime: 'image/heic', bytes: 5, sha256: SHA }));
     expect([r.status, await r.json()]).toEqual([400, { error: "HEIC isn't supported yet — export the photo as JPEG" }]);
   });
+  it('a body over 1 KB (declared or chunked) -> 413', async () => {
+    const big = JSON.stringify({ mime: 'image/png', bytes: 5, sha256: SHA, pad: 'x'.repeat(2000) });
+    expect((await mintUploadHandler(ctxR2(), mint(JSON.parse(big)))).status).toBe(413);
+    const chunked = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(big)); c.close(); } });
+    expect((await mintUploadHandler(ctxR2(), new Request('http://w/api/uploads', { method: 'POST', body: chunked, headers: { origin: SITE }, duplex: 'half' } as RequestInit))).status).toBe(413);
+  });
   it('40 MB PNG -> 413', async () => {
     const r = await mintUploadHandler(ctxR2(), mint({ mime: 'image/png', bytes: 41943040, sha256: SHA }));
     expect([r.status, await r.json()]).toEqual([413, { error: 'photo larger than 10 MB' }]);
@@ -95,6 +101,18 @@ describe('PUT /api/uploads/local/[...key]', () => {
 });
 
 describe('api.ts client', () => {
+  it('a storage PUT that times out -> "upload timed out", no job posted', async () => {
+    const f = new FormData();
+    f.append('photos', new File([new Uint8Array([137, 80, 78, 71, 9])], 'p.png', { type: 'image/png' }));
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      urls.push(url);
+      if (url === '/api/uploads') return json({ key: `ab/${JSON.parse(String(init!.body)).sha256}.png`, url: 'https://r2.test/put', headers: {}, exists: false });
+      throw new DOMException('timed out', 'TimeoutError');
+    }) as typeof fetch;
+    expect(await createJob(f, fetchImpl)).toEqual({ ok: false, error: 'photo 1: upload timed out' });
+    expect(urls).toEqual(['/api/uploads', 'https://r2.test/put']);
+  });
   const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
   it('403 with the not-invited body -> /waitlist; any other 403 is surfaced, no redirect', async () => {
     const assign = vi.fn();

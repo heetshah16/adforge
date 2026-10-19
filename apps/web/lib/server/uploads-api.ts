@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { MIME_EXT, orgKey, parseKey } from '@adforge/core/providers/storage-key';
+import { MIME_EXT, devKey, orgKey, parseKey } from '@adforge/core/providers/storage-key';
 import { MAX_PHOTO, PHOTO_TYPES } from '@adforge/pipeline/job-input';
 import { isSiteOrigin } from './origin';
-import { readBytesCapped } from './read-capped';
+import { readBytesCapped, readTextCapped } from './read-capped';
 import type { SessionUser } from './session';
 
 /** What the upload routes need from the media store. R2 presigns; local disk is written through our own PUT route. */
@@ -21,6 +21,7 @@ export type UploadsCtx = {
 };
 
 export const PRESIGN_TTL_SEC = 300;
+const MAX_MINT = 1024;
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 const MIME_BY_EXT: Record<string, string> = Object.assign(Object.create(null), Object.fromEntries(Object.entries(MIME_EXT).map(([m, e]) => [e, m])));
 const Mint = z.object({ mime: z.string(), bytes: z.number().int().positive(), sha256: z.string().regex(/^[0-9a-f]{64}$/, 'sha256 must be 64 lowercase hex chars') });
@@ -38,7 +39,9 @@ export async function mintUploadHandler(ctx: UploadsCtx, req: Request): Promise<
   const user = await ctx.auth();
   if (user instanceof Response) return user;
   if (!isSiteOrigin(req, ctx.siteUrl)) return json({ error: 'forbidden' }, 403);
-  const raw = await req.json().catch(() => null);
+  const text = await readTextCapped(req, MAX_MINT);
+  if (text === null) return json({ error: 'request too large' }, 413);
+  const raw: unknown = (() => { try { return JSON.parse(text); } catch { return null; } })();
   const mimeOnly = z.object({ mime: z.string(), bytes: z.number() }).safeParse(raw);
   // Type and size first so HEIC and 40 MB files get their specific messages.
   if (mimeOnly.success) {
@@ -49,7 +52,7 @@ export async function mintUploadHandler(ctx: UploadsCtx, req: Request): Promise<
   if (!body.success) return json({ error: 'invalid upload request', issues: z.flattenError(body.error).fieldErrors }, 400);
   const { mime, bytes, sha256 } = body.data;
   const ext = MIME_EXT[mime]!;
-  const key = ctx.r2 ? orgKey(user.orgId, sha256, ext) : `${sha256.slice(0, 2)}/${sha256}.${ext}`;
+  const key = ctx.r2 ? orgKey(user.orgId, sha256, ext) : devKey(sha256, ext);
   // Content-addressed and write-once: if it is already there, the browser skips the PUT.
   if (await ctx.store.head(key)) return json({ key, exists: true });
   if (ctx.r2) {
@@ -68,7 +71,7 @@ export async function localPutHandler(ctx: UploadsCtx, req: Request, keyParts: s
   if (!isSiteOrigin(req, ctx.siteUrl)) return json({ error: 'forbidden' }, 403);
   const key = keyParts.join('/');
   const k = parseKey(key);
-  if (!k || k.org !== null || key.slice(0, 2) !== k.sha.slice(0, 2)) return json({ error: 'invalid key' }, 400);
+  if (!k || k.org !== null || key !== devKey(k.sha, k.ext)) return json({ error: 'invalid key' }, 400);
   const mime = MIME_BY_EXT[k.ext];
   if (!mime || !PHOTO_TYPES.includes(mime)) return json({ error: `unsupported type .${k.ext}` }, 400);
   if (!ctx.store.put) throw new Error('local store cannot put');

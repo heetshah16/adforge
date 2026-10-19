@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MIME_EXT, orgKey, orgOfKey, parseKey } from '../src/providers/storage-key';
+import { MIME_EXT, devKey, orgKey, orgOfKey, parseKey } from '../src/providers/storage-key';
 import { storageOrg, withStorageOrg } from '../src/providers/storage-scope';
 import { StorageKey } from '../src/spec/video-spec';
 
@@ -12,6 +12,10 @@ describe('storage scope', () => {
     expect(orgKey(ORG_A, sha, 'png')).toBe(`org/${ORG_A}/ab/${sha}.png`);
     expect(orgOfKey(`org/${ORG_A}/ab/${sha}.png`)).toBe(ORG_A);
     expect(orgOfKey(`ab/${sha}.png`)).toBeNull();
+  });
+
+  it('devKey shards by the first two hex chars of the sha', () => {
+    expect(devKey(sha, 'png')).toBe(`ab/${sha}.png`);
   });
 
   it('orgKey and orgOfKey refuse anything that is not a storage key', () => {

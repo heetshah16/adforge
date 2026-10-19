@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { MediaRef } from '@adforge/core/providers/types';
-import { MIME_EXT, orgKey, parseKey } from '@adforge/core/providers/storage-key';
+import { MIME_EXT, devKey, orgKey, parseKey } from '@adforge/core/providers/storage-key';
 import { MAX_PHOTO, PHOTO_TYPES, parseJobRequest } from '@adforge/pipeline/job-input';
 import { saveAsset } from '@adforge/pipeline/record';
 import type { UserDb } from '@adforge/db/with-user';
@@ -49,7 +49,7 @@ export async function createJobHandler(ctx: JobsCtx, req: Request): Promise<Resp
     if (ctx.r2) {
       // A dev-shaped key (no org) is as foreign as another org's; the shard must also match the sha.
       if (owner !== user.orgId || key !== orgKey(owner, sha, ext)) return json({ error: 'photo key belongs to another account' }, 403);
-    } else if (owner !== null || key.slice(0, 2) !== sha.slice(0, 2)) return json({ error: `photo ${i + 1}: invalid key` }, 400);
+    } else if (owner !== null || key !== devKey(sha, ext)) return json({ error: `photo ${i + 1}: invalid key` }, 400);
     const head = await ctx.storage.head(key);
     if (!head) return json({ error: `photo ${i + 1} was not uploaded` }, 400);
     if (!PHOTO_TYPES.includes(head.mime) || MIME_EXT[head.mime] !== ext) return json({ error: `photo ${i + 1}: unsupported type (png, jpeg, webp only)` }, 400);

@@ -16,7 +16,7 @@ const ServerEnv = z
     .default('')
     .transform((s) => s.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)),
   // Dev media on local disk; prod media on R2 (ADFORGE_PROVIDER_STORAGE=r2, same as the worker).
-  ADFORGE_DATA_DIR: z.string().min(1),
+  ADFORGE_DATA_DIR: z.string().min(1).optional(), // required for the local profile only
   ADFORGE_PUBLIC_URL: z.url(),
   ADFORGE_PROVIDER_STORAGE: z.enum(['local', 'r2']).default('local'),
   R2_ACCOUNT_ID: z.string().min(1).optional(),
@@ -39,13 +39,19 @@ const ServerEnv = z
       ctx.addIssue({ code: 'custom', path: ['ADFORGE_PROVIDER_STORAGE'], message: 'must be r2 when ADFORGE_ENV=prod' });
       return z.NEVER;
     }
+    if (e.ADFORGE_PROVIDER_STORAGE === 'local' && !e.ADFORGE_DATA_DIR) {
+      ctx.addIssue({ code: 'custom', path: ['ADFORGE_DATA_DIR'], message: 'required when ADFORGE_PROVIDER_STORAGE=local' });
+      return z.NEVER;
+    }
     if (e.ADFORGE_PROVIDER_STORAGE === 'r2') {
       for (const k of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'] as const) {
         if (!e[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when ADFORGE_PROVIDER_STORAGE=r2` });
       }
+      if (e.R2_ACCOUNT_ID && !/^[0-9a-f]{32}$/.test(e.R2_ACCOUNT_ID)) ctx.addIssue({ code: 'custom', path: ['R2_ACCOUNT_ID'], message: 'must be 32 lowercase hex chars' });
+      if (e.R2_BUCKET && !/^[a-z0-9-]{3,63}$/.test(e.R2_BUCKET)) ctx.addIssue({ code: 'custom', path: ['R2_BUCKET'], message: 'must be 3-63 chars of a-z, 0-9, -' });
       if (!e.R2_ACCOUNT_ID || !e.R2_ACCESS_KEY_ID || !e.R2_SECRET_ACCESS_KEY || !e.R2_BUCKET) return z.NEVER;
     }
-    return { ...e, ADFORGE_ENV, ADFORGE_SITE_URL: e.ADFORGE_SITE_URL ?? 'http://localhost:3000' };
+    return { ...e, ADFORGE_DATA_DIR: e.ADFORGE_DATA_DIR ?? '.adforge-data', ADFORGE_ENV, ADFORGE_SITE_URL: e.ADFORGE_SITE_URL ?? 'http://localhost:3000' };
   });
 export type ServerEnv = z.infer<typeof ServerEnv>;
 

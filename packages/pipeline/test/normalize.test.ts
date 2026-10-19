@@ -3,7 +3,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { withStorageOrg } from '@adforge/core/providers/storage-scope';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
 import { normalizeImage, normalizeStored } from '../src/normalize';
 
@@ -69,6 +70,16 @@ describe('normalizeStored', () => {
     expect(ref.sha256).not.toBe(src.sha256);
     expect(ref.sha256).toBe(createHash('sha256').update(await s.read(ref.id)).digest('hex'));
     expect([ref.width, ref.height]).toEqual([40, 20]);
+  });
+  it('a key under another org is rejected before it is read', async () => {
+    const ORG_A = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const ORG_B = '0a1b2c3d-0000-4000-8000-00000000000b';
+    const sha = 'ab' + 'c'.repeat(62);
+    const read = vi.fn();
+    await withStorageOrg(ORG_A, async () => {
+      await expect(normalizeStored({ read } as never, `org/${ORG_B}/ab/${sha}.png`, 2)).rejects.toThrow('photo 2 belongs to another account');
+    });
+    expect(read).not.toHaveBeenCalled();
   });
   it('over 10 MB is rejected before hashing or decoding', async () => {
     const s = store();
