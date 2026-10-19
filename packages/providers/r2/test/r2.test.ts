@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { withStorageOrg } from '@adforge/core/providers/storage-scope';
 import { ProviderError, isRetryable } from '@adforge/core/providers/types';
@@ -84,9 +84,10 @@ describe('R2Storage', () => {
     expect(u.origin).toBe(`https://${CFG.accountId}.r2.cloudflarestorage.com`);
     expect(u.pathname).toBe(`/adforge-test/${KEY_A}`);
     expect(u.searchParams.get('X-Amz-Expires')).toBe('600');
-    expect(u.searchParams.get('X-Amz-SignedHeaders')).toBe('content-type;host');
+    expect(u.searchParams.get('X-Amz-SignedHeaders')).toBe('content-length;content-type;host;if-none-match;x-amz-checksum-sha256');
     expect(u.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
-    expect(headers).toEqual({ 'content-type': 'image/png' });
+    // content-length is signed but not returned: browsers set it themselves (forbidden header).
+    expect(headers).toEqual({ 'content-type': 'image/png', 'x-amz-checksum-sha256': Buffer.from(SHA, 'hex').toString('base64'), 'if-none-match': '*' });
   });
 
   it('presignGet carries X-Amz-Expires and rejects a ttl over 7 days', async () => {
@@ -199,7 +200,7 @@ describe('R2Storage', () => {
   });
 });
 
-describe.skipIf(!existsSync(here('./fixtures/head.live.json')))('live fixture', () => {
+describe('live fixture', () => {
   it('the recorded HEAD parses through the same mapping', () => {
     const f = JSON.parse(readFileSync(here('./fixtures/head.live.json'), 'utf8')) as { status: number; headers: Record<string, string> };
     const h = headFromResponse(f.status, new Headers(f.headers));

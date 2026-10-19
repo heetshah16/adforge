@@ -44,7 +44,8 @@ export async function createJob(form: FormData, fetchImpl: typeof fetch = fetch)
         throw e;
       });
       if (!put) return { ok: false, error: `photo ${i + 1}: upload timed out` };
-      if (!put.ok) return { ok: false, error: `photo ${i + 1}: upload failed (HTTP ${put.status})` };
+      // 412: the signed if-none-match found the object already stored (content-addressed), so the upload is done.
+      if (!put.ok && put.status !== 412) return { ok: false, error: `photo ${i + 1}: upload failed (HTTP ${put.status})` };
     }
     photoKeys.push(m.key);
   }

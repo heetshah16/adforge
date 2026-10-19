@@ -122,19 +122,20 @@ export class R2Storage implements StorageProvider {
   }
 
   /**
-   * URL + headers for a browser PUT. content-type is signed. `bytes` is validated but NOT signed:
-   * docs/providers/r2.md records that R2's Content-Length enforcement on presigned PUT is undocumented.
+   * URL + headers for a browser PUT. Signed: content-type, content-length (= bytes), x-amz-checksum-sha256 (base64 of the
+   * key's sha, so a wrong body is a 400 BadDigest) and if-none-match: * (a repeat PUT is a 412). Measured in docs/providers/r2.md.
+   * content-length is not returned: browsers set it themselves.
    */
   async presignPut(key: string, o: { mime: string; bytes: number; ttlSec: number }): Promise<{ url: string; headers: Record<string, string> }> {
     const v = PresignPutOpts.parse(o);
     const url = this.endpoint(key);
     url.searchParams.set('X-Amz-Expires', String(v.ttlSec));
-    const headers = { 'content-type': v.mime };
-    const signed = await this.sign(url, 'PUT', headers, undefined, true);
+    const sha = /\/([0-9a-f]{64})\.[a-z0-9]+$/.exec(key)![1]!;
+    const headers = { 'content-type': v.mime, 'x-amz-checksum-sha256': Buffer.from(sha, 'hex').toString('base64'), 'if-none-match': '*' };
+    const signed = await this.sign(url, 'PUT', { ...headers, 'content-length': String(v.bytes) }, undefined, true);
     return { url: signed.url, headers };
   }
 
-  /** `download` adds a signed response-content-disposition so the browser saves the file instead of playing it. */
   async presignGet(key: string, ttlSec: number, opts?: { download?: boolean }): Promise<string> {
     const url = this.endpoint(key);
     url.searchParams.set('X-Amz-Expires', String(Ttl.parse(ttlSec)));

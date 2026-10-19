@@ -131,4 +131,19 @@ describe('api.ts client', () => {
     expect(jobBody).toMatchObject({ name: 'S', language: 'en', broll: true });
     expect(jobBody.photoKeys).toHaveLength(3);
   });
+  it('a 412 on the storage PUT means already uploaded: the job still posts; other failures stop', async () => {
+    const mk = (putStatus: number) => {
+      const f = new FormData();
+      for (const [key, v] of Object.entries({ name: 'S', price: '1', description: 'd', language: 'en' })) f.append(key, v);
+      f.append('photos', new File([new Uint8Array([137, 80, 78, 71, 9])], 'p.png', { type: 'image/png' }));
+      const fetchImpl = (async (url: string, init?: RequestInit) => {
+        if (url === '/api/uploads') return json({ key: `ab/${JSON.parse(String(init!.body)).sha256}.png`, url: 'https://r2.test/put', headers: {}, exists: false });
+        if (url === '/api/jobs') return json({ jobId: 'j1' }, 202);
+        return new Response(null, { status: putStatus });
+      }) as typeof fetch;
+      return createJob(f, fetchImpl);
+    };
+    expect(await mk(412)).toEqual({ ok: true, jobId: 'j1' });
+    expect(await mk(403)).toEqual({ ok: false, error: 'photo 1: upload failed (HTTP 403)' });
+  });
 });
