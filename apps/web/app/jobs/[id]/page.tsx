@@ -1,8 +1,15 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMediaUrl } from '@/lib/use-media-url';
 import { approveVariant, getJob, type JobView } from '@/lib/api';
 import { briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, stageRows, variantCards } from '@/lib/view';
+
+function VariantVideo({ src, label }: { src: string; label: string }) {
+  const m = useMediaUrl(src);
+  if (m.failed) return <p className="errors">Video unavailable. Reload the page to try again.</p>;
+  return <video ref={m.ref} src={m.src} onError={m.onError} controls playsInline preload="metadata" aria-label={label} />;
+}
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -83,7 +90,7 @@ export default function JobPage() {
             <article key={c.variantNo} className="card" data-status={c.status}>
               <h3>V{c.variantNo}: {c.title}</h3>
               <p className="muted">{c.families}</p>
-              {c.videoUrl ? <video src={c.videoUrl} controls playsInline preload="metadata" aria-label={`Variant ${c.variantNo} video`} /> : <p className="errors">{c.failureReason ?? c.placeholder ?? 'Rendering…'}</p>}
+              {c.videoUrl ? <VariantVideo src={c.videoUrl} label={`Variant ${c.variantNo} video`} /> : <p className="errors">{c.failureReason ?? c.placeholder ?? 'Rendering…'}</p>}
               <p><strong>Bet:</strong> {c.bet}</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" disabled={!c.canApprove} onClick={() => approve(c.variantNo)}>{c.status === 'approved' ? 'Approved' : 'Approve'}</button>

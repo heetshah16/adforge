@@ -4,7 +4,7 @@ import { routeAccess } from './lib/route-access';
 import { serverEnv } from './lib/server/env';
 
 // Session refresh + deny-by-default gate: every path not listed public in lib/route-access.ts redirects to /signin without claims.
-// /api/* is refreshed but never redirected; the API route handlers (Task 5) must authenticate themselves.
+// /api/* and /media/* are refreshed but never redirected; their route handlers must authenticate themselves.
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {

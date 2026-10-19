@@ -14,3 +14,7 @@ describe('proxy matcher', () => {
   it.each(['/', '/jobs/x', '/signin', '/api/jobs', '/favicon.ico/x', '/faviconXico', '/favicon.icox'])('%s runs the proxy', (p) => expect(re.test(p)).toBe(true));
   it.each(['/favicon.ico', '/_next/static/a.js', '/auth/confirm'])('%s skips the proxy', (p) => expect(re.test(p)).toBe(false));
 });
+
+describe('/media', () => {
+  it.each(['/media/org/x/ab/y.mp4', '/media/ab/y.png'])('%s self-authenticates like /api (never anonymous: the handler 401s)', (p) => expect(routeAccess(p)).toBe('api'));
+});
