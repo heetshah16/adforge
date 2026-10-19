@@ -1,4 +1,4 @@
-import type { Layer, Scene, VideoSpec } from '@adforge/core/spec/video-spec';
+import type { Box, Scene, VideoSpec } from '@adforge/core/spec/video-spec';
 import { motionTween } from './motion';
 
 export const COMPOSITION_ID = 'adforge';
@@ -37,83 +37,123 @@ body { margin: 0; background: ${spec.theme.primary}; }
 #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: ${spec.theme.primary};
   font-family: 'Inter', 'Noto Sans Devanagari', sans-serif; }
 .clip { position: absolute; inset: 0; }
-video.clip { width: 100%; height: 100%; object-fit: cover; }
+video.clip { object-fit: cover; }
 .stage { position: absolute; inset: 0; transform-origin: 50% 60%; }
-.plate { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.cutout { position: absolute; translate: -50% -100%; width: auto; }
-.cutout.shadow { filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.45)); }
-.overlay { position: absolute; left: 6%; right: 6%; text-align: center; color: #fff; line-height: 1.1; overflow-wrap: anywhere; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
+.plate { position: absolute; object-fit: cover; }
+.product { position: absolute; translate: -50% -100%; width: auto; }
+.product.shadow { filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.45)); }
+.logo { position: absolute; object-fit: contain; }
+.overlay { position: absolute; box-sizing: border-box; text-align: center; color: #fff; line-height: 1.1; overflow-wrap: anywhere; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 .overlay.scrim { background: rgba(0, 0, 0, 0.45); padding: 0.4em 0.6em; border-radius: 0.3em; }
 .w-regular { font-weight: 600; font-size: 64px; }
 .w-bold { font-weight: 800; font-size: 72px; }
 .w-chunky { font-weight: 900; font-size: 84px; }
-.pos-top_third { top: 14%; }
-.pos-mid_lower { top: 58%; }
-.pos-bottom_center { top: 74%; }
 .cap { display: flex; justify-content: center; align-items: flex-start; }
 .cap > span { margin-top: 0; font-weight: 800; font-size: 76px; color: #fff; background: #000; padding: 0.1em 0.35em; border-radius: 0.2em; max-width: 92%; overflow-wrap: anywhere; }
+.cap.cw-regular > span { font-weight: 600; font-size: 68px; }
+.cap.cw-chunky > span { font-weight: 900; font-size: 84px; }
+.cap.pos-top_third { top: 14%; }
 .cap.pos-top_third > span { margin-top: 14%; }
 .cap.pos-mid_lower { top: 58%; }
 .cap.pos-bottom_center { top: 80%; }`;
 }
 
-function sceneLayers(scene: Scene, i: number): string {
-  const parts: string[] = [];
-  const stage: string[] = [];
-  for (const layer of scene.layers) {
-    switch (layer.type) {
+const pct = (n: number) => `${(n * 100).toFixed(3)}%`;
+const boxCss = (b: Box) => `left: ${pct(b.x)}; top: ${pct(b.y)}; width: ${pct(b.w)}; height: ${pct(b.h)};`;
+
+/**
+ * One scene's elements in z order, each timed from its own revealFrame to the scene end. Plates and
+ * the product share the scene's motion: each run of them in z order sits in a `.stage` the motion
+ * tween drives. Broll is emitted at the root by composeHtml (a timed <video> may not sit in a timed wrapper).
+ */
+function sceneElements(scene: Scene, fps: number, url: (key: string) => string): string {
+  const end = scene.startFrame + scene.durationInFrames;
+  const out: string[] = [];
+  let stage: string[] | undefined;
+  const flush = () => {
+    if (stage) out.push(`<div class="stage">${stage.join('')}</div>`);
+    stage = undefined;
+  };
+  for (const l of [...scene.layers].sort((a, b) => a.z - b.z)) {
+    const t = span(l.revealFrame, end - l.revealFrame, fps);
+    const attrs = `data-layer-id="${esc(l.layerId)}" data-start="${t.start}" data-duration="${t.duration}"`;
+    switch (l.type) {
+      case 'broll':
+        break;
       case 'plate':
-        stage.push(`<img class="plate" src="${assetPath(layer.key)}" alt="">`);
+        (stage ??= []).push(`<img class="plate" src="${esc(url(l.key))}" alt="" ${attrs} style="${boxCss(l.box)}">`);
         break;
-      case 'cutout':
-        stage.push(
-          `<img class="cutout${layer.shadow ? ' shadow' : ''}" src="${assetPath(layer.key)}" alt="" ` +
-            `style="left: ${(layer.anchorX * 100).toFixed(3)}%; top: ${(layer.anchorY * 100).toFixed(3)}%; height: ${(layer.heightFrac * 100).toFixed(3)}%;">`,
+      case 'product': {
+        // Bottom-centre anchored, height h, natural width: the v1 cutout CSS exactly.
+        const b = l.box;
+        (stage ??= []).push(
+          `<img class="product${l.shadow ? ' shadow' : ''}" src="${esc(url(l.key))}" alt="" ${attrs} ` +
+            `style="left: ${pct(b.x + b.w / 2)}; top: ${pct(b.y + b.h)}; height: ${pct(b.h)};">`,
         );
         break;
-      case 'text':
-        parts.push(
-          `<div class="overlay pos-${layer.position} w-${layer.weight}${layer.scrim ? ' scrim' : ''}">${esc(layer.content)}</div>`,
-        );
+      }
+      case 'logo':
+        flush();
+        out.push(`<img class="logo" src="${esc(url(l.key))}" alt="" ${attrs} style="${boxCss(l.box)}">`);
         break;
-      case 'video':
-        break; // emitted at the root (a <video data-start> may not sit inside a timed wrapper)
+      default:
+        // Text: positioned and sized in width by its box; its height is the content's (h is the edit slot), as in v1.
+        // ponytail: every text element type renders as the overlay; per-type looks (chip, cta_button…) land with C4 visuals.
+        flush();
+        out.push(
+          `<div class="overlay el-${l.type} w-${l.style.weight}${l.style.scrim ? ' scrim' : ''}" ${attrs} ` +
+            `style="left: ${pct(l.box.x)}; top: ${pct(l.box.y)}; width: ${pct(l.box.w)};">${esc(l.content)}</div>`,
+        );
     }
   }
-  const stageHtml = stage.length ? `<div id="s${i}-stage" class="stage">${stage.join('')}</div>` : '';
-  return stageHtml + parts.join('');
+  flush();
+  return out.join('');
 }
 
-const videoOf = (scene: Scene) => scene.layers.find((l): l is Extract<Layer, { type: 'video' }> => l.type === 'video');
+export interface ComposeOptions {
+  /** Storage key → the src the composition loads. Default: the staged project path (assetPath). The preview passes a media URL. */
+  assetUrl?: (key: string) => string;
+}
 
-export function composeHtml(spec: VideoSpec): string {
+const dbVolume = (gainDb: number) => (10 ** (gainDb / 20)).toFixed(4);
+
+export function composeHtml(spec: VideoSpec, opts: ComposeOptions = {}): string {
   const { fps } = spec;
+  const url = opts.assetUrl ?? assetPath;
   const body: string[] = [];
   const tweens: string[] = [];
 
   spec.scenes.forEach((scene, i) => {
+    const end = scene.startFrame + scene.durationInFrames;
     const t = span(scene.startFrame, scene.durationInFrames, fps);
-    const video = videoOf(scene);
-    if (video) {
+    const broll = scene.layers.find((l) => l.type === 'broll');
+    if (broll) {
+      const b = span(broll.revealFrame, end - broll.revealFrame, fps);
       body.push(
-        `<video id="s${i}-video" class="clip" src="${assetPath(video.key)}" muted playsinline data-start="${t.start}" data-duration="${t.duration}" data-media-start="${secs(video.trimStartFrame, fps)}"></video>`,
+        `<video id="s${i}-video" class="clip" src="${esc(url(broll.key))}" muted playsinline data-layer-id="${esc(broll.layerId)}" data-start="${b.start}" data-duration="${b.duration}" data-media-start="${secs(broll.trimStartFrame, fps)}" style="${boxCss(broll.box)}"></video>`,
       );
     }
-    body.push(`<section id="s${i}" class="clip" data-start="${t.start}" data-duration="${t.duration}">${sceneLayers(scene, i)}</section>`);
-    if (scene.layers.some((l) => l.type === 'plate' || l.type === 'cutout')) {
-      tweens.push(motionTween(`#s${i}-stage`, scene.motion, t.start, t.duration));
+    body.push(`<section id="s${i}" class="clip" data-start="${t.start}" data-duration="${t.duration}">${sceneElements(scene, fps, url)}</section>`);
+    if (scene.layers.some((l) => l.type === 'plate' || l.type === 'product')) {
+      tweens.push(motionTween(`#s${i} > .stage`, scene.motion, t.start, t.duration));
     }
   });
 
   spec.audio.voice.forEach((v, i) => {
     const t = span(v.startFrame, v.durationInFrames, fps);
-    body.push(`<audio id="vo${i}" src="${assetPath(v.key)}" data-start="${t.start}" data-duration="${t.duration}" data-volume="1"></audio>`);
+    body.push(`<audio id="vo${i}" src="${esc(url(v.key))}" data-start="${t.start}" data-duration="${t.duration}" data-volume="1"></audio>`);
   });
+  for (const kind of ['music', 'sfx'] as const) {
+    spec.audio[kind].forEach((a, i) => {
+      const t = span(a.startFrame, a.durationInFrames, fps);
+      body.push(`<audio id="${kind}${i}" src="${esc(url(a.key))}" data-start="${t.start}" data-duration="${t.duration}" data-volume="${dbVolume(a.gainDb)}"></audio>`);
+    });
+  }
 
   spec.captions.words.forEach((w, i) => {
     const t = span(w.startFrame, w.endFrame - w.startFrame, fps);
     body.push(
-      `<div id="w${i}" class="clip cap pos-${spec.captions.position}" data-start="${t.start}" data-duration="${t.duration}"><span>${esc(w.text)}</span></div>`,
+      `<div id="w${i}" class="clip cap pos-${spec.captions.position} cw-${spec.captions.style.weight}" data-start="${t.start}" data-duration="${t.duration}"><span>${esc(w.text)}</span></div>`,
     );
   });
 

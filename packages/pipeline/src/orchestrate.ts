@@ -5,7 +5,7 @@ import type { DirectorVariant, StrategistOutput } from '@adforge/core/llm/schema
 import { StorageKey } from '@adforge/core/spec/video-spec';
 import { analyzePlate } from '@adforge/core/understand/analyze';
 import { buildSpec } from '@adforge/core/spec/build-spec';
-import type { VideoSpec } from '@adforge/core/spec/video-spec';
+import { readSpec } from '@adforge/core/spec/upgrade-spec';
 import { shortlist, type Shortlist } from '@adforge/core/vocab/shortlist';
 import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, providerCalls, variants } from '@adforge/db/schema';
@@ -237,7 +237,8 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
     });
     if ('error' in built) { await failVariant(n, `spec failed: ${built.error}`); continue; }
     await step.run(`mark:render:${n}`, () => markProgress(db, jobId, 'render', 'running', `variant ${n}`).then(() => true));
-    const out = await step.heavy('render', `heavy:render:${n}`, { jobId, variantNo: n, spec: built.spec as VideoSpec });
+    // readSpec: a `spec:n` step memoized before C2 replays a v1 spec; the renderer takes v2 only.
+    const out = await step.heavy('render', `heavy:render:${n}`, { jobId, variantNo: n, spec: readSpec(built.spec) });
     if ('error' in out) { await failVariant(n, `render failed: ${out.error}`); continue; }
     await step.run(`variant-done:${n}`, async () => {
       await db.update(variants).set({ status: 'completed', renderAssetId: out.assetId }).where(oneVariant(n));

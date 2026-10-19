@@ -15,21 +15,22 @@ body { margin: 0; background: #101010; }
 #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #101010;
   font-family: 'Inter', 'Noto Sans Devanagari', sans-serif; }
 .clip { position: absolute; inset: 0; }
-video.clip { width: 100%; height: 100%; object-fit: cover; }
+video.clip { object-fit: cover; }
 .stage { position: absolute; inset: 0; transform-origin: 50% 60%; }
-.plate { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.cutout { position: absolute; translate: -50% -100%; width: auto; }
-.cutout.shadow { filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.45)); }
-.overlay { position: absolute; left: 6%; right: 6%; text-align: center; color: #fff; line-height: 1.1; overflow-wrap: anywhere; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
+.plate { position: absolute; object-fit: cover; }
+.product { position: absolute; translate: -50% -100%; width: auto; }
+.product.shadow { filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.45)); }
+.logo { position: absolute; object-fit: contain; }
+.overlay { position: absolute; box-sizing: border-box; text-align: center; color: #fff; line-height: 1.1; overflow-wrap: anywhere; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 .overlay.scrim { background: rgba(0, 0, 0, 0.45); padding: 0.4em 0.6em; border-radius: 0.3em; }
 .w-regular { font-weight: 600; font-size: 64px; }
 .w-bold { font-weight: 800; font-size: 72px; }
 .w-chunky { font-weight: 900; font-size: 84px; }
-.pos-top_third { top: 14%; }
-.pos-mid_lower { top: 58%; }
-.pos-bottom_center { top: 74%; }
 .cap { display: flex; justify-content: center; align-items: flex-start; }
 .cap > span { margin-top: 0; font-weight: 800; font-size: 76px; color: #fff; background: #000; padding: 0.1em 0.35em; border-radius: 0.2em; max-width: 92%; overflow-wrap: anywhere; }
+.cap.cw-regular > span { font-weight: 600; font-size: 68px; }
+.cap.cw-chunky > span { font-weight: 900; font-size: 84px; }
+.cap.pos-top_third { top: 14%; }
 .cap.pos-top_third > span { margin-top: 14%; }
 .cap.pos-mid_lower { top: 58%; }
 .cap.pos-bottom_center { top: 80%; }
@@ -37,19 +38,19 @@ video.clip { width: 100%; height: 100%; object-fit: cover; }
 </head>
 <body>
 <div id="root" data-composition-id="adforge" data-start="0" data-width="1080" data-height="1920" data-duration="3.000000">
-<section id="s0" class="clip" data-start="0.000000" data-duration="1.333333"><div id="s0-stage" class="stage"><img class="plate" src="assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png" alt=""><img class="cutout shadow" src="assets/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png" alt="" style="left: 50.000%; top: 86.000%; height: 42.000%;"></div><div class="overlay pos-top_third w-bold scrim">No hexane. Ever.</div></section>
-<video id="s1-video" class="clip" src="assets/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.mp4" muted playsinline data-start="1.333333" data-duration="0.666667" data-media-start="0.200000"></video>
+<section id="s0" class="clip" data-start="0.000000" data-duration="1.333333"><div class="stage"><img class="plate" src="assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png" alt="" data-layer-id="s0.plate" data-start="0.000000" data-duration="1.333333" style="left: 0.000%; top: 0.000%; width: 100.000%; height: 100.000%;"><img class="product shadow" src="assets/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png" alt="" data-layer-id="s0.product" data-start="0.000000" data-duration="1.333333" style="left: 50.000%; top: 86.000%; height: 42.000%;"></div><div class="overlay el-headline w-bold scrim" data-layer-id="s0.headline" data-start="0.000000" data-duration="1.333333" style="left: 6.000%; top: 14.000%; width: 88.000%;">No hexane. Ever.</div></section>
+<video id="s1-video" class="clip" src="assets/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.mp4" muted playsinline data-layer-id="s1.broll" data-start="1.333333" data-duration="0.666667" data-media-start="0.200000" style="left: 0.000%; top: 0.000%; width: 100.000%; height: 100.000%;"></video>
 <section id="s1" class="clip" data-start="1.333333" data-duration="0.666667"></section>
-<section id="s2" class="clip" data-start="2.000000" data-duration="1.000000"><div id="s2-stage" class="stage"><img class="plate" src="assets/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.png" alt=""></div><div class="overlay pos-mid_lower w-chunky">Tom &amp; &quot;Jerry&quot; &lt;3</div></section>
+<section id="s2" class="clip" data-start="2.000000" data-duration="1.000000"><div class="stage"><img class="plate" src="assets/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.png" alt="" data-layer-id="s2.plate" data-start="2.000000" data-duration="1.000000" style="left: 0.000%; top: 0.000%; width: 100.000%; height: 100.000%;"></div><div class="overlay el-headline w-chunky" data-layer-id="s2.headline" data-start="2.000000" data-duration="1.000000" style="left: 6.000%; top: 58.000%; width: 88.000%;">Tom &amp; &quot;Jerry&quot; &lt;3</div></section>
 <audio id="vo0" src="assets/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.wav" data-start="0.000000" data-duration="2.833333" data-volume="1"></audio>
-<div id="w0" class="clip cap pos-bottom_center" data-start="0.000000" data-duration="0.400000"><span>असली</span></div>
-<div id="w1" class="clip cap pos-bottom_center" data-start="0.400000" data-duration="0.600000"><span>oil</span></div>
+<div id="w0" class="clip cap pos-bottom_center cw-bold" data-start="0.000000" data-duration="0.400000"><span>असली</span></div>
+<div id="w1" class="clip cap pos-bottom_center cw-bold" data-start="0.400000" data-duration="0.600000"><span>oil</span></div>
 </div>
 <script>
 const tl = gsap.timeline({ paused: true });
-tl.fromTo("#s0-stage", { scale: 1 }, { scale: 1.08, duration: 1.333333, ease: "none" }, 0.000000);
-tl.set("#s2-stage", { scale: 1.04 }, 2.000000);
-tl.fromTo("#s2-stage", { x: -4, y: 3 }, { x: 4, y: -3, duration: 0.25, ease: "sine.inOut", yoyo: true, repeat: 3 }, 2.000000);
+tl.fromTo("#s0 > .stage", { scale: 1 }, { scale: 1.08, duration: 1.333333, ease: "none" }, 0.000000);
+tl.set("#s2 > .stage", { scale: 1.04 }, 2.000000);
+tl.fromTo("#s2 > .stage", { x: -4, y: 3 }, { x: 4, y: -3, duration: 0.25, ease: "sine.inOut", yoyo: true, repeat: 3 }, 2.000000);
 window.__timelines["adforge"] = tl;
 </script>
 </body>

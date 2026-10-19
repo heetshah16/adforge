@@ -1,0 +1,303 @@
+{
+  "version": 2,
+  "id": "v1",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "durationInFrames": 516,
+  "theme": {
+    "primary": "#141414",
+    "accent": "#f5b301"
+  },
+  "scenes": [
+    {
+      "startFrame": 0,
+      "durationInFrames": 120,
+      "motion": "static",
+      "transitionIn": "cut",
+      "layers": [
+        {
+          "type": "broll",
+          "layerId": "s0.broll",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 0,
+          "key": "bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.mp4",
+          "trimStartFrame": 0
+        },
+        {
+          "type": "headline",
+          "layerId": "s0.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 1,
+          "revealFrame": 0,
+          "content": "How is your oil made?",
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
+        }
+      ]
+    },
+    {
+      "startFrame": 120,
+      "durationInFrames": 66,
+      "motion": "slow_pan",
+      "transitionIn": "cut",
+      "layers": [
+        {
+          "type": "plate",
+          "layerId": "s1.plate",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 120,
+          "key": "22/2222222222222222222222222222222222222222222222222222222222222222.png"
+        },
+        {
+          "type": "product",
+          "layerId": "s1.product",
+          "box": {
+            "x": 0.21999999999999997,
+            "y": 0.6000000000000001,
+            "w": 1,
+            "h": 0.3
+          },
+          "z": 1,
+          "revealFrame": 120,
+          "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
+          "shadow": true
+        },
+        {
+          "type": "headline",
+          "layerId": "s1.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 2,
+          "revealFrame": 120,
+          "content": "Solvent. Then bleached.",
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
+        }
+      ]
+    },
+    {
+      "startFrame": 186,
+      "durationInFrames": 180,
+      "motion": "slow_zoom_out",
+      "transitionIn": "cut",
+      "layers": [
+        {
+          "type": "plate",
+          "layerId": "s2.plate",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 186,
+          "key": "33/3333333333333333333333333333333333333333333333333333333333333333.png"
+        },
+        {
+          "type": "product",
+          "layerId": "s2.product",
+          "box": {
+            "x": 0,
+            "y": 0.37999999999999995,
+            "w": 1,
+            "h": 0.46
+          },
+          "z": 1,
+          "revealFrame": 186,
+          "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
+          "shadow": true
+        },
+        {
+          "type": "headline",
+          "layerId": "s2.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 2,
+          "revealFrame": 186,
+          "content": "Cold-pressed. Under 45°C.",
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
+        }
+      ]
+    },
+    {
+      "startFrame": 366,
+      "durationInFrames": 150,
+      "motion": "slow_zoom_in",
+      "transitionIn": "cut",
+      "layers": [
+        {
+          "type": "plate",
+          "layerId": "s3.plate",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 366,
+          "key": "44/4444444444444444444444444444444444444444444444444444444444444444.png"
+        },
+        {
+          "type": "product",
+          "layerId": "s3.product",
+          "box": {
+            "x": 0,
+            "y": 0.37999999999999995,
+            "w": 1,
+            "h": 0.46
+          },
+          "z": 1,
+          "revealFrame": 366,
+          "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
+          "shadow": true
+        },
+        {
+          "type": "headline",
+          "layerId": "s3.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 2,
+          "revealFrame": 366,
+          "content": "Try it tonight",
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
+        }
+      ]
+    }
+  ],
+  "audio": {
+    "voice": [
+      {
+        "key": "11/1111111111111111111111111111111111111111111111111111111111111111.wav",
+        "startFrame": 0,
+        "durationInFrames": 90
+      },
+      {
+        "key": "22/2222222222222222222222222222222222222222222222222222222222222222.wav",
+        "startFrame": 120,
+        "durationInFrames": 60
+      },
+      {
+        "key": "33/3333333333333333333333333333333333333333333333333333333333333333.wav",
+        "startFrame": 186,
+        "durationInFrames": 150
+      },
+      {
+        "key": "44/4444444444444444444444444444444444444444444444444444444444444444.wav",
+        "startFrame": 366,
+        "durationInFrames": 120
+      }
+    ],
+    "music": [],
+    "sfx": []
+  },
+  "captions": {
+    "position": "bottom_center",
+    "style": {
+      "weight": "bold"
+    },
+    "words": [
+      {
+        "text": "w1",
+        "startFrame": 3,
+        "endFrame": 15
+      },
+      {
+        "text": "w2",
+        "startFrame": 15,
+        "endFrame": 30
+      },
+      {
+        "text": "w3",
+        "startFrame": 30,
+        "endFrame": 48
+      },
+      {
+        "text": "w1",
+        "startFrame": 123,
+        "endFrame": 135
+      },
+      {
+        "text": "w2",
+        "startFrame": 135,
+        "endFrame": 150
+      },
+      {
+        "text": "w3",
+        "startFrame": 150,
+        "endFrame": 168
+      },
+      {
+        "text": "w1",
+        "startFrame": 189,
+        "endFrame": 201
+      },
+      {
+        "text": "w2",
+        "startFrame": 201,
+        "endFrame": 216
+      },
+      {
+        "text": "w3",
+        "startFrame": 216,
+        "endFrame": 234
+      },
+      {
+        "text": "w1",
+        "startFrame": 369,
+        "endFrame": 381
+      },
+      {
+        "text": "w2",
+        "startFrame": 381,
+        "endFrame": 396
+      },
+      {
+        "text": "w3",
+        "startFrame": 396,
+        "endFrame": 414
+      }
+    ]
+  }
+}

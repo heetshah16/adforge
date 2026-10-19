@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { REPO_ROOT, parseEnv } from '@adforge/core/config/env';
 import type { MediaRef, ProviderResult } from '@adforge/core/providers/types';
-import type { VideoSpec } from '@adforge/core/spec/video-spec';
+import { upgradeSpec } from '@adforge/core/spec/upgrade-spec';
 import { createComfyProviders } from '@adforge/provider-comfyui';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
 import { HyperframesRenderer } from './render';
@@ -72,7 +72,7 @@ const broll = done('broll', br);
 const voice = await storage.put(toneWav(19), { mime: 'audio/wav', durationSec: 19 });
 
 const words = 'Stop buying oil that was bleached twice . Cold pressed . Nothing added . Taste the difference'.split(' ');
-const spec: VideoSpec = {
+const spec = upgradeSpec({
   id: 'p3-e2e',
   width: 1080,
   height: 1920,
@@ -102,7 +102,7 @@ const spec: VideoSpec = {
     position: 'bottom_center',
     words: words.filter((w) => w !== '.').map((text, i) => ({ text, startFrame: i * 36, endFrame: i * 36 + 30 })),
   },
-};
+});
 
 const renderer = new HyperframesRenderer({ storage, workDir: join(env.ADFORGE_DATA_DIR, 'render-work') });
 const t0 = Date.now();

@@ -9,7 +9,7 @@ import sharp from 'sharp';
 import { REPO_ROOT, parseEnv } from '@adforge/core/config/env';
 import { withStorageOrg } from '@adforge/core/providers/storage-scope';
 import type { MediaRef } from '@adforge/core/providers/types';
-import type { VideoSpec } from '@adforge/core/spec/video-spec';
+import { upgradeSpec } from '@adforge/core/spec/upgrade-spec';
 import { openPostgres } from '@adforge/db/client';
 import { memberships, orgs, users } from '@adforge/db/schema';
 import { seedOperator } from '@adforge/db/seed/seed';
@@ -115,13 +115,13 @@ try {
   // 3. render 240x426, 5 frames, plate = the normalized photo
   const frames = 5;
   const voice = await withStorageOrg(operator.orgId, () => storage.put(silentWav(frames), { mime: 'audio/wav' }));
-  const spec: VideoSpec = {
+  const spec = upgradeSpec({
     id: 'e2e-r2', width: 240, height: 426, fps: 30, durationInFrames: frames,
     theme: { primary: '#000000', accent: '#ffffff' },
     scenes: [{ startFrame: 0, durationInFrames: frames, motion: 'slow_zoom_in', layers: [{ type: 'plate', key: plate.id }, { type: 'text', content: 'R2 ok', position: 'top_third', weight: 'bold', scrim: true }] }],
     audio: { voice: [{ key: voice.id, startFrame: 0, durationInFrames: frames }] },
     captions: { position: 'bottom_center', words: [{ text: 'ok', startFrame: 0, endFrame: frames }] },
-  };
+  });
   const renderer = new HyperframesRenderer({ storage, workDir: join(tmp, 'work') });
   const render = () => withStorageOrg(operator.orgId, () => renderer.render({ spec, idempotencyKey: 'e2e-r2' }));
   const r1 = await render();

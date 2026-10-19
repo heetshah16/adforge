@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { upgradeSpec } from '@adforge/core/spec/upgrade-spec';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import { assetPath, composeHtml, secs } from '../src/compose';
 import { motionTween } from '../src/motion';
@@ -6,7 +7,7 @@ import { motionTween } from '../src/motion';
 const K = (c: string, ext: string) => `${c}${c}/${c.repeat(64)}.${ext}`;
 
 export function sampleSpec(): VideoSpec {
-  return {
+  return upgradeSpec({
     id: 'sample',
     width: 1080,
     height: 1920,
@@ -43,7 +44,7 @@ export function sampleSpec(): VideoSpec {
         { text: 'oil', startFrame: 12, endFrame: 30 },
       ],
     },
-  };
+  });
 }
 
 describe('secs', () => {
@@ -107,14 +108,14 @@ describe('composeHtml', () => {
   });
 
   it('places video and audio at the root with ids, muted video, and no crossorigin', () => {
-    expect(html).toMatch(/<video id="s1-video" class="clip" src="assets\/c{64}\.mp4" muted playsinline data-start="1\.333333" data-duration="0\.666667" data-media-start="0\.200000"><\/video>/);
+    expect(html).toMatch(/<video id="s1-video" class="clip" src="assets\/c{64}\.mp4" muted playsinline data-layer-id="s1\.broll" data-start="1\.333333" data-duration="0\.666667" data-media-start="0\.200000" style="[^"]*"><\/video>/);
     expect(html).toMatch(/<audio id="vo0" src="assets\/e{64}\.wav" data-start="0\.000000" data-duration="2\.833333" data-volume="1"><\/audio>/);
     expect(html).not.toContain('crossorigin');
   });
 
-  it('keeps the cutout inside the motion stage of its plate, with shadow', () => {
-    expect(html).toMatch(/<div id="s0-stage" class="stage"><img class="plate" src="assets\/a{64}\.png"[^>]*><img class="cutout shadow" src="assets\/b{64}\.png"/);
-    expect(html).toContain('fromTo("#s0-stage"');
+  it('keeps the product inside the motion stage of its plate, with shadow', () => {
+    expect(html).toMatch(/<section id="s0"[^>]*><div class="stage"><img class="plate" src="assets\/a{64}\.png"[^>]*><img class="product shadow" src="assets\/b{64}\.png"/);
+    expect(html).toContain('fromTo("#s0 > .stage"');
   });
 
   it('escapes user text in overlays and captions', () => {
@@ -124,13 +125,56 @@ describe('composeHtml', () => {
   });
 
   it('times caption words as root clips', () => {
-    expect(html).toMatch(/<div id="w0" class="clip cap pos-bottom_center" data-start="0\.000000" data-duration="0\.400000"><span>असली<\/span><\/div>/);
+    expect(html).toMatch(/<div id="w0" class="clip cap pos-bottom_center cw-bold" data-start="0\.000000" data-duration="0\.400000"><span>असली<\/span><\/div>/);
   });
 
   it('maps storage keys to project-relative asset paths', () => {
     expect(assetPath(`ab/${'f'.repeat(64)}.png`)).toBe(`assets/${'f'.repeat(64)}.png`);
     // Prod keys carry the org prefix; the staged file is still the flat content-addressed name.
     expect(assetPath(`org/00000000-0000-4000-8000-000000000001/ab/${'f'.repeat(64)}.png`)).toBe(`assets/${'f'.repeat(64)}.png`);
+  });
+
+  it('renders boxes as v1 CSS: product bottom-centre anchored, headline left/top/width', () => {
+    // product box { x: 0, y: 0.44, w: 1, h: 0.42 } is the v1 cutout anchor (0.5, 0.86), height 0.42
+    expect(html).toMatch(/<img class="product shadow" [^>]*style="left: 50\.000%; top: 86\.000%; height: 42\.000%;">/);
+    expect(html).toMatch(/<div class="overlay el-headline w-bold scrim" [^>]*style="left: 6\.000%; top: 14\.000%; width: 88\.000%;">/);
+  });
+
+  it('shows each element from its own revealFrame to its scene end', () => {
+    const spec = sampleSpec();
+    spec.scenes[0]!.layers[2]!.revealFrame = 10; // scene 0 is [0, 40)
+    expect(composeHtml(spec)).toContain('data-layer-id="s0.headline" data-start="0.333333" data-duration="1.000000"');
+  });
+
+  it('stacks by z, splitting the motion stage around an element placed between plate and product', () => {
+    const spec = sampleSpec();
+    const [plate, product, headline] = spec.scenes[0]!.layers;
+    product!.z = 2;
+    headline!.z = 1;
+    const s0 = composeHtml(spec).match(/<section id="s0".*?<\/section>/)![0];
+    expect(s0.indexOf('class="plate"')).toBeLessThan(s0.indexOf('class="overlay'));
+    expect(s0.indexOf('class="overlay')).toBeLessThan(s0.indexOf('class="product'));
+    expect(s0.match(/<div class="stage">/g)).toHaveLength(2);
+    expect(plate!.z).toBe(0);
+  });
+
+  it('resolves asset srcs through assetUrl when given', () => {
+    const out = composeHtml(sampleSpec(), { assetUrl: (k) => `/media/${k}` });
+    expect(out).toContain(`src="/media/aa/${'a'.repeat(64)}.png"`);
+    expect(out).toContain(`src="/media/ee/${'e'.repeat(64)}.wav"`);
+    expect(out).not.toContain('src="assets/a');
+  });
+
+  it('mixes music and sfx tracks at their gain', () => {
+    const spec = sampleSpec();
+    spec.audio.music.push({ key: K('f', 'wav'), startFrame: 0, durationInFrames: 90, gainDb: -20 });
+    expect(composeHtml(spec)).toMatch(/<audio id="music0" src="assets\/f{64}\.wav" data-start="0\.000000" data-duration="3\.000000" data-volume="0\.1000"><\/audio>/);
+  });
+
+  it('styles captions by weight', () => {
+    const spec = sampleSpec();
+    spec.captions.style.weight = 'chunky';
+    expect(composeHtml(spec)).toContain('class="clip cap pos-bottom_center cw-chunky"');
   });
 
   it('matches the golden composition', async () => {

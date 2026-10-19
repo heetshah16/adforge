@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VideoSpec } from '../src/spec/video-spec';
+import { VideoSpecV1 } from '../src/spec/video-spec';
 
 const KEY_PNG = `ab/${'a'.repeat(64)}.png`;
 const KEY_CUT = `cd/${'c'.repeat(64)}.png`;
@@ -44,11 +44,11 @@ function valid() {
 }
 
 const issues = (v: unknown) => {
-  const r = VideoSpec.safeParse(v);
+  const r = VideoSpecV1.safeParse(v);
   return r.success ? [] : r.error.issues.map((i) => i.message);
 };
 
-describe('VideoSpec', () => {
+describe('VideoSpecV1 (frozen: stored pre-C2 rows; v2 rules live in upgrade-spec.test.ts)', () => {
   it('accepts a valid spec', () => {
     expect(issues(valid())).toEqual([]);
   });

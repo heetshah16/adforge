@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { VideoSpec } from '@adforge/core/spec/video-spec';
+import { upgradeSpec } from '@adforge/core/spec/upgrade-spec';
+import type { VideoSpecV1 } from '@adforge/core/spec/video-spec';
 import { HyperframesRenderer } from '../src/render';
 import { silentWav, solidPng, tmpStorage } from './helpers';
 
@@ -16,7 +17,7 @@ async function tiny(n = 5) {
   cleanup.push(root);
   const plate = await storage.put(solidPng(24, 42, [30, 90, 200]), { mime: 'image/png' });
   const voice = await storage.put(silentWav(n / 30), { mime: 'audio/wav' });
-  const spec: VideoSpec = {
+  const v1: VideoSpecV1 = {
     id: 'tiny',
     width: 240,
     height: 426,
@@ -37,7 +38,7 @@ async function tiny(n = 5) {
     audio: { voice: [{ key: voice.id, startFrame: 0, durationInFrames: n }] },
     captions: { position: 'bottom_center', words: [{ text: 'असली', startFrame: 0, endFrame: n }] },
   };
-  return { storage, spec, workDir: join(root, 'work') };
+  return { storage, spec: upgradeSpec(v1), workDir: join(root, 'work') };
 }
 
 const frames = (file: string) =>
@@ -79,7 +80,7 @@ describe('HyperframesRenderer (real Chrome + FFmpeg, no GPU)', () => {
   it('reports a missing asset key as a non-retryable INVALID_INPUT, never TIMEOUT, and leaves nothing behind', async () => {
     const { storage, spec, workDir } = await tiny();
     const missing = `99/${'9'.repeat(64)}.png`;
-    spec.scenes[0]!.layers[0] = { type: 'plate', key: missing };
+    (spec.scenes[0]!.layers[0] as { key: string }).key = missing;
     const before = chromeCount();
     const r = await new HyperframesRenderer({ storage, workDir, renderTimeoutMs: 60_000 }).render({ spec, idempotencyKey: 'missing' });
     expect(r.status === 'failed' && r.error.code).toBe('INVALID_INPUT');

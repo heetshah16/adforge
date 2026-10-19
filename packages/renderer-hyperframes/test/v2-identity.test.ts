@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { VideoSpec } from '@adforge/core/spec/video-spec';
+import { upgradeSpec } from '@adforge/core/spec/upgrade-spec';
+import type { VideoSpecV1 } from '@adforge/core/spec/video-spec';
 import { HyperframesRenderer } from '../src/render';
 import { silentWav, solidPng, tmpStorage } from './helpers';
 
@@ -26,7 +27,7 @@ function brollMp4(): Uint8Array {
   return readFileSync(out);
 }
 
-async function v1Specs(): Promise<Record<string, VideoSpec>> {
+async function v1Specs(): Promise<Record<string, VideoSpecV1>> {
   const plate = await storage.put(solidPng(24, 42, [30, 90, 200]), { mime: 'image/png' });
   const cutout = await storage.put(solidPng(12, 30, [220, 40, 40]), { mime: 'image/png' });
   const broll = await storage.put(brollMp4(), { mime: 'video/mp4' });
@@ -74,15 +75,16 @@ const frameHashes = (file: string): string[] =>
     .map((l) => l.split(',').at(-1)!.trim());
 
 describe('v2 identity (real Chrome + FFmpeg, 240x426, 5 frames)', () => {
-  it('renders the v1 test specs to the pinned per-frame hashes', async () => {
+  it('renders upgradeSpec(v1) frame-hash-identical to the v1 baseline', async () => {
     const renderer = new HyperframesRenderer({ storage, workDir: join(root, 'work'), quality: 'draft' });
     const hashes: Record<string, string[]> = {};
     for (const [name, spec] of Object.entries(await v1Specs())) {
-      const r = await renderer.render({ spec, idempotencyKey: name });
+      const r = await renderer.render({ spec: upgradeSpec(spec), idempotencyKey: name });
       if (r.status !== 'done') throw new Error(`${name}: ${r.status === 'failed' ? r.error.message : 'pending'}`);
       hashes[name] = frameHashes(storage.pathFor(r.value.id));
       expect(hashes[name]).toHaveLength(N);
     }
-    await expect(JSON.stringify(hashes, null, 2) + '\n').toMatchFileSnapshot('./golden/v1-frame-hashes.json');
+    // Read, not toMatchFileSnapshot: `vitest -u` must never be able to rewrite the baseline.
+    expect(hashes).toEqual(JSON.parse(readFileSync(new URL('./golden/v1-frame-hashes.json', import.meta.url), 'utf8')));
   }, 240_000);
 });

@@ -38,15 +38,15 @@ describe('buildSpec', () => {
 
   it('puts the real cutout on hero beats only, never on absent beats', () => {
     const spec = buildSpec({ id: 'v1', variant: variant(), beats: [beat(1, 3), beat(2, 4), beat(3, 5), beat(4, 4)] });
-    const hasCutout = spec.scenes.map((s) => s.layers.some((l) => l.type === 'cutout'));
-    expect(hasCutout).toEqual([false, false, true, true]);
+    const hasProduct = spec.scenes.map((s) => s.layers.some((l) => l.type === 'product'));
+    expect(hasProduct).toEqual([false, false, true, true]);
   });
 
   it('uses b-roll only on an absent beat it fully covers, else the plate', () => {
     const short = buildSpec({ id: 'v1', variant: variant(), beats: [beat(1, 3, { broll: { key: key('b', 'mp4'), durationSec: 3 } }), beat(2, 4), beat(3, 5), beat(4, 4)] });
     expect(short.scenes[0]!.layers[0]!.type).toBe('plate'); // 3s clip < 4s beat
     const long = buildSpec({ id: 'v1', variant: variant(), beats: [beat(1, 3, { broll: { key: key('b', 'mp4'), durationSec: 5.04 } }), beat(2, 4), beat(3, 5), beat(4, 4)] });
-    expect(long.scenes[0]!.layers[0]).toMatchObject({ type: 'video', trimStartFrame: 0 });
+    expect(long.scenes[0]!.layers[0]).toMatchObject({ type: 'broll', trimStartFrame: 0 });
   });
 
   it('never puts b-roll on a hero beat', () => {

@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "id": "v1",
   "width": 1080,
   "height": 1920,
@@ -13,17 +14,37 @@
       "startFrame": 0,
       "durationInFrames": 120,
       "motion": "slow_zoom_in",
+      "transitionIn": "cut",
       "layers": [
         {
           "type": "plate",
+          "layerId": "s0.plate",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 0,
           "key": "11/1111111111111111111111111111111111111111111111111111111111111111.png"
         },
         {
-          "type": "text",
+          "type": "headline",
+          "layerId": "s0.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 1,
+          "revealFrame": 0,
           "content": "How is your oil made?",
-          "position": "top_third",
-          "weight": "bold",
-          "scrim": true
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
         }
       ]
     },
@@ -31,17 +52,37 @@
       "startFrame": 120,
       "durationInFrames": 150,
       "motion": "slow_pan",
+      "transitionIn": "cut",
       "layers": [
         {
           "type": "plate",
+          "layerId": "s1.plate",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 120,
           "key": "22/2222222222222222222222222222222222222222222222222222222222222222.png"
         },
         {
-          "type": "text",
+          "type": "headline",
+          "layerId": "s1.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 1,
+          "revealFrame": 120,
           "content": "Solvent. Then bleached.",
-          "position": "top_third",
-          "weight": "bold",
-          "scrim": true
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
         }
       ]
     },
@@ -49,25 +90,51 @@
       "startFrame": 270,
       "durationInFrames": 180,
       "motion": "slow_zoom_out",
+      "transitionIn": "cut",
       "layers": [
         {
           "type": "plate",
+          "layerId": "s2.plate",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 270,
           "key": "33/3333333333333333333333333333333333333333333333333333333333333333.png"
         },
         {
-          "type": "cutout",
+          "type": "product",
+          "layerId": "s2.product",
+          "box": {
+            "x": 0,
+            "y": 0.37999999999999995,
+            "w": 1,
+            "h": 0.46
+          },
+          "z": 1,
+          "revealFrame": 270,
           "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
-          "anchorX": 0.5,
-          "anchorY": 0.84,
-          "heightFrac": 0.46,
           "shadow": true
         },
         {
-          "type": "text",
+          "type": "headline",
+          "layerId": "s2.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 2,
+          "revealFrame": 270,
           "content": "Cold-pressed. Under 45°C.",
-          "position": "top_third",
-          "weight": "bold",
-          "scrim": true
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
         }
       ]
     },
@@ -75,25 +142,51 @@
       "startFrame": 450,
       "durationInFrames": 150,
       "motion": "slow_zoom_in",
+      "transitionIn": "cut",
       "layers": [
         {
           "type": "plate",
+          "layerId": "s3.plate",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1,
+            "h": 1
+          },
+          "z": 0,
+          "revealFrame": 450,
           "key": "44/4444444444444444444444444444444444444444444444444444444444444444.png"
         },
         {
-          "type": "cutout",
+          "type": "product",
+          "layerId": "s3.product",
+          "box": {
+            "x": 0,
+            "y": 0.37999999999999995,
+            "w": 1,
+            "h": 0.46
+          },
+          "z": 1,
+          "revealFrame": 450,
           "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
-          "anchorX": 0.5,
-          "anchorY": 0.84,
-          "heightFrac": 0.46,
           "shadow": true
         },
         {
-          "type": "text",
+          "type": "headline",
+          "layerId": "s3.headline",
+          "box": {
+            "x": 0.06,
+            "y": 0.14,
+            "w": 0.88,
+            "h": 0.2
+          },
+          "z": 2,
+          "revealFrame": 450,
           "content": "Switch one bottle.",
-          "position": "top_third",
-          "weight": "bold",
-          "scrim": true
+          "style": {
+            "weight": "bold",
+            "scrim": true
+          }
         }
       ]
     }
@@ -120,10 +213,15 @@
         "startFrame": 450,
         "durationInFrames": 120
       }
-    ]
+    ],
+    "music": [],
+    "sfx": []
   },
   "captions": {
     "position": "bottom_center",
+    "style": {
+      "weight": "bold"
+    },
     "words": [
       {
         "text": "w1",

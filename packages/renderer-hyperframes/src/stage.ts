@@ -17,7 +17,7 @@ export class MissingAssetError extends Error {
 export function specKeys(spec: VideoSpec): string[] {
   const keys = new Set<string>();
   for (const scene of spec.scenes) for (const l of scene.layers) if ('key' in l) keys.add(l.key);
-  for (const v of spec.audio.voice) keys.add(v.key);
+  for (const a of [...spec.audio.voice, ...spec.audio.music, ...spec.audio.sfx]) keys.add(a.key);
   return [...keys];
 }
 

@@ -1,0 +1,199 @@
+{
+  "id": "v1",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "durationInFrames": 516,
+  "theme": {
+    "primary": "#141414",
+    "accent": "#f5b301"
+  },
+  "scenes": [
+    {
+      "startFrame": 0,
+      "durationInFrames": 120,
+      "motion": "static",
+      "layers": [
+        {
+          "type": "video",
+          "key": "bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.mp4",
+          "trimStartFrame": 0
+        },
+        {
+          "type": "text",
+          "content": "How is your oil made?",
+          "position": "top_third",
+          "weight": "bold",
+          "scrim": true
+        }
+      ]
+    },
+    {
+      "startFrame": 120,
+      "durationInFrames": 66,
+      "motion": "slow_pan",
+      "layers": [
+        {
+          "type": "plate",
+          "key": "22/2222222222222222222222222222222222222222222222222222222222222222.png"
+        },
+        {
+          "type": "cutout",
+          "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
+          "anchorX": 0.72,
+          "anchorY": 0.9,
+          "heightFrac": 0.3,
+          "shadow": true
+        },
+        {
+          "type": "text",
+          "content": "Solvent. Then bleached.",
+          "position": "top_third",
+          "weight": "bold",
+          "scrim": true
+        }
+      ]
+    },
+    {
+      "startFrame": 186,
+      "durationInFrames": 180,
+      "motion": "slow_zoom_out",
+      "layers": [
+        {
+          "type": "plate",
+          "key": "33/3333333333333333333333333333333333333333333333333333333333333333.png"
+        },
+        {
+          "type": "cutout",
+          "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
+          "anchorX": 0.5,
+          "anchorY": 0.84,
+          "heightFrac": 0.46,
+          "shadow": true
+        },
+        {
+          "type": "text",
+          "content": "Cold-pressed. Under 45°C.",
+          "position": "top_third",
+          "weight": "bold",
+          "scrim": true
+        }
+      ]
+    },
+    {
+      "startFrame": 366,
+      "durationInFrames": 150,
+      "motion": "slow_zoom_in",
+      "layers": [
+        {
+          "type": "plate",
+          "key": "44/4444444444444444444444444444444444444444444444444444444444444444.png"
+        },
+        {
+          "type": "cutout",
+          "key": "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png",
+          "anchorX": 0.5,
+          "anchorY": 0.84,
+          "heightFrac": 0.46,
+          "shadow": true
+        },
+        {
+          "type": "text",
+          "content": "Switch one bottle.",
+          "position": "top_third",
+          "weight": "bold",
+          "scrim": true
+        }
+      ]
+    }
+  ],
+  "audio": {
+    "voice": [
+      {
+        "key": "11/1111111111111111111111111111111111111111111111111111111111111111.wav",
+        "startFrame": 0,
+        "durationInFrames": 90
+      },
+      {
+        "key": "22/2222222222222222222222222222222222222222222222222222222222222222.wav",
+        "startFrame": 120,
+        "durationInFrames": 60
+      },
+      {
+        "key": "33/3333333333333333333333333333333333333333333333333333333333333333.wav",
+        "startFrame": 186,
+        "durationInFrames": 150
+      },
+      {
+        "key": "44/4444444444444444444444444444444444444444444444444444444444444444.wav",
+        "startFrame": 366,
+        "durationInFrames": 120
+      }
+    ]
+  },
+  "captions": {
+    "position": "bottom_center",
+    "words": [
+      {
+        "text": "w1",
+        "startFrame": 3,
+        "endFrame": 15
+      },
+      {
+        "text": "w2",
+        "startFrame": 15,
+        "endFrame": 30
+      },
+      {
+        "text": "w3",
+        "startFrame": 30,
+        "endFrame": 48
+      },
+      {
+        "text": "w1",
+        "startFrame": 123,
+        "endFrame": 135
+      },
+      {
+        "text": "w2",
+        "startFrame": 135,
+        "endFrame": 150
+      },
+      {
+        "text": "w3",
+        "startFrame": 150,
+        "endFrame": 168
+      },
+      {
+        "text": "w1",
+        "startFrame": 189,
+        "endFrame": 201
+      },
+      {
+        "text": "w2",
+        "startFrame": 201,
+        "endFrame": 216
+      },
+      {
+        "text": "w3",
+        "startFrame": 216,
+        "endFrame": 234
+      },
+      {
+        "text": "w1",
+        "startFrame": 369,
+        "endFrame": 381
+      },
+      {
+        "text": "w2",
+        "startFrame": 381,
+        "endFrame": 396
+      },
+      {
+        "text": "w3",
+        "startFrame": 396,
+        "endFrame": 414
+      }
+    ]
+  }
+}
