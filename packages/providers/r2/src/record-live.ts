@@ -7,12 +7,14 @@ import { withStorageOrg } from '@adforge/core/providers/storage-scope';
 
 process.loadEnvFile(new URL('../../../../.env', import.meta.url));
 const env = process.env;
+// Hardcoded: a stray env var must never point the recorder at prod.
+const BUCKET = 'adforge-dev';
 const r2 = new R2Storage(
   R2Config.parse({
     accountId: env.R2_ACCOUNT_ID,
     accessKeyId: env.R2_ACCESS_KEY_ID,
     secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    bucket: env.R2_BUCKET ?? 'adforge-dev',
+    bucket: BUCKET,
     publicUrl: 'http://localhost:3000',
   }),
 );
@@ -31,7 +33,16 @@ if (!signed.ok) throw new Error(`presigned GET -> HTTP ${signed.status}`);
 // Re-issue the HEAD raw to capture its status and non-secret headers (account-identifying headers are dropped).
 const KEEP = ['content-type', 'content-length', 'etag', 'last-modified', 'accept-ranges', 'server'];
 const aws = new AwsClient({ accessKeyId: env.R2_ACCESS_KEY_ID!, secretAccessKey: env.R2_SECRET_ACCESS_KEY!, service: 's3', region: 'auto', retries: 0 });
-const res = await aws.fetch(`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET ?? 'adforge-dev'}/${ref.id}`, { method: 'HEAD' });
+const res = await aws.fetch(`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${BUCKET}/${ref.id}`, { method: 'HEAD' });
 const headers = Object.fromEntries(KEEP.flatMap((h) => (res.headers.get(h) ? [[h, res.headers.get(h)!]] : [])));
 writeFileSync(new URL('../test/fixtures/head.live.json', import.meta.url), JSON.stringify({ status: res.status, headers }, null, 2) + '\n');
+
+// M4 probe: is a signed content-length enforced on a presigned PUT? (matching -> expect 2xx, mismatched -> expect 403)
+const probe = async (signedLen: number) => {
+  const u = new URL(`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${BUCKET}/${ref.id}`);
+  u.searchParams.set('X-Amz-Expires', '60');
+  const req = await aws.sign(u.toString(), { method: 'PUT', headers: { 'content-type': 'image/png', 'content-length': String(signedLen) }, aws: { signQuery: true, allHeaders: true } });
+  return (await fetch(req.url, { method: 'PUT', headers: { 'content-type': 'image/png' }, body: PNG })).status;
+};
+console.log(`content-length probe: matching=${await probe(PNG.byteLength)} mismatched=${await probe(PNG.byteLength + 1)}`);
 console.log(`recorded: key=${ref.id} head=${JSON.stringify(head)} presignedGet=${signed.status}`);

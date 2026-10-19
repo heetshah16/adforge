@@ -84,7 +84,7 @@ describe('R2Storage', () => {
     expect(u.origin).toBe(`https://${CFG.accountId}.r2.cloudflarestorage.com`);
     expect(u.pathname).toBe(`/adforge-test/${KEY_A}`);
     expect(u.searchParams.get('X-Amz-Expires')).toBe('600');
-    expect(u.searchParams.get('X-Amz-SignedHeaders')?.split(';')).toContain('content-type');
+    expect(u.searchParams.get('X-Amz-SignedHeaders')).toBe('content-type;host');
     expect(u.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
     expect(headers).toEqual({ 'content-type': 'image/png' });
   });
@@ -119,7 +119,53 @@ describe('R2Storage', () => {
     const e5 = await mk(503).head(KEY_A).catch((e) => e);
     expect([e5.code, isRetryable(e5.code)]).toEqual(['UPSTREAM', true]);
     const e4 = await mk(403).head(KEY_A).catch((e) => e);
-    expect([e4.code, isRetryable(e4.code)]).toEqual(['INVALID_INPUT', false]);
+    expect([e4.code, isRetryable(e4.code)]).toEqual(['AUTH', false]);
+    const e429 = await mk(429).head(KEY_A).catch((e) => e);
+    expect([e429.code, isRetryable(e429.code)]).toEqual(['RATE_LIMIT', true]);
+  });
+
+  it('error detail carries only the R2 <Code>, not the body; a PUT 404 (NoSuchBucket) is non-retryable', async () => {
+    const body = '<Error><Code>NoSuchBucket</Code><Message>secret-ish detail</Message></Error>';
+    const r2 = new R2Storage(CFG, (async (_u: unknown, init?: RequestInit) => new Response(init?.method === 'HEAD' ? null : body, { status: init?.method === 'HEAD' ? 404 : 404 })) as typeof fetch);
+    const e = await withStorageOrg(ORG_A, () => r2.put(BYTES, { mime: 'image/png' })).catch((x) => x);
+    expect(e.code).toBe('INVALID_INPUT');
+    expect(isRetryable(e.code)).toBe(false);
+    expect(e.message).toContain('NoSuchBucket');
+    expect(e.message).not.toContain('secret-ish');
+  });
+
+  it('headFromResponse throws on a missing or non-numeric content-length or a missing content-type', () => {
+    expect(() => headFromResponse(200, new Headers({ 'content-type': 'image/png' }))).toThrow(ProviderError);
+    expect(() => headFromResponse(200, new Headers({ 'content-type': 'image/png', 'content-length': 'abc' }))).toThrow(ProviderError);
+    expect(() => headFromResponse(200, new Headers({ 'content-length': '4' }))).toThrow(ProviderError);
+    expect(headFromResponse(200, new Headers({ 'content-type': 'image/png', 'content-length': '4' }))).toEqual({ bytes: 4, mime: 'image/png' });
+  });
+
+  it('PUT sends If-None-Match: * and the payload sha256', async () => {
+    const m = memR2();
+    await withStorageOrg(ORG_A, () => new R2Storage(CFG, m.fetchImpl).put(BYTES, { mime: 'image/png' }));
+    const put = m.calls.find((c) => c.method === 'PUT')!;
+    expect(put.headers.get('if-none-match')).toBe('*');
+    expect(put.headers.get('x-amz-content-sha256')).toBe(SHA);
+  });
+
+  it.each([412, 403, 409])('a racing writer (PUT -> %i) with the same size resolves to the ref; a size mismatch rethrows', async (status) => {
+    const race = (size: number) => {
+      const m = memR2();
+      const path = `/adforge-test/${KEY_A}`;
+      const f = (async (input: string | URL | Request, init?: RequestInit) => {
+        const req = new Request(input, init);
+        if (req.method === 'PUT') {
+          m.objects.set(path, { bytes: new Uint8Array(size), mime: 'image/png' });
+          return new Response('<Error><Code>PreconditionFailed</Code></Error>', { status });
+        }
+        return m.fetchImpl(req);
+      }) as typeof fetch;
+      return new R2Storage(CFG, f);
+    };
+    const ref = await withStorageOrg(ORG_A, () => race(4).put(BYTES, { mime: 'image/png' }));
+    expect(ref.id).toBe(KEY_A);
+    await expect(withStorageOrg(ORG_A, () => race(9).put(BYTES, { mime: 'image/png' }))).rejects.toBeInstanceOf(ProviderError);
   });
 
   it('head returns null on 404; read of a missing key throws', async () => {
