@@ -98,7 +98,7 @@ try {
     body: JSON.stringify({ mime: 'image/jpeg', bytes: photo.length, sha256: sha }),
   }));
   const mint = (await mintRes.json()) as { key: string; url?: string; headers?: Record<string, string>; exists: boolean };
-  check('mint ok, key is org-prefixed', mintRes.status === 200 && mint.key.startsWith(`${operator.orgId}/`), `status ${mintRes.status}`);
+  check('mint ok, key is org-prefixed', mintRes.status === 200 && mint.key.startsWith(`org/${operator.orgId}/`), `status ${mintRes.status}`);
   check('mint says the unique photo is new (exists:false)', mint.exists === false);
   if (mint.url) {
     const pre = await fetch(mint.url, { method: 'OPTIONS', headers: { origin: ORIGIN, 'access-control-request-method': 'PUT', 'access-control-request-headers': Object.keys(mint.headers ?? {}).join(',') } });
@@ -127,7 +127,7 @@ try {
   const r1 = await render();
   if (r1.status !== 'done') throw new Error(`render ${r1.status}${r1.status === 'failed' ? `: ${r1.error.message}` : ''}`);
   const mp4: MediaRef = r1.value;
-  check('render produced an org-prefixed mp4', mp4.id.startsWith(`${operator.orgId}/`) && mp4.mime === 'video/mp4', `${mp4.bytes} bytes`);
+  check('render produced an org-prefixed mp4', mp4.id.startsWith(`org/${operator.orgId}/`) && mp4.mime === 'video/mp4', `${mp4.bytes} bytes`);
 
   const refs: MediaRef[] = [plate, voice, mp4];
   check('every MediaRef.url is ADFORGE_PUBLIC_URL/media/<key>', refs.every((r) => r.url === `${env.ADFORGE_PUBLIC_URL}/media/${r.id}` && storage.urlFor(r.id) === r.url));

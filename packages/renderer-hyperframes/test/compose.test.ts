@@ -129,6 +129,8 @@ describe('composeHtml', () => {
 
   it('maps storage keys to project-relative asset paths', () => {
     expect(assetPath(`ab/${'f'.repeat(64)}.png`)).toBe(`assets/${'f'.repeat(64)}.png`);
+    // Prod keys carry the org prefix; the staged file is still the flat content-addressed name.
+    expect(assetPath(`org/00000000-0000-4000-8000-000000000001/ab/${'f'.repeat(64)}.png`)).toBe(`assets/${'f'.repeat(64)}.png`);
   });
 
   it('matches the golden composition', async () => {

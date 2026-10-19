@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { StorageProvider } from '@adforge/core/providers/types';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
-import { FONT_FILES } from './compose';
+import { assetPath, FONT_FILES } from './compose';
 
 const require = createRequire(import.meta.url);
 
@@ -34,7 +34,7 @@ export async function stageProject(spec: VideoSpec, storage: StorageProvider, di
   }
 
   await mkdir(join(dir, 'assets', 'fonts'), { recursive: true });
-  for (const [key, bytes] of assets) await writeFile(join(dir, 'assets', key.slice(3)), bytes);
+  for (const [key, bytes] of assets) await writeFile(join(dir, assetPath(key)), bytes);
   await copyFile(require.resolve('gsap/dist/gsap.min.js'), join(dir, 'assets', 'gsap.min.js'));
   for (const f of FONT_FILES) {
     const pkgDir = dirname(require.resolve(`${f.pkg}/package.json`));

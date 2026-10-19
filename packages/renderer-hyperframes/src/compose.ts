@@ -12,8 +12,8 @@ const span = (start: number, frames: number, fps: number) => ({
   duration: (Number(secs(start + frames, fps)) - Number(secs(start, fps))).toFixed(6),
 });
 
-/** 'ab/<sha>.png' → 'assets/<sha>.png' (stage.ts copies each key there). */
-export const assetPath = (key: string): string => `assets/${key.slice(3)}`;
+/** 'ab/<sha>.png' or 'org/<id>/ab/<sha>.png' → 'assets/<sha>.png' (content-addressed, so flat is unique; stage.ts copies each key there). */
+export const assetPath = (key: string): string => `assets/${key.slice(key.lastIndexOf('/') + 1)}`;
 
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
