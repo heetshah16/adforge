@@ -26,6 +26,8 @@ export interface HyperframesOptions {
   quality?: 'draft' | 'standard' | 'high';
   /** Caps parallel Chrome capture workers. HyperFrames otherwise auto-sizes from total RAM (6 on this machine). P7 sets it. */
   workers?: number;
+  /** Test seam: the HTML for a parsed spec. Default composeHtml. */
+  compose?: (spec: VideoSpec) => string;
 }
 
 const failed = (code: ProviderError['code'], message: string, raw?: unknown): ProviderResult<never> => {
@@ -48,7 +50,7 @@ export class HyperframesRenderer implements RendererProvider {
     const started = Date.now();
     try {
       await stageProject(spec, this.o.storage, dir);
-      await writeFile(join(dir, 'index.html'), composeHtml(spec));
+      await writeFile(join(dir, 'index.html'), (this.o.compose ?? composeHtml)(spec));
       const out = join(dir, 'out.mp4');
 
       const job = createRenderJob({

@@ -7,6 +7,11 @@ const Range = z
   .tuple([z.number().positive(), z.number().positive()])
   .refine(([min, max]) => min <= max, 'range min must be <= max');
 
+/** A product's bottom-centre anchor and height, as frame fractions. It must fit above its anchor (product box y = anchorY − heightFrac ≥ 0). */
+const Anchor = z
+  .object({ anchorX: z.number().min(0).max(1), anchorY: z.number().min(0).max(1), heightFrac: z.number().positive().max(1) })
+  .refine((a) => a.anchorY >= a.heightFrac, 'composite anchorY must be >= heightFrac (the product must fit above its anchor)');
+
 /** Creative tunables. Edit DEFAULT_PIPELINE; it is validated at module load. */
 export const PipelineConfig = z.object({
   video: z.object({ width: PosInt, height: PosInt, fps: z.literal(30) }),
@@ -50,10 +55,7 @@ export const PipelineConfig = z.object({
     engineByLanguage: z.object({ en: Engine, hi: z.literal('chatterbox'), hinglish: z.literal('chatterbox') }),
     qwen: z.object({ speaker: QwenSpeaker, instructExpressiveAbove: z.number().min(0).max(1), expressiveInstruct: z.string().min(1).max(300), calmInstruct: z.string().min(1).max(300) }),
   }),
-  composite: z.object({
-    hero: z.object({ anchorX: z.number().min(0).max(1), anchorY: z.number().min(0).max(1), heightFrac: z.number().positive().max(1) }),
-    supporting: z.object({ anchorX: z.number().min(0).max(1), anchorY: z.number().min(0).max(1), heightFrac: z.number().positive().max(1) }),
-  }),
+  composite: z.object({ hero: Anchor, supporting: Anchor }),
 });
 export type PipelineConfig = z.infer<typeof PipelineConfig>;
 

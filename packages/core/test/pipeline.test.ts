@@ -16,4 +16,9 @@ describe('pipeline config', () => {
     const bad = { ...DEFAULT_PIPELINE, plate: { width: 770, height: 1344 } };
     expect(PipelineConfig.safeParse(bad).success).toBe(false);
   });
+
+  it('rejects a composite anchor the product cannot fit above (anchorY < heightFrac)', () => {
+    const bad = { ...DEFAULT_PIPELINE, composite: { ...DEFAULT_PIPELINE.composite, supporting: { anchorX: 0.5, anchorY: 0.2, heightFrac: 0.3 } } };
+    expect(PipelineConfig.safeParse(bad).error?.issues.map((i) => i.message).join()).toMatch(/anchorY/);
+  });
 });

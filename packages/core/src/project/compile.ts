@@ -4,7 +4,7 @@ import type { BeatAssets } from '../spec/build-spec';
 import { secondsToFrames } from '../spec/frames';
 import { FULL_FRAME, TEXT_BOX, productBox } from '../spec/upgrade-spec';
 import { CAPTIONS_ID, ElementLayer, isText, VideoSpec, type Scene } from '../spec/video-spec';
-import type { Cue, EditOp, Project, ProjectBase } from './types';
+import { EditOp, type Cue, type Project, type ProjectBase } from './types';
 
 /** Word.text is max 40; a long token (e.g. a URL in vo) must not kill the job. Code-point safe. */
 const clip = (s: string) => { const c = [...s]; return c.length > 40 ? c.slice(0, 39).join('') + '…' : s; };
@@ -86,58 +86,72 @@ function find(spec: VideoSpec, layerId: string): Found | undefined {
   }
 }
 
+export type DropReason = 'missing_target' | 'invalid' | 'wrong_target' | 'cue_out_of_range';
+/** An op compileProject skipped, and why. Task 3 rejects a newly posted op that drops for anything but `missing_target`. */
+export type DroppedOp = { op: EditOp; reason: DropReason };
+type Result = DropReason | undefined; // undefined: applied
+
 /** Replace a layer only if the result is still a valid element (e.g. a move must keep a headline in frame). */
-function replace(spec: VideoSpec, f: Found, next: unknown): boolean {
+function replace(spec: VideoSpec, f: Found, next: unknown): Result {
   const r = ElementLayer.safeParse(next);
-  if (r.success) spec.scenes[f.scene]!.layers[f.index] = r.data;
-  return r.success;
+  if (!r.success) return 'invalid';
+  spec.scenes[f.scene]!.layers[f.index] = r.data;
 }
 
-/** Applies one op in place; false means it could not apply (gone or wrong target) and is dropped. */
-function apply(spec: VideoSpec, cues: Map<string, { cue: Cue; op: EditOp }>, op: EditOp): boolean {
+/** Applies one op in place, or says why it can't. */
+function apply(spec: VideoSpec, cues: Map<string, { cue: Cue; op: EditOp }>, op: EditOp): Result {
+  if (!EditOp.safeParse(op).success) return 'invalid'; // ops arrive from stored jsonb: never trust the static type
   switch (op.op) {
     case 'setField':
     case 'regenerate':
     case 'lock':
     case 'unlock':
-      return true; // their effect arrives through new beats from the executor, or is revision state
-    case 'setStyle':
-      if (op.layerId === CAPTIONS_ID) {
-        if (op.style.scrim !== undefined) return false; // captions have no scrim
-        if (op.style.weight) spec.captions.style.weight = op.style.weight;
-        if (op.style.position) spec.captions.position = op.style.position;
-        return true;
-      }
-      break;
+      return; // their effect arrives through new beats from the executor, or is revision state
+  }
+  if (op.layerId === CAPTIONS_ID) {
+    if (op.op !== 'setStyle' || op.style.scrim !== undefined) return 'wrong_target'; // captions have no box, cue or scrim
+    if (op.style.weight) spec.captions.style.weight = op.style.weight;
+    if (op.style.position) spec.captions.position = op.style.position;
+    return;
   }
   const f = find(spec, op.layerId);
-  if (!f) return false;
+  if (!f) return 'missing_target';
   const l = f.layer;
   switch (op.op) {
     case 'move':
-      return replace(spec, f, { ...l, box: { ...l.box, x: op.x, y: op.y } });
     case 'resize':
-      return replace(spec, f, { ...l, box: { ...l.box, w: op.w, h: op.h } });
+      if (l.type === 'broll') return 'wrong_target'; // a root <video> box offset is unverified in the render
+      if (op.op === 'move') return replace(spec, f, { ...l, box: { ...l.box, x: op.x, y: op.y } });
+      // The product renders bottom-centre anchored: a resize keeps that anchor where it is.
+      return replace(spec, f, {
+        ...l,
+        box: l.type === 'product'
+          ? { x: l.box.x + (l.box.w - op.w) / 2, y: l.box.y + l.box.h - op.h, w: op.w, h: op.h }
+          : { ...l.box, w: op.w, h: op.h },
+      });
     case 'setText':
-      return isText(l) && replace(spec, f, { ...l, content: op.content });
+      return isText(l) ? replace(spec, f, { ...l, content: op.content }) : 'wrong_target';
     case 'setStyle':
-      return isText(l) && replace(spec, f, { ...l, style: { weight: op.style.weight ?? l.style.weight, scrim: op.style.scrim ?? l.style.scrim } });
+      return isText(l) ? replace(spec, f, { ...l, style: { weight: op.style.weight ?? l.style.weight, scrim: op.style.scrim ?? l.style.scrim } }) : 'wrong_target';
     case 'retime':
       cues.set(op.layerId, { cue: op.reveal, op });
-      return true;
   }
 }
 
 /**
  * Base + ops + the current beat assets → VideoSpec v2. Pure. Ops apply in order; one that can't
- * apply (its layer is gone, or the target can't take it) is skipped and listed in `dropped`, never
- * thrown. Cues resolve last, against the final timing, so a VO edit that moves a word moves its reveal.
+ * apply (its layer is gone, it is malformed, or the target can't take it) is skipped and listed in
+ * `dropped` with its reason, never thrown. Cues resolve last, against the final timing, so a VO edit
+ * that moves a word moves its reveal.
  */
-export function compileProject(project: Project, beats: BeatAssets[], cfg: PipelineConfig = PIPELINE): { spec: VideoSpec; dropped: EditOp[] } {
+export function compileProject(project: Project, beats: BeatAssets[], cfg: PipelineConfig = PIPELINE): { spec: VideoSpec; dropped: DroppedOp[] } {
   const { spec, sceneWords } = baseSpec(project.base, beats, cfg);
-  const dropped: EditOp[] = [];
+  const dropped: DroppedOp[] = [];
   const cues = new Map<string, { cue: Cue; op: EditOp }>();
-  for (const op of project.ops) if (!apply(spec, cues, op)) dropped.push(op);
+  for (const op of project.ops) {
+    const reason = apply(spec, cues, op);
+    if (reason) dropped.push({ op, reason });
+  }
 
   spec.scenes.forEach((s, i) => {
     for (const l of s.layers) {
@@ -149,7 +163,7 @@ export function compileProject(project: Project, beats: BeatAssets[], cfg: Pipel
         l.revealFrame = frame;
       } else {
         l.revealFrame = s.startFrame; // a cue that no longer lands in its scene falls back to the scene start
-        dropped.push(c.op);
+        dropped.push({ op: c.op, reason: 'cue_out_of_range' });
       }
     }
   });

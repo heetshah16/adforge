@@ -225,6 +225,17 @@ describe('generateAds', () => {
     expect(m.calls.render).toBe(2);
   });
 
+  it('a corrupt memoized spec fails that variant only, never the function', async () => {
+    const m = await makeDeps(); close = m.close;
+    const id = await newJob(m.deps);
+    const r = await generateAds(id, memoStep(m.deps, new Map([['spec:2', { spec: { id: 'corrupt' } }]])), m.deps);
+    expect(r.status).toBe('completed');
+    expect(r.warnings.join()).toMatch(/variant 2: spec failed/);
+    const vs = await m.deps.db.select().from(variants).where(eq(variants.jobId, id));
+    expect(Object.fromEntries(vs.map((v) => [v.variantNo, v.status]))).toEqual({ 1: 'completed', 2: 'failed', 3: 'completed' });
+    expect(m.calls.render).toBe(2);
+  });
+
   it('a b-roll invoke that throws completes the job with a warning', async () => {
     const m = await makeDeps(); close = m.close;
     const step = memoStep(m.deps);

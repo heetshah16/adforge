@@ -181,6 +181,7 @@ export const VideoSpec = z
     for (const [i, scene] of s.scenes.entries()) {
       const bg = scene.layers[0]?.type;
       if (bg !== 'plate' && bg !== 'broll') issue(`scene ${i}: first layer must be a plate or broll background`);
+      if (scene.layers.some((l) => l.z < scene.layers[0]!.z)) issue(`scene ${i}: the background must have the lowest z in its scene`);
       const brolls = scene.layers.filter((l) => l.type === 'broll').length;
       const plates = scene.layers.filter((l) => l.type === 'plate').length;
       if (brolls > 1 || (brolls === 1 && plates > 0)) issue(`scene ${i}: at most one broll layer, and never together with a plate`);

@@ -85,6 +85,9 @@ describe('VideoSpec v2 rules', () => {
     const bg = v2();
     bg.scenes[1]!.layers.reverse();
     expect(issues(bg).join()).toMatch(/background/);
+    const under = v2();
+    under.scenes[1]!.layers[2]!.z = -1; // headline beneath the plate
+    expect(issues(under).join()).toMatch(/lowest z/);
     const both = v2();
     both.scenes[1]!.layers.push({ ...both.scenes[0]!.layers[0]!, layerId: 's1.broll' });
     expect(issues(both).join()).toMatch(/broll/);

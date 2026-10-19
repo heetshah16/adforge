@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { classifyEdit, compileProject, EditOp, type Project, type ProjectBase } from '../src/project/index';
+import { classifyEdit, compileProject, EditOp, type DroppedOp, type Project, type ProjectBase } from '../src/project/index';
 import { buildSpec } from '../src/spec/build-spec';
 import { upgradeSpec } from '../src/spec/upgrade-spec';
 import { VideoSpec, VideoSpecV1 } from '../src/spec/video-spec';
@@ -8,6 +8,7 @@ import { beat, compileBeats, compileVariant } from './compile-fixture';
 
 const base = (): ProjectBase => ({ id: 'v1', variant: compileVariant(), theme: { primary: '#141414', accent: '#f5b301' } });
 const compile = (...ops: EditOp[]) => compileProject({ base: base(), ops } satisfies Project, compileBeats());
+const drop = (op: EditOp, reason: DroppedOp['reason']): DroppedOp => ({ op, reason });
 const golden = (name: string, spec: VideoSpec) => expect(JSON.stringify(spec, null, 2) + '\n').toMatchFileSnapshot(`./golden/${name}.json`);
 const layer = (spec: VideoSpec, id: string) => spec.scenes.flatMap((s) => s.layers).find((l) => l.layerId === id)!;
 const sceneWords = (spec: VideoSpec, i: number) => {
@@ -49,6 +50,12 @@ describe('compileProject: one golden per op kind', () => {
     const { spec, dropped } = compile({ op: 'resize', layerId: 's2.product', w: 0.8, h: 0.5 });
     expect(dropped).toEqual([]);
     expect(layer(spec, 's2.product').box).toMatchObject({ w: 0.8, h: 0.5 });
+    // the product renders bottom-centre anchored: a resize keeps that anchor (hero: 0.5, 0.84)
+    const b = layer(spec, 's2.product').box;
+    expect(b.x + b.w / 2).toBeCloseTo(0.5, 12);
+    expect(b.y + b.h).toBeCloseTo(0.84, 12);
+    // other boxes keep their top-left
+    expect(layer(compile({ op: 'resize', layerId: 's2.headline', w: 0.5, h: 0.1 }).spec, 's2.headline').box).toEqual({ x: 0.06, y: 0.14, w: 0.5, h: 0.1 });
     await golden('compile-resize', spec);
   });
 
@@ -100,7 +107,18 @@ describe('compileProject: ops that do not touch the layout', () => {
 describe('compileProject: dropped ops (Review Focus 2)', () => {
   it('a move on a layer that does not exist is dropped, never thrown', () => {
     const op: EditOp = { op: 'move', layerId: 's9.headline', x: 0.1, y: 0.1 };
-    expect(compile(op)).toEqual({ spec: compile().spec, dropped: [op] });
+    expect(compile(op)).toEqual({ spec: compile().spec, dropped: [drop(op, 'missing_target')] });
+  });
+
+  it('a malformed op from raw jsonb is dropped as invalid, and compile does not throw', () => {
+    const raw = { op: 'setStyle', layerId: 'captions', style: { position: 'sideways' } } as unknown as EditOp;
+    expect(compile(raw)).toEqual({ spec: compile().spec, dropped: [drop(raw, 'invalid')] });
+  });
+
+  it('a move or resize on b-roll is dropped as wrong_target', () => {
+    const move: EditOp = { op: 'move', layerId: 's0.broll', x: 0, y: 0 };
+    const resize: EditOp = { op: 'resize', layerId: 's0.broll', w: 0.5, h: 0.5 };
+    expect(compile(move, resize)).toEqual({ spec: compile().spec, dropped: [drop(move, 'wrong_target'), drop(resize, 'wrong_target')] });
   });
 
   it('drops an op whose target cannot take it, and keeps applying later ops', () => {
@@ -110,21 +128,21 @@ describe('compileProject: dropped ops (Review Focus 2)', () => {
     const boxOnCaptions: EditOp = { op: 'move', layerId: 'captions', x: 0, y: 0 };
     const ok: EditOp = { op: 'setText', layerId: 's1.headline', content: 'Still applied' };
     const { spec, dropped } = compile(offFrame, textOnPlate, scrimOnCaptions, boxOnCaptions, ok);
-    expect(dropped).toEqual([offFrame, textOnPlate, scrimOnCaptions, boxOnCaptions]);
+    expect(dropped).toEqual([drop(offFrame, 'invalid'), drop(textOnPlate, 'wrong_target'), drop(scrimOnCaptions, 'wrong_target'), drop(boxOnCaptions, 'wrong_target')]);
     expect(layer(spec, 's1.headline')).toMatchObject({ content: 'Still applied', box: { x: 0.06, y: 0.14 } });
   });
 
   it('a word cue beyond the scene\'s words falls back to scene start and is listed in dropped', () => {
     const op: EditOp = { op: 'retime', layerId: 's1.headline', reveal: { kind: 'word', word: 7, offsetFrames: 0 } };
     const { spec, dropped } = compile(op);
-    expect(dropped).toEqual([op]);
+    expect(dropped).toEqual([drop(op, 'cue_out_of_range')]);
     expect(layer(spec, 's1.headline').revealFrame).toBe(spec.scenes[1]!.startFrame);
   });
 
   it('a cue resolving past the scene end falls back to scene start and is listed in dropped', () => {
     const op: EditOp = { op: 'retime', layerId: 's1.headline', reveal: { kind: 'scene', offsetFrames: 9999 } };
     const { spec, dropped } = compile(op);
-    expect(dropped).toEqual([op]);
+    expect(dropped).toEqual([drop(op, 'cue_out_of_range')]);
     expect(layer(spec, 's1.headline').revealFrame).toBe(spec.scenes[1]!.startFrame);
   });
 });
