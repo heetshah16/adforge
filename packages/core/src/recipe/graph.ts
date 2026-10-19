@@ -12,11 +12,11 @@ export class RecipeGraph {
   private constructor(private readonly beats: number, private readonly brollBeat: number) {}
 
   /**
-   * The b-roll beat is the first product-absent beat, as heavy.ts chooses it.
-   * ponytail: heavy.ts skips an absent beat whose plate failed; the graph cannot see that, so then the edge points at the wrong beat.
+   * `brollBeat` is the beat the job's b-roll was actually made from (BrollResult.beat), not re-derived here: heavy.ts skips
+   * an absent beat whose plate failed, which the variant alone cannot show. null or omitted: the variant has no b-roll.
    */
-  static fromVariant(v: DirectorVariant): RecipeGraph {
-    return new RecipeGraph(v.scenes.length, v.scenes.findIndex((s) => s.product_prominence === 'absent'));
+  static fromVariant(v: DirectorVariant, brollBeat?: number | null): RecipeGraph {
+    return new RecipeGraph(v.scenes.length, brollBeat ?? -1);
   }
 
   private edges(tag: AssetTag): AssetTag[] {

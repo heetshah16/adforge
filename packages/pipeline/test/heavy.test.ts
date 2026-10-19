@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PIPELINE } from '@adforge/core/config/pipeline';
 import { ProviderError } from '@adforge/core/providers/types';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { libraryAssets, providerCalls } from '@adforge/db/schema';
 import { seedOperator } from '@adforge/db/seed/seed';
 import { HEAVY } from '../src/heavy';
@@ -229,6 +229,13 @@ describe('heavy tasks', () => {
     const r = await HEAVY.broll(m.deps, { jobId: await jobRow(m.deps), variants: anchor().variants.slice(0, 1), plates: await storedPlates(m.deps) });
     expect(r['1']).toBeNull();
     expect(m.calls.videoSubmit).toBe(2);
+    expect(m.calls.free).toBe(1);
+  });
+
+  it('broll: a failed recipe write is not swallowed as "b-roll unavailable": the step throws (and retries), ComfyUI still freed', async () => {
+    const m = await makeDeps(); close = m.close;
+    await m.deps.db.execute(sql`alter table recipes rename to recipes_gone`);
+    await expect(HEAVY.broll(m.deps, { jobId: await jobRow(m.deps), variants: anchor().variants.slice(0, 1), plates: await storedPlates(m.deps) })).rejects.toThrow();
     expect(m.calls.free).toBe(1);
   });
 

@@ -32,13 +32,19 @@ async function remember<T extends { id: string }>(deps: PipelineDeps, scope: Sco
   if (ref) await recordRecipe(deps.db, { ...r, orgId: scope.orgId }, ref.id);
   return ref;
 }
-/** A comfy recipe's model is its workflow; its version is that workflow's hash, as the config snapshot records it. */
+/**
+ * A comfy recipe's model is its workflow; its version is that workflow's hash, as the config snapshot records it.
+ * ponytail: the weight files a workflow loads by name are not captured; upgrade path: ComfyUI reports model ids via /health, folded into version.
+ */
 function comfyModel(deps: PipelineDeps, workflow: string): { model: string; version: string } {
   const version = deps.comfy.workflowHashes[workflow];
   if (!version) throw new Error(`no ComfyUI workflow hash for ${workflow}: a recipe without it could hit across workflow changes`);
   return { model: workflow, version };
 }
-/** TTS and alignment output depend on the whole voice config (engine routing, speaker, instructs, ASR language), as the snapshot records it. */
+/**
+ * TTS and alignment output depend on the whole voice config (engine routing, speaker, instructs, ASR language), as the snapshot records it.
+ * ponytail: sidecar weights (Qwen/Chatterbox checkpoint, Whisper size) are not captured; upgrade path: the voice services report model ids via /health, folded into version.
+ */
 const VOICE_VERSION = createHash('sha256').update(canonicalJson(PIPELINE.voice)).digest('hex');
 
 type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallback: string; triedTag: string; warn: boolean };
@@ -138,12 +144,13 @@ export const HEAVY = {
         const beat = v.scenes.findIndex((s, b) => s.product_prominence === 'absent' && p.plates[`${v.variant_no}:${b}`]);
         if (beat < 0) { out[v.variant_no] = null; continue; }
         const key = `${p.jobId}:broll:${v.variant_no}`;
+        const req = {
+          mode: 'image_to_video', prompt: `${v.scenes[beat]!.scene}, subtle ambient motion, static camera`,
+          durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p',
+        } as const;
+        let made: { ref: MediaRef; imageKey: string } | null = null;
         try {
           const firstFrame = await refFromKey(deps.storage, p.plates[`${v.variant_no}:${beat}`]!);
-          const req = {
-            mode: 'image_to_video', prompt: `${v.scenes[beat]!.scene}, subtle ambient motion, static camera`,
-            durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p',
-          } as const;
           let result: ProviderResult<MediaRef> | null = null;
           for (let attempt = 0; attempt < 2; attempt++) {
             const handle = await deps.comfy.video.submit({ ...req, firstFrame, idempotencyKey: key });
@@ -164,9 +171,8 @@ export const HEAVY = {
             jobId: p.jobId, kind: 'video', provider: deps.comfy.video.id, idempotencyKey: key, result: res,
             latencyMs: res.status === 'done' ? res.latencyMs : undefined, costUsd: res.status === 'done' ? res.cost.amountUsd : 0,
           });
-          const ref = await remember(deps, scope, {
-            kind: 'broll', provider: deps.comfy.video.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_BROLL), request: { ...req, imageKey: firstFrame.id },
-          }, await keep(deps, scope, 'broll', res));
+          const ref = await keep(deps, scope, 'broll', res);
+          if (ref) made = { ref, imageKey: firstFrame.id };
           out[v.variant_no] = ref ? { beat, key: ref.id, durationSec: ref.durationSec ?? PIPELINE.broll.durationSec } : null;
         } catch (e) {
           // B-roll is never fatal: the beat degrades to its plate.
@@ -175,6 +181,12 @@ export const HEAVY = {
             jobId: p.jobId, kind: 'video', provider: deps.comfy.video.id, idempotencyKey: key,
             result: { ok: false, code: 'UNKNOWN', message: e instanceof Error ? e.message : String(e), retryable: false },
           }).catch(() => {});
+        }
+        // Outside the never-fatal try: a failed recipe write is ours, not the provider's, so the step must retry rather than drop the clip.
+        if (made) {
+          await remember(deps, scope, {
+            kind: 'broll', provider: deps.comfy.video.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_BROLL), request: { ...req, imageKey: made.imageKey },
+          }, made.ref);
         }
       }
       return out;

@@ -88,8 +88,9 @@ export async function recordRecipe(db: Db, recipe: Recipe, outputKey: string): P
   return key;
 }
 
-export async function findRecipe(db: Db, key: string): Promise<{ outputKey: string } | null> {
-  const [r] = await db.select({ outputKey: recipes.outputKey }).from(recipes).where(eq(recipes.key, key));
+/** Scoped to the org as well as the key: a lookup can never return another org's output, even for a key built wrong. */
+export async function findRecipe(db: Db, orgId: string, key: string): Promise<{ outputKey: string } | null> {
+  const [r] = await db.select({ outputKey: recipes.outputKey }).from(recipes).where(and(eq(recipes.orgId, orgId), eq(recipes.key, key)));
   return r ?? null;
 }
 

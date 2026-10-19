@@ -35,8 +35,8 @@ describe('recipeKey', () => {
 });
 
 describe('RecipeGraph', () => {
-  const v = compileVariant(); // beat 0 is the first product-absent beat: the b-roll beat
-  const g = RecipeGraph.fromVariant(v);
+  const v = compileVariant();
+  const g = RecipeGraph.fromVariant(v, 0); // the job's b-roll was made from beat 0's plate
 
   it('dependents are transitive downstream tags', () => {
     expect(g.dependents('voice:1')).toEqual(['align:1']);
@@ -88,9 +88,10 @@ describe('RecipeGraph', () => {
     expect(() => g.invalidated([{ op: 'setField', beat: 0, path: 'format', value: 'x' }])).toThrow(/Director v2/);
   });
 
-  it('a variant with no product-absent beat has no b-roll dependent', () => {
-    const w = compileVariant();
-    for (const s of w.scenes) s.product_prominence = 'hero';
-    expect(RecipeGraph.fromVariant(w).dependents('plate:0')).toEqual([]);
+  it('the b-roll edge follows the persisted b-roll beat; null or omitted means no b-roll', () => {
+    expect(RecipeGraph.fromVariant(v, 1).dependents('plate:1')).toEqual(['broll']);
+    expect(RecipeGraph.fromVariant(v, 1).dependents('plate:0')).toEqual([]);
+    expect(RecipeGraph.fromVariant(v, null).invalidated([{ op: 'regenerate', assetTag: 'plate:0' }])).toEqual(['plate:0']);
+    expect(RecipeGraph.fromVariant(v).dependents('plate:0')).toEqual([]);
   });
 });

@@ -69,14 +69,15 @@ describe('recipes recorded by generateAds', () => {
 });
 
 describe('recordRecipe / findRecipe', () => {
-  it('records once per key (first output wins), returns the key, and finds it; a miss is null', async () => {
+  it('records once per key (first output wins), returns the key, and finds it in its org only; a miss is null', async () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);
     const [job] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
     const r: Recipe = { kind: 'cutout', provider: 'fake', model: 'cutout-birefnet', version: 'c'.repeat(64), request: { imageKey: 'k' }, orgId: job!.orgId };
     expect(await recordRecipe(m.deps.db, r, 'out-1')).toBe(recipeKey(r));
     expect(await recordRecipe(m.deps.db, r, 'out-2')).toBe(recipeKey(r));
-    expect(await findRecipe(m.deps.db, recipeKey(r))).toEqual({ outputKey: 'out-1' });
-    expect(await findRecipe(m.deps.db, '0'.repeat(64))).toBeNull();
+    expect(await findRecipe(m.deps.db, job!.orgId, recipeKey(r))).toEqual({ outputKey: 'out-1' });
+    expect(await findRecipe(m.deps.db, job!.orgId, '0'.repeat(64))).toBeNull();
+    expect(await findRecipe(m.deps.db, '00000000-0000-4000-8000-00000000000b', recipeKey(r))).toBeNull(); // another org never hits
   });
 });
