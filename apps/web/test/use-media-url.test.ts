@@ -39,13 +39,28 @@ describe('useMediaUrl core', () => {
     el.dispatchEvent(new Event('loadedmetadata'));
     expect([el.currentTime, el.plays]).toEqual([3, 0]);
   });
+  it('two errors before metadata loads keep the original playhead', () => {
+    const { r, el } = setup();
+    el.currentTime = 7.5; el.paused = false;
+    r.onError();
+    el.currentTime = 0; el.paused = true;
+    r.onError();
+    el.dispatchEvent(new Event('loadedmetadata'));
+    expect([el.currentTime, el.plays]).toEqual([7.5, 1]);
+  });
+  it('a successful load resets the retry count: only the 4th error of the next incident fails', () => {
+    const { r, el, seen } = setup();
+    r.onError();
+    el.dispatchEvent(new Event('loadedmetadata'));
+    const flags: boolean[] = [];
+    for (let i = 0; i < 4; i++) { r.onError(); flags.push(seen.at(-1)!.failed); }
+    expect(flags).toEqual([false, false, false, true]);
+  });
   it('the 4th error does not change src and reports failed', () => {
     const { r, seen } = setup();
     r.onError(); r.onError(); r.onError();
     expect(seen.map((s) => s.src).at(-1)).toBe('/media/org/o/ab/x.mp4?r=3');
-    const count = seen.length;
     r.onError();
-    expect(seen.slice(0, count)).toHaveLength(count);
     expect(seen.at(-1)).toEqual({ src: '/media/org/o/ab/x.mp4?r=3', failed: true });
   });
 });

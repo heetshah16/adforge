@@ -29,6 +29,9 @@ const back = await r2.read(ref.id);
 if (back.byteLength !== PNG.byteLength) throw new Error('GET returned different bytes');
 const signed = await fetch(await r2.presignGet(ref.id, 60));
 if (!signed.ok) throw new Error(`presigned GET -> HTTP ${signed.status}`);
+const dl = await fetch(await r2.presignGet(ref.id, 60, { download: true }));
+console.log('download Content-Disposition:', dl.headers.get('content-disposition'));
+await dl.arrayBuffer();
 
 // Re-issue the HEAD raw to capture its status and non-secret headers (account-identifying headers are dropped).
 const KEEP = ['content-type', 'content-length', 'etag', 'last-modified', 'accept-ranges', 'server'];

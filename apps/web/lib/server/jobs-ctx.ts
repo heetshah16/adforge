@@ -18,9 +18,9 @@ export const mediaCtx = (): MediaCtx => {
     run: withCurrentUser,
     r2: r2(),
     ttlSec: serverEnv().ADFORGE_MEDIA_TTL_SEC,
-    presignGet: (key, ttl) => {
+    presignGet: (key, ttl, opts) => {
       if (!('presignGet' in store)) throw new Error('local store cannot presign');
-      return store.presignGet(key, ttl);
+      return store.presignGet(key, ttl, opts);
     },
   };
 };

@@ -96,6 +96,17 @@ describe('R2Storage', () => {
     await expect(r2.presignGet(KEY_A, 604_801)).rejects.toThrow();
   });
 
+  it('presignGet download adds a signed response-content-disposition; absent otherwise', async () => {
+    const r2 = new R2Storage(CFG, memR2().fetchImpl);
+    const d = new URL(await r2.presignGet(KEY_A, 300, { download: true }));
+    expect(d.searchParams.get('response-content-disposition')).toMatch(/^attachment; filename="adforge-[0-9a-f]{64}\.[a-z0-9]+"$/);
+    expect(d.searchParams.get('X-Amz-SignedHeaders')).toBeTruthy();
+    expect(d.searchParams.get('X-Amz-Signature')).toBeTruthy();
+    const plain = new URL(await r2.presignGet(KEY_A, 300, { download: false }));
+    expect(plain.searchParams.has('response-content-disposition')).toBe(false);
+    expect(d.searchParams.get('X-Amz-Signature')).not.toBe(plain.searchParams.get('X-Amz-Signature'));
+  });
+
   it('a stalled fetch becomes a retryable TIMEOUT', async () => {
     vi.useFakeTimers();
     let started!: () => void;

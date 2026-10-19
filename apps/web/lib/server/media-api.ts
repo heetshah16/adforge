@@ -10,13 +10,13 @@ export type MediaCtx = {
   /** true = r2 profile (the only one that serves /media). */
   r2: boolean;
   ttlSec: number;
-  presignGet(key: string, ttlSec: number): Promise<string>;
+  presignGet(key: string, ttlSec: number, opts?: { download?: boolean }): Promise<string>;
 };
 
 const json = (body: unknown, status: number) => Response.json(body, { status });
 
 /** GET /media/<key>: members of the key's org get a 302 to a short-lived signed R2 GET. No URL is minted for anyone else. */
-export async function mediaHandler(ctx: MediaCtx, keyParts: string[]): Promise<Response> {
+export async function mediaHandler(ctx: MediaCtx, keyParts: string[], download = false): Promise<Response> {
   if (!ctx.r2) return json({ error: 'not found' }, 404);
   const user = await ctx.auth();
   if (user instanceof Response) return user;
@@ -27,6 +27,6 @@ export async function mediaHandler(ctx: MediaCtx, keyParts: string[]): Promise<R
   const member = await ctx.run(user.userId, async (udb) =>
     (await udb.select({ o: memberships.orgId }).from(memberships).where(and(eq(memberships.orgId, org), eq(memberships.userId, user.userId))).limit(1)).length > 0);
   if (!member) return json({ error: 'forbidden' }, 403);
-  const url = await ctx.presignGet(key, ctx.ttlSec);
+  const url = await ctx.presignGet(key, ctx.ttlSec, { download });
   return new Response(null, { status: 302, headers: { location: url, 'cache-control': `private, max-age=${ctx.ttlSec - 60}` } });
 }

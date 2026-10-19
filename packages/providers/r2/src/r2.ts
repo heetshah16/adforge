@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { AwsClient } from 'aws4fetch';
 import { z } from 'zod';
 import { classifyFailure, readClassified } from '@adforge/core/providers/http';
-import { MIME_EXT, STORAGE_KEY_RE, orgKey } from '@adforge/core/providers/storage-key';
+import { MIME_EXT, STORAGE_KEY_RE, orgKey, parseKey } from '@adforge/core/providers/storage-key';
 import { storageOrg } from '@adforge/core/providers/storage-scope';
 import { ProviderError, type MediaRef, type ProviderErrorCode, type PutOptions, type StorageProvider } from '@adforge/core/providers/types';
 import { R2Config } from './config';
@@ -134,9 +134,14 @@ export class R2Storage implements StorageProvider {
     return { url: signed.url, headers };
   }
 
-  async presignGet(key: string, ttlSec: number): Promise<string> {
+  /** `download` adds a signed response-content-disposition so the browser saves the file instead of playing it. */
+  async presignGet(key: string, ttlSec: number, opts?: { download?: boolean }): Promise<string> {
     const url = this.endpoint(key);
     url.searchParams.set('X-Amz-Expires', String(Ttl.parse(ttlSec)));
+    if (opts?.download) {
+      const k = parseKey(key)!; // endpoint() already rejected non-keys
+      url.searchParams.set('response-content-disposition', `attachment; filename="adforge-${k.sha}.${k.ext}"`);
+    }
     return (await this.sign(url, 'GET', {}, undefined, true)).url;
   }
 }
