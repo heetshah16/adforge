@@ -66,3 +66,44 @@ An auth user was deleted and re-invited, so the new `auth.users.id` differs from
 
 **Run `db:migrate`**
 `DATABASE_URL` must be set in the shell running it, otherwise it exits with code 2 (there is no PGlite fallback).
+
+## Media (R2)
+
+**Buckets**
+- `adforge-dev` (dev, local testing, e2e) and `adforge-prod` (prod). Both private.
+- Created with `npx wrangler@4 r2 bucket create <name>`.
+
+**Dev bucket CORS**
+Set with `npx wrangler@4 r2 bucket cors set adforge-dev --file cors-dev.json --force`.
+```json
+{"rules":[{"allowed":{"origins":["http://localhost:3000"],"methods":["PUT","GET","HEAD"],"headers":["content-type","x-amz-checksum-sha256","if-none-match"]},"exposeHeaders":["ETag","Content-Length","Content-Type"],"maxAgeSeconds":3600}]}
+```
+
+**Prod bucket CORS**
+Not set yet. Set it in B4 when the site domain exists, with the same rule and origins = the site URL.
+
+**Prod bucket lock**
+- Rule `retain-30d`, all prefixes. Objects cannot be deleted or overwritten for 30 days.
+- Add with `npx wrangler@4 r2 bucket lock add adforge-prod retain-30d "" --retention-days 30 --force`.
+- Check with `npx wrangler@4 r2 bucket lock list adforge-prod`.
+
+**Env vars**
+In `.env` for the worker; in `apps/web/.env.local` / Vercel env for the web app.
+- `ADFORGE_PROVIDER_STORAGE=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
+- Optional `R2_TIMEOUT_MS` (default 30000) and `ADFORGE_MEDIA_TTL_SEC` (default 900, range 60–3600).
+- Prod requires `r2`. Never commit or paste these values anywhere.
+
+**Rotate the R2 token**
+1. Cloudflare dashboard > R2 > Manage R2 API Tokens: create a new token (Object Read & Write, both buckets).
+2. Update `.env` and Vercel env.
+3. Restart the worker and redeploy web.
+4. Revoke the old token.
+
+**Worker cache**
+`<ADFORGE_DATA_DIR>/media-cache` is a read-through copy of R2. Safe to delete at any time; it refills on demand.
+
+**Record the live provider fixture again**
+`pnpm --filter @adforge/provider-r2 record:live` (writes only to `adforge-dev`).
+
+**Run the media e2e**
+`pnpm e2e:r2` (dev bucket + dev Supabase; no GPU; needs FFmpeg on PATH).
