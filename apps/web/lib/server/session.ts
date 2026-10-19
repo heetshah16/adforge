@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '../supabase/server';
 import { ProvisionRefused, provisionCurrent } from './provision-owner';
+import { NOT_INVITED } from '../not-invited';
 
 export type SessionUser = { userId: string; email: string; isAdmin: boolean; orgId: string };
 export type SessionDeps = {
@@ -28,7 +29,7 @@ export async function requireApiUser(): Promise<SessionUser | Response> {
 export async function requireApiUserWith(deps: SessionDeps): Promise<SessionUser | Response> {
   const r = await authenticate(deps);
   if ('user' in r) return r.user;
-  const [status, error] = r.refusal === 'signin' ? [401, 'unauthenticated'] : r.refusal === 'conflict' ? [409, 'account conflict'] : [403, 'not invited'];
+  const [status, error] = r.refusal === 'signin' ? [401, 'unauthenticated'] : r.refusal === 'conflict' ? [409, 'account conflict'] : [403, NOT_INVITED];
   return Response.json({ error }, { status });
 }
 

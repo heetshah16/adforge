@@ -67,8 +67,8 @@ describe('createJob', () => {
   it.each([
     ['too few photos', { photos: [file(PNG, 'image/png')] }, /photos/],
     ['too many photos (6)', { photos: Array.from({ length: 6 }, (_, i) => file(new Uint8Array([...PNG, i]), 'image/png')) }, /photos/],
-    ['a 6 MB photo', { photos: [file(new Uint8Array(6 * 1024 * 1024), 'image/png'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /5 MB/],
-    ['a 10 MB photo', { photos: [file(new Uint8Array(10 * 1024 * 1024), 'image/png'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /5 MB/],
+    ['a 11 MB photo', { photos: [file(new Uint8Array(11 * 1024 * 1024), 'image/png'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /10 MB/],
+    ['a 12 MB photo', { photos: [file(new Uint8Array(12 * 1024 * 1024), 'image/png'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /10 MB/],
     ['an exe renamed png', { photos: [file(new Uint8Array([77, 90, 0, 0]), 'image/png', 'evil.png'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /not a real/],
     ['an exe declared as exe', { photos: [file(new Uint8Array([77, 90, 0, 0]), 'application/x-msdownload', 'evil.exe'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /unsupported type/],
     ['a RIFF that is not WEBP', { photos: [file(new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 65, 86, 73, 32]), 'image/webp'), file(PNG, 'image/png'), file(PNG, 'image/png')] }, /not a real/],

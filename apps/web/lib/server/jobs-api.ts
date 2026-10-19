@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { MediaRef } from '@adforge/core/providers/types';
-import { MAX_BODY, parseJobUpload } from '@adforge/pipeline/job-input';
+import { MIME_EXT, orgKey, orgOfKey } from '@adforge/core/providers/storage-key';
+import { MAX_PHOTO, PHOTO_TYPES, parseJobRequest } from '@adforge/pipeline/job-input';
 import { saveAsset } from '@adforge/pipeline/record';
 import type { UserDb } from '@adforge/db/with-user';
 import type { StorageProvider } from '@adforge/core/providers/types';
@@ -13,11 +14,15 @@ export type JobsCtx = {
   auth(): Promise<SessionUser | Response>;
   run<T>(userId: string, fn: (udb: UserDb) => Promise<T>): Promise<T>;
   siteUrl: string;
-  storage: StorageProvider;
+  /** Same meaning as UploadsCtx.r2: org-prefixed keys when true. */
+  r2: boolean;
+  storage: StorageProvider & { head(key: string): Promise<{ bytes: number; mime: string } | null> };
   send(jobId: string): Promise<void>;
   fail(jobId: string, reason: string, stage: string): Promise<void>;
 };
 
+/** The job request is JSON fields plus up to five storage keys. */
+const MAX_JSON = 64 * 1024;
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 const isRetryable = (e: unknown) => {
   for (let x = e as { code?: string; cause?: unknown } | undefined, i = 0; x && i < 4; x = x.cause as typeof x, i++) if (x.code === '40P01' || x.code === '40001') return true;
@@ -31,14 +36,25 @@ export async function createJobHandler(ctx: JobsCtx, req: Request): Promise<Resp
   const user = await ctx.auth();
   if (user instanceof Response) return user;
   if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
-  if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json({ error: 'upload larger than 30 MB' }, 413);
-  let form: FormData;
-  try { form = await req.formData(); } catch { return json({ error: 'expected multipart/form-data' }, 400); }
-  const parsed = await parseJobUpload(form);
+  if (Number(req.headers.get('content-length') ?? 0) > MAX_JSON) return json({ error: 'request too large' }, 413);
+  const parsed = parseJobRequest(await req.json().catch(() => null));
   if (!parsed.ok) return json({ error: parsed.error, issues: parsed.issues }, parsed.status);
-  const { fields: f, photos } = parsed;
+  const { fields: f, photoKeys } = parsed;
+  // Every key came from the browser: check tenancy and existence for all of them before any row is written.
   const refs: MediaRef[] = [];
-  for (const { bytes, type } of photos) refs.push(await ctx.storage.put(bytes, { mime: type }));
+  for (const [i, key] of photoKeys.entries()) {
+    const owner = orgOfKey(key);
+    const [, sha, ext] = /^(?:org\/[^/]+\/)?[0-9a-f]{2}\/([0-9a-f]{64})\.([a-z0-9]+)$/.exec(key)!;
+    if (ctx.r2) {
+      // A dev-shaped key (no org) is as foreign as another org's; the shard must also match the sha.
+      if (owner !== user.orgId || key !== orgKey(owner, sha!, ext!)) return json({ error: 'photo key belongs to another account' }, 403);
+    } else if (owner !== null || key.slice(0, 2) !== sha!.slice(0, 2)) return json({ error: `photo ${i + 1}: invalid key` }, 400);
+    const head = await ctx.storage.head(key);
+    if (!head) return json({ error: `photo ${i + 1} was not uploaded` }, 400);
+    if (!PHOTO_TYPES.includes(head.mime) || MIME_EXT[head.mime] !== ext) return json({ error: `photo ${i + 1}: unsupported type (png, jpeg, webp only)` }, 400);
+    if (head.bytes > MAX_PHOTO) return json({ error: `photo ${i + 1}: larger than 10 MB` }, 400);
+    refs.push({ id: key, url: ctx.storage.urlFor(key), mime: head.mime, sha256: sha!, bytes: head.bytes });
+  }
   const jobId = await ctx.run(user.userId, async (udb) => {
     const projectId = await ensureDefaultProject(udb, user);
     for (const ref of refs) await saveAsset(udb, { orgId: user.orgId, projectId }, 'upload', ref);

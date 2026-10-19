@@ -7,10 +7,10 @@ const ok = { name: 'Serum', price: '₹899', description: 'Niacinamide.', langua
 
 describe('validateUpload', () => {
   it('accepts a valid upload', () => expect(validateUpload(ok)).toEqual([]));
-  it('requires 3–5 photos of allowed types, each ≤ 5 MB', () => {
+  it('requires 3–5 photos of allowed types, each ≤ 10 MB', () => {
     expect(validateUpload({ ...ok, files: ok.files.slice(0, 2) }).join()).toMatch(/3–5 photos/);
     expect(validateUpload({ ...ok, files: Array.from({ length: 6 }, (_, i) => file(`${i}.png`, 'image/png', 1)) }).join()).toMatch(/3–5 photos/);
-    expect(validateUpload({ ...ok, files: [...ok.files.slice(0, 2), file('big.png', 'image/png', 6)] }).join()).toMatch(/big\.png.*5 MB/);
+    expect(validateUpload({ ...ok, files: [...ok.files.slice(0, 2), file('big.png', 'image/png', 11)] }).join()).toMatch(/big\.png.*10 MB/);
     expect(validateUpload({ ...ok, files: [...ok.files.slice(0, 2), file('a.gif', 'image/gif', 1)] }).join()).toMatch(/a\.gif/);
   });
   it('requires name, price, description and a known language', () => {

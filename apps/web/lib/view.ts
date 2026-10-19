@@ -6,7 +6,7 @@ const LABELS: Record<(typeof STAGES)[number], string> = {
   broll: 'AI b-roll', voice: 'Voice-over + captions', render: 'Rendering videos', finalize: 'Finishing',
 };
 const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-const MAX = 5 * 1024 * 1024;
+const MAX = 10 * 1024 * 1024;
 
 export function validateUpload(i: { name: string; price: string; description: string; language: string; files: { name: string; type: string; size: number }[] }): string[] {
   const e: string[] = [];
@@ -17,7 +17,7 @@ export function validateUpload(i: { name: string; price: string; description: st
   if (i.files.length < 3 || i.files.length > 5) e.push(`Add 3–5 photos (you added ${i.files.length}).`);
   for (const f of i.files) {
     if (!TYPES.includes(f.type)) e.push(`${f.name}: use PNG, JPEG or WebP.`);
-    else if (f.size > MAX) e.push(`${f.name}: larger than 5 MB.`);
+    else if (f.size > MAX) e.push(`${f.name}: larger than 10 MB.`);
   }
   return e;
 }

@@ -47,7 +47,7 @@ export default function UploadPage() {
             <option value="hinglish">Hinglish</option>
           </select>
         </label>
-        <label>Photos (3–5, PNG/JPEG/WebP, ≤ 5 MB each)<input name="photos" type="file" accept="image/png,image/jpeg,image/webp" multiple required /></label>
+        <label>Photos (3–5, PNG/JPEG/WebP, ≤ 10 MB each)<input name="photos" type="file" accept="image/png,image/jpeg,image/webp" multiple required /></label>
         <label style={{ display: 'flex', gap: 8, fontWeight: 400 }}><input name="broll" type="checkbox" /> Add AI b-roll (≈ +14 min)</label>
         {errors.length > 0 && <ul className="errors" role="alert">{errors.map((x, i) => <li key={`${i}-${x}`}>{x}</li>)}</ul>}
         <button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Make three ads'}</button>

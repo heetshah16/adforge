@@ -31,7 +31,7 @@ describe('parseJobUpload', () => {
     ['2 photos', {}, three().slice(0, 2), /3–5 photos, got 2/],
     ['6 photos', {}, [...three(), ...three()], /3–5 photos, got 6/],
     ['a gif', {}, [file(PNG, 'image/gif'), ...three().slice(1)], /unsupported type/],
-    ['a 6 MB photo', {}, [file(new Uint8Array(6 * 1024 * 1024), 'image/png'), ...three().slice(1)], /5 MB/],
+    ['an 11 MB photo', {}, [file(new Uint8Array(11 * 1024 * 1024), 'image/png'), ...three().slice(1)], /10 MB/],
     ['a png that is really text', {}, [file(new Uint8Array([1, 2, 3, 4]), 'image/png'), ...three().slice(1)], /not a real image\/png/],
     ['a RIFF that is not webp', {}, [file(new Uint8Array(12).fill(0).map((_, i) => [0x52, 0x49, 0x46, 0x46][i] ?? 0), 'image/webp'), ...three().slice(1)], /not a real image\/webp/],
   ])('rejects %s with 400', async (_l, over, photos, msg) => {
