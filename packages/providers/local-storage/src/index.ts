@@ -1,16 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { MIME_EXT } from '@adforge/core/providers/storage-scope';
 import type { MediaRef, PutOptions, StorageProvider } from '@adforge/core/providers/types';
 
-const EXT: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'audio/wav': 'wav',
-  'application/json': 'json',
-};
+/** Dev keys only: unprefixed (no org), unlike prod's org-scoped keys. */
 const KEY = /^[0-9a-f]{2}\/[0-9a-f]{64}\.[a-z0-9]+$/;
 
 /** POC stand-in for R2. Content-addressed: same bytes → same key → one file. */
@@ -32,7 +26,7 @@ export class LocalDiskStorage implements StorageProvider {
   }
 
   async put(bytes: Uint8Array, opts: PutOptions): Promise<MediaRef> {
-    const ext = EXT[opts.mime];
+    const ext = MIME_EXT[opts.mime];
     if (!ext) throw new Error(`Unsupported mime type: ${opts.mime}`);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const key = `${sha256.slice(0, 2)}/${sha256}.${ext}`;

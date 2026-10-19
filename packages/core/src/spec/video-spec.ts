@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { STORAGE_KEY_RE } from '../providers/storage-scope';
 import { Motion } from '../vocab/enums';
 
 /** Our IR. Frames are the source of truth; layers reference storage keys, never URLs. */
-export const StorageKey = z.string().regex(/^[0-9a-f]{2}\/[0-9a-f]{64}\.[a-z0-9]+$/, 'expected a storage key');
+export const StorageKey = z.string().regex(STORAGE_KEY_RE, 'expected a storage key');
 const Frame = z.number().int().nonnegative();
 const PositiveFrames = z.number().int().positive();
 const Frac = z.number().min(0).max(1);

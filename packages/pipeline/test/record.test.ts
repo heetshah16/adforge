@@ -121,6 +121,13 @@ describe('refFromKey', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('reads the sha and mime of an org-prefixed key from its tail', async () => {
+    const sha = 'ab' + 'c'.repeat(62);
+    const key = `org/0a1b2c3d-0000-4000-8000-00000000000a/ab/${sha}.jpg`;
+    const storage = { id: 'fake', urlFor: (k: string) => `http://x/media/${k}`, read: async () => new Uint8Array(3), put: async () => { throw new Error('no'); } };
+    expect(await refFromKey(storage, key)).toMatchObject({ id: key, sha256: sha, mime: 'image/jpeg', bytes: 3 });
+  });
 });
 
 describe('buildConfigSnapshot', () => {
