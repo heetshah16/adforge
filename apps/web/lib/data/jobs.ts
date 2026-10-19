@@ -1,6 +1,7 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { loadRegistry } from '@adforge/db/registry';
-import { assets, jobs, projects, variants } from '@adforge/db/schema';
+import { assets, jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
+import type { Db } from '@adforge/db/client';
 import type { UserDb } from '@adforge/db/with-user';
 import type { JobView } from '../api';
 
@@ -40,13 +41,22 @@ export async function getJobView(udb: UserDb, jobId: string, mediaUrl: (storageK
   };
 }
 
+/** The newest revision of a variant by created_at (ties by id), or undefined for a legacy variant that has none. */
+export async function currentRevision(db: Db | UserDb, variantId: string) {
+  const [r] = await db.select().from(variantRevisions).where(eq(variantRevisions.variantId, variantId)).orderBy(desc(variantRevisions.createdAt), desc(variantRevisions.id)).limit(1);
+  return r;
+}
+
 /**
  * One UPDATE: the target becomes approved, every other approved/completed variant of the job becomes completed, only if the target is
  * completed or approved. It deliberately writes every completed/approved row of the job (not just the changed ones): two concurrent
  * approves then contend for the same row locks, and the loser re-evaluates its SET and WHERE against the winner's committed row
  * (READ COMMITTED), so it demotes the winner. Touching only changed rows would let both commit and leave two approved.
  */
-export async function approveVariant(udb: UserDb, jobId: string, n: number): Promise<'ok' | 'not_found' | 'conflict'> {
+export async function approveVariant(udb: UserDb, jobId: string, n: number): Promise<'ok' | 'not_found' | 'conflict' | 'unlocked'> {
+  // A variant with revisions can only be approved at a locked current revision; legacy variants (none) approve as before.
+  const [target] = await udb.select({ id: variants.id }).from(variants).where(and(eq(variants.jobId, jobId), eq(variants.variantNo, n)));
+  if (target && (await currentRevision(udb, target.id))?.locked === false) return 'unlocked';
   const eligible = inArray(variants.status, ['completed', 'approved']);
   const done = await udb
     .update(variants)

@@ -4,12 +4,12 @@ import { strategize } from '@adforge/core/llm/strategize';
 import type { DirectorVariant, StrategistOutput } from '@adforge/core/llm/schemas';
 import { StorageKey } from '@adforge/core/spec/video-spec';
 import { analyzePlate } from '@adforge/core/understand/analyze';
-import { buildSpec } from '@adforge/core/spec/build-spec';
+import { DEFAULT_THEME, buildSpec, type BeatAssets } from '@adforge/core/spec/build-spec';
 import { readSpec } from '@adforge/core/spec/upgrade-spec';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import { shortlist, type Shortlist } from '@adforge/core/vocab/shortlist';
 import { loadRegistry } from '@adforge/db/registry';
-import { assets, jobs, providerCalls, variants } from '@adforge/db/schema';
+import { assets, jobs, providerCalls, variantRevisions, variants } from '@adforge/db/schema';
 import { Rejected, normalizeStored } from './normalize';
 import { markProgress, setJobStatus } from './progress';
 import { jobScope, orgOfJob, recordCall, refFromKey } from './record';
@@ -219,17 +219,15 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
       await failVariant(n, 'missing plate, cutout or voice');
       continue;
     }
+    const beatAssets: BeatAssets[] = beats.map((x, b) => ({
+      plate: x.plate!, cutout: plates.cutout!, voice: { key: x.voice!.key, durationSec: x.voice!.durationSec }, words: x.voice!.words,
+      ...(broll[n]?.beat === b ? { broll: { key: broll[n]!.key, durationSec: broll[n]!.durationSec } } : {}),
+    }));
+    const base = { id: `${jobId}-v${n}`, variant: v, theme: DEFAULT_THEME };
     // A spec that won't build is deterministic — retrying can't fix it, so it fails this variant only.
     const built = await step.run(`spec:${n}`, async () => {
       try {
-        const spec = buildSpec({
-          id: `${jobId}-v${n}`,
-          variant: v,
-          beats: beats.map((x, b) => ({
-            plate: x.plate!, cutout: plates.cutout!, voice: { key: x.voice!.key, durationSec: x.voice!.durationSec }, words: x.voice!.words,
-            ...(broll[n]?.beat === b ? { broll: { key: broll[n]!.key, durationSec: broll[n]!.durationSec } } : {}),
-          })),
-        });
+        const spec = buildSpec({ id: base.id, variant: v, beats: beatAssets, theme: base.theme });
         await db.update(variants).set({ spec }).where(oneVariant(n));
         return { spec };
       } catch (e) {
@@ -245,6 +243,12 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
       await failVariant(n, `spec failed: ${e instanceof Error ? e.message : String(e)}`);
       continue;
     }
+    // Revision 0 = the original generation, locked so generate-then-approve keeps working. Idempotent: one root per variant (unique index).
+    await step.run(`revision0:${n}`, async () => {
+      const [row] = await db.update(variants).set({ projectBase: base }).where(oneVariant(n)).returning({ id: variants.id, orgId: variants.orgId });
+      await db.insert(variantRevisions).values({ orgId: row!.orgId, variantId: row!.id, ops: [], beats: beatAssets, spec, status: 'ready', locked: true }).onConflictDoNothing();
+      return true;
+    });
     await step.run(`mark:render:${n}`, () => markProgress(db, jobId, 'render', 'running', `variant ${n}`).then(() => true));
     const out = await step.heavy('render', `heavy:render:${n}`, { jobId, variantNo: n, spec });
     if ('error' in out) { await failVariant(n, `render failed: ${out.error}`); continue; }

@@ -9,7 +9,7 @@ import { orgForEvent } from './record';
 import type { PipelineDeps, StepLike } from './types';
 
 export const inngest = new Inngest({ id: 'adforge', isDev: true });
-export const EVENTS = { jobRequested: 'adforge/job.requested', productIngest: 'adforge/product.ingest' } as const;
+export const EVENTS = { jobRequested: 'adforge/job.requested', productIngest: 'adforge/product.ingest', variantEdit: 'adforge/variant.edit' } as const;
 
 /** One GPU/CPU-heavy step at a time across ALL heavy functions (env scope + constant key = shared lane). */
 export const HEAVY_CONCURRENCY: [{ scope: 'env'; key: string; limit: number }] = [{ scope: 'env', key: '"heavy"', limit: 1 }];

@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assetsForInsert } from '../src/assets-insert';
+import { revisionsForInsert } from '../src/revisions-insert';
 import { openDb, type Db } from '../src/client';
 import * as schema from '../src/schema';
 import { withUser } from '../src/with-user';
@@ -14,7 +15,7 @@ const url = process.env.ADFORGE_TEST_DATABASE_URL;
 /** Tables without org_id. Each is covered by its own policy; adding a table means adding it here or giving it org_id. */
 const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes'];
 /** Every org_id table, in creation order (parents first). The coverage test fails if the schema gains one not listed. */
-const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls', 'library_assets', 'recipes'] as const;
+const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls', 'library_assets', 'recipes', 'variant_revisions'] as const;
 /** Primary-key column where it is not `id`. */
 const PK: Partial<Record<Tenant, string>> = { recipes: 'key' };
 const pkOf = (t: Tenant) => sql.identifier(PK[t] ?? 'id');
@@ -22,7 +23,7 @@ type Tenant = (typeof TENANT)[number];
 type Fixture = { org: string; user: string } & Record<Tenant, string>;
 
 /** What a member writes directly (migration 0009); everything else is the worker's, on the owner connection. */
-const INSERTABLE: readonly Tenant[] = ['projects', 'products', 'assets', 'jobs'];
+const INSERTABLE: readonly Tenant[] = ['projects', 'products', 'assets', 'jobs', 'variant_revisions'];
 const UPDATABLE: Partial<Record<Tenant, string>> = { projects: 'name', products: 'name', variants: 'status' };
 /** authenticated's exact privileges per public table; column-level UPDATE shown as UPDATE(cols). */
 const PRIVILEGES: Record<string, string[]> = {
@@ -31,6 +32,7 @@ const PRIVILEGES: Record<string, string[]> = {
   assets: ['SELECT', 'INSERT(bytes,created_at,duration_sec,height,id,kind,mime,org_id,project_id,sha256,source_url,storage_key,width)'],
   jobs: ['SELECT', 'INSERT'],
   variants: ['SELECT', 'UPDATE(status)'],
+  variant_revisions: ['SELECT', 'INSERT(beats,id,locked,ops,org_id,parent_id,status,variant_id)', 'UPDATE(locked)'],
   provider_calls: ['SELECT'],
   library_assets: ['SELECT'],
   recipes: ['SELECT'],
@@ -88,6 +90,11 @@ const ROW: Record<Tenant, (db: Db, f: Fixture, id: string) => Promise<unknown>> 
     }),
   library_assets: (db, f, id) =>
     db.insert(schema.libraryAssets).values({ id, orgId: f.org, projectId: f.projects, tag: `@prop_rls_${id}`, version: 1, kind: 'prop', descriptor: 'rls' }),
+  // The fixture's own row (id === f.variant_revisions) is revision 0, as the worker writes it; any other id is a member's child edit.
+  variant_revisions: (db, f, id) =>
+    id === f.variant_revisions
+      ? db.insert(schema.variantRevisions).values({ id, orgId: f.org, variantId: f.variants, ops: [], beats: [], spec: {}, status: 'ready', locked: true })
+      : db.insert(revisionsForInsert).values({ id, orgId: f.org, variantId: f.variants, parentId: f.variant_revisions, ops: [], beats: [], status: 'pending', locked: false }),
   recipes: (db, f, id) => db.insert(schema.recipes).values({ key: id, orgId: f.org, kind: 'tts', recipe: {}, outputKey: 'k' }),
 };
 
@@ -247,6 +254,26 @@ describe.each(backends)('RLS on %s', (_name, open) => {
       }
     });
   }
+
+  it('variant_revisions: members cannot plant ready/locked/spec rows, lock only a ready row, and never unlock', async () => {
+    const child = (cols: string, vals: ReturnType<typeof sql>) => withUser(db, a.user, (u) => u.execute(sql`
+      insert into variant_revisions (id, org_id, variant_id, parent_id, ops, beats, ${sql.raw(cols)})
+      values (${randomUUID()}, ${a.org}, ${a.variants}, ${a.variant_revisions}, '[]'::jsonb, '[]'::jsonb, ${vals})`));
+    expect(await errorCode(child('status, locked', sql`'ready', false`))).toBe('42501');
+    expect(await errorCode(child('status, locked', sql`'pending', true`))).toBe('42501');
+    expect(await errorCode(child('status, spec', sql`'pending', '{}'::jsonb`))).toBe('42501');
+    expect(await errorCode(child('status, render_asset_id', sql`'pending', ${a.assets}`))).toBe('42501');
+    expect(await errorCode(withUser(db, a.user, (u) => u.execute(sql`update variant_revisions set status = 'ready' where id = ${a.variant_revisions}`)))).toBe('42501');
+    // Pending child: lock refused by policy (0 rows). A ready one locks; unlocking is refused.
+    const pending = randomUUID();
+    await db.execute(sql`insert into variant_revisions (id, org_id, variant_id, parent_id, ops, beats, status) values (${pending}, ${a.org}, ${a.variants}, ${a.variant_revisions}, '[]'::jsonb, '[]'::jsonb, 'pending')`);
+    const lock = (id: string, v: boolean) => withUser(db, a.user, (u) => u.execute(sql`update variant_revisions set locked = ${v} where id = ${id} returning id`));
+    expect(await affected(lock(pending, true))).toBe(0);
+    await db.execute(sql`update variant_revisions set status = 'ready' where id = ${pending}`);
+    expect(await affected(lock(pending, true))).toBe(1);
+    expect(await affected(lock(pending, false))).toBe('denied');
+    expect(await affected(lock(b.variant_revisions, true))).toBe(0);
+  });
 
   it('a member sees only their own org, membership and user row; registry is read-only', async () => {
     await withUser(db, a.user, async (u) => {

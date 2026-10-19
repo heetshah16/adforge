@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { inArray } from 'drizzle-orm';
 import type { Db } from '@adforge/db/client';
-import { assets, jobs, memberships, orgs, projects, users, variants } from '@adforge/db/schema';
+import { assets, jobs, memberships, orgs, projects, users, variantRevisions, variants } from '@adforge/db/schema';
 
 export type Tenant = { orgId: string; userId: string; projectId: string; jobId: string };
 /** One org with a member, a project, a job and variants 1..statuses.length (owner connection, as the worker would). */
@@ -20,6 +20,7 @@ export async function makeTenant(db: Db, statuses: ('pending' | 'running' | 'com
 export async function dropTenants(db: Db, ts: Tenant[]) {
   const o = ts.map((t) => t.orgId);
   if (!o.length) return;
+  await db.delete(variantRevisions).where(inArray(variantRevisions.orgId, o));
   await db.delete(variants).where(inArray(variants.orgId, o));
   await db.delete(jobs).where(inArray(jobs.orgId, o));
   await db.delete(assets).where(inArray(assets.orgId, o));

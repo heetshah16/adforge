@@ -11,8 +11,10 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 const id = () => uuid().primaryKey().defaultRandom();
 const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
@@ -21,6 +23,7 @@ export const vocabKind = pgEnum('vocab_kind', ['archetype', 'format', 'hook']);
 export const vocabStatus = pgEnum('vocab_status', ['proposed', 'experimental', 'active', 'retired']);
 export const jobStatus = pgEnum('job_status', ['queued', 'running', 'completed', 'failed']);
 export const variantStatus = pgEnum('variant_status', ['pending', 'running', 'completed', 'failed', 'approved']);
+export const revisionStatus = pgEnum('revision_status', ['ready', 'pending', 'failed']);
 export const callStatus = pgEnum('call_status', ['pending', 'done', 'failed']);
 export const membershipRole = pgEnum('membership_role', ['owner', 'member']);
 export const waitlistStatus = pgEnum('waitlist_status', ['new', 'invited', 'joined']);
@@ -270,6 +273,8 @@ export const variants = pgTable(
     isExploratory: boolean().notNull().default(false),
     direction: jsonb(),
     spec: jsonb(),
+    /** The ProjectBase (variant + theme) revisions compile against; written at the spec step. NULL on legacy variants. */
+    projectBase: jsonb(),
     status: variantStatus().notNull().default('pending'),
     renderAssetId: uuid(),
     costUsd: doublePrecision().notNull().default(0),
@@ -282,6 +287,38 @@ export const variants = pgTable(
     index().on(t.orgId),
     foreignKey({ columns: [t.jobId, t.orgId], foreignColumns: [jobs.id, jobs.orgId] }),
     // MATCH SIMPLE: a NULL render_asset_id is not checked.
+    foreignKey({ columns: [t.renderAssetId, t.orgId], foreignColumns: [assets.id, assets.orgId] }),
+  ],
+);
+
+/**
+ * A chain of edit-op revisions per variant; revision 0 (parent_id NULL, ops []) is the original generation and is created locked.
+ * `ops` is this revision's OWN ops (the effective ops are the chain from revision 0). A locked revision is immutable: unlocking
+ * means creating a child. Users insert/lock through the revision routes (column grants, migration 0017); the worker owns the rest.
+ */
+export const variantRevisions = pgTable(
+  'variant_revisions',
+  {
+    id: id(),
+    orgId: uuid().notNull().references(() => orgs.id),
+    variantId: uuid().notNull(),
+    parentId: uuid(),
+    ops: jsonb().notNull(),
+    beats: jsonb().notNull(),
+    spec: jsonb(),
+    status: revisionStatus().notNull(),
+    locked: boolean().notNull().default(false),
+    error: jsonb(),
+    renderAssetId: uuid(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique().on(t.id, t.orgId),
+    index().on(t.variantId, t.createdAt),
+    uniqueIndex().on(t.variantId).where(sql`${t.parentId} is null`),
+    foreignKey({ columns: [t.variantId, t.orgId], foreignColumns: [variants.id, variants.orgId] }),
+    // MATCH SIMPLE: a NULL parent_id / render_asset_id is not checked.
+    foreignKey({ columns: [t.parentId, t.orgId], foreignColumns: [t.id, t.orgId] }),
     foreignKey({ columns: [t.renderAssetId, t.orgId], foreignColumns: [assets.id, assets.orgId] }),
   ],
 );

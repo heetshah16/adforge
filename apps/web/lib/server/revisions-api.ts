@@ -1,0 +1,108 @@
+import { and, asc, eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { EditOp, classifyEdit, compileProject, type ProjectBase } from '@adforge/core/project';
+import type { BeatAssets } from '@adforge/core/spec/build-spec';
+import { variantRevisions, variants } from '@adforge/db/schema';
+import { revisionsForInsert } from '@adforge/db/revisions-insert';
+import type { UserDb } from '@adforge/db/with-user';
+import { isSiteOrigin } from './origin';
+import { readTextCapped } from './read-capped';
+import type { SessionUser } from './session';
+
+/** Everything the revision routes touch, injected so tests can run them on PGlite with a fake session. */
+export type RevisionsCtx = {
+  auth(): Promise<SessionUser | Response>;
+  run<T>(userId: string, fn: (udb: UserDb) => Promise<T>): Promise<T>;
+  siteUrl: string;
+  /** Queues adforge/variant.edit { revisionId }; called after the row commits. */
+  send(revisionId: string): Promise<void>;
+  /** Owner connection: marks a revision whose event could not be queued as failed. */
+  fail(revisionId: string, reason: string): Promise<void>;
+};
+
+const MAX_JSON = 256 * 1024;
+const json = (body: unknown, status = 200) => Response.json(body, { status });
+const notFound = () => json({ error: 'not found' }, 404);
+const forbidden = () => json({ error: 'forbidden' }, 403);
+const Body = z.object({ parentId: z.uuid(), ops: z.array(EditOp).min(1).max(50) });
+const isUuid = (s: string) => z.uuid().safeParse(s).success;
+
+export async function listRevisionsHandler(ctx: RevisionsCtx, variantId: string): Promise<Response> {
+  const user = await ctx.auth();
+  if (user instanceof Response) return user;
+  if (!isUuid(variantId)) return notFound();
+  const rows = await ctx.run(user.userId, async (udb) => {
+    const [v] = await udb.select({ id: variants.id }).from(variants).where(eq(variants.id, variantId));
+    if (!v) return null;
+    return udb.select().from(variantRevisions).where(eq(variantRevisions.variantId, variantId)).orderBy(asc(variantRevisions.createdAt), asc(variantRevisions.id));
+  });
+  if (!rows) return notFound();
+  return json(rows.map((r) => ({ id: r.id, parentId: r.parentId, ops: r.ops, status: r.status, locked: r.locked, createdAt: r.createdAt.toISOString() })));
+}
+
+export async function createRevisionHandler(ctx: RevisionsCtx, req: Request, variantId: string): Promise<Response> {
+  const user = await ctx.auth();
+  if (user instanceof Response) return user;
+  if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
+  if (!isUuid(variantId)) return notFound();
+  const text = await readTextCapped(req, MAX_JSON);
+  if (text === null) return json({ error: 'request too large' }, 413);
+  const parsed = Body.safeParse((() => { try { return JSON.parse(text); } catch { return null; } })());
+  if (!parsed.success) return json({ error: 'invalid request', issues: parsed.error.issues }, 400);
+  const { parentId, ops } = parsed.data;
+
+  const out = await ctx.run(user.userId, async (udb): Promise<Response | { id: string }> => {
+    const [v] = await udb.select().from(variants).where(eq(variants.id, variantId));
+    if (!v) return notFound();
+    const chain = await udb.select().from(variantRevisions).where(eq(variantRevisions.variantId, variantId));
+    const byId = new Map(chain.map((r) => [r.id, r]));
+    const parent = byId.get(parentId);
+    if (!parent) return notFound();
+    // lock is the lock route's. unlock is allowed only as the sole op on a locked parent: a locked revision is immutable, so "unlocking" it is a child.
+    const unlockOnly = ops.length === 1 && ops[0]!.op === 'unlock';
+    if (ops.some((o) => o.op === 'lock' || (o.op === 'unlock' && !(unlockOnly && parent.locked)))) return json({ error: 'use the lock routes to lock; unlock is only valid as the single op on a locked revision' }, 409);
+    if (parent.locked && !unlockOnly) return json({ error: 'revision is locked; send [unlock] to branch an editable revision' }, 409);
+    if (parent.status !== 'ready') return json({ error: 'revision is not ready' }, 409);
+    if (ops.some((o) => classifyEdit(o) === 'structural')) return json({ error: 'structural edits arrive with Director v2' }, 422);
+    if (!v.projectBase) return json({ error: 'variant has no editable project' }, 409);
+    // Effective ops = the chain from revision 0 to the parent. A newly posted op that drops for anything but missing_target is rejected.
+    const inherited: EditOp[][] = [];
+    for (let r: typeof parent | undefined = parent; r; r = r.parentId ? byId.get(r.parentId) : undefined) inherited.unshift(r.ops as EditOp[]);
+    const { dropped } = compileProject({ base: v.projectBase as ProjectBase, ops: [...inherited.flat(), ...ops] }, parent.beats as BeatAssets[]);
+    const bad = dropped.filter((d) => ops.includes(d.op) && d.reason !== 'missing_target');
+    if (bad.length) return json({ error: 'invalid edit', dropped: bad }, 422);
+    // beats, status and locked are never the caller's. ponytail: no row lock on the parent, so a lock racing this insert can leave an edit child under a just-locked parent; harmless, the parent stays immutable.
+    const [row] = await udb.insert(revisionsForInsert).values({ orgId: v.orgId, variantId, parentId, ops, beats: parent.beats, status: 'pending', locked: false }).returning({ id: revisionsForInsert.id });
+    return { id: row!.id };
+  });
+  if (out instanceof Response) return out;
+  // After commit, so the worker can see the row.
+  try {
+    await ctx.send(out.id);
+  } catch (e) {
+    await ctx.fail(out.id, e instanceof Error ? e.message : String(e));
+    return json({ error: 'could not queue the edit' }, 503);
+  }
+  return json({ revisionId: out.id }, 202);
+}
+
+export async function lockRevisionHandler(ctx: RevisionsCtx, req: Request, variantId: string, rev: string): Promise<Response> {
+  const user = await ctx.auth();
+  if (user instanceof Response) return user;
+  if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
+  if (!isUuid(variantId) || !isUuid(rev)) return notFound();
+  return ctx.run(user.userId, async (udb) => {
+    const where = and(eq(variantRevisions.id, rev), eq(variantRevisions.variantId, variantId));
+    const hit = await udb.update(variantRevisions).set({ locked: true }).where(and(where, eq(variantRevisions.status, 'ready'))).returning({ id: variantRevisions.id });
+    if (hit.length) return json({ locked: rev });
+    const [r] = await udb.select({ id: variantRevisions.id }).from(variantRevisions).where(where);
+    return r ? json({ error: 'only a ready revision can be locked' }, 409) : notFound();
+  });
+}
+
+export async function unlockRevisionHandler(ctx: RevisionsCtx, req: Request): Promise<Response> {
+  const user = await ctx.auth();
+  if (user instanceof Response) return user;
+  if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
+  return json({ error: 'a locked revision is immutable; POST [unlock] as an edit to branch a new revision' }, 409);
+}
