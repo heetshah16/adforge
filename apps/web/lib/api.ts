@@ -39,7 +39,11 @@ export async function createJob(form: FormData, fetchImpl: typeof fetch = fetch)
     if (!mint.ok || !m.key) return { ok: false, error: m.error ?? `photo ${i + 1}: upload failed (HTTP ${mint.status})` };
     if (!m.exists) {
       if (!m.url) return { ok: false, error: `photo ${i + 1}: upload failed` };
-      const put = await fetchImpl(m.url, { method: 'PUT', headers: m.headers, body: file });
+      const put = await fetchImpl(m.url, { method: 'PUT', headers: m.headers, body: file, signal: AbortSignal.timeout(120_000) }).catch((e: unknown) => {
+        if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) return null;
+        throw e;
+      });
+      if (!put) return { ok: false, error: `photo ${i + 1}: upload timed out` };
       if (!put.ok) return { ok: false, error: `photo ${i + 1}: upload failed (HTTP ${put.status})` };
     }
     photoKeys.push(m.key);

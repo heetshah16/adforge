@@ -165,10 +165,13 @@ describe('job create: key ownership (prod store)', () => {
     keys.forEach((k) => present.add(k));
     const big = ctx(a);
     big.storage = { ...(big.storage as object), head: async (k: string) => ({ bytes: k === keys[1] ? 11 * 1024 * 1024 : 9, mime: 'image/png' }) } as never;
+    const before = await counts(a);
     expect((await createJobHandler(big, post({ ...FIELDS, photoKeys: keys }))).status).toBe(400);
+    expect(await counts(a)).toEqual(before);
     const wrong = ctx(a);
     wrong.storage = { ...(wrong.storage as object), head: async () => ({ bytes: 9, mime: 'video/mp4' }) } as never;
     expect((await createJobHandler(wrong, post({ ...FIELDS, photoKeys: keys }))).status).toBe(400);
+    expect(await counts(a)).toEqual(before);
   });
   it('happy path: own org keys -> 202, asset sha256 from the key', async () => {
     const t = await makeTenant(h.db, []);
@@ -184,9 +187,15 @@ describe('job create: key ownership (prod store)', () => {
 
 describe('route-level guards and retry', () => {
   const base = { r2: false, siteUrl: SITE, auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, send: async () => {}, fail: async () => {} };
-  it('declared Content-Length over 64 KB -> 413 before parsing', async () => {
+  it('declared Content-Length over 16 KB -> 413 before parsing', async () => {
     const ctx: JobsCtx = { ...base, run: async () => { throw new Error('must not touch the db'); } };
-    const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body: 'x', headers: { origin: SITE, 'content-length': String(65 * 1024) } }));
+    const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body: 'x', headers: { origin: SITE, 'content-length': String(17 * 1024) } }));
+    expect(res.status).toBe(413);
+  });
+  it('a chunked (no Content-Length) job body over 16 KB -> 413', async () => {
+    const ctx: JobsCtx = { ...base, run: async () => { throw new Error('must not touch the db'); } };
+    const body = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('x'.repeat(20 * 1024))); c.close(); } });
+    const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body, headers: { origin: SITE }, duplex: 'half' } as RequestInit));
     expect(res.status).toBe(413);
   });
   it('approve retries once on a deadlock (40P01, even wrapped) and then succeeds', async () => {

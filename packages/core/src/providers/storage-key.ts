@@ -26,3 +26,10 @@ export function orgOfKey(key: string): string | null {
   if (!STORAGE_KEY_RE.test(key)) throw new Error(`not a storage key: ${key}`);
   return key.startsWith('org/') ? key.slice(4, 40) : null;
 }
+
+/** Splits a storage key into its org (null for a dev key), sha256 and extension; null when it is not a storage key. */
+export function parseKey(key: string): { org: string | null; sha: string; ext: string } | null {
+  if (!STORAGE_KEY_RE.test(key)) return null;
+  const m = /^(?:org\/([^/]+)\/)?[0-9a-f]{2}\/([0-9a-f]{64})\.([a-z0-9]+)$/.exec(key)!;
+  return { org: m[1] ?? null, sha: m[2]!, ext: m[3]! };
+}

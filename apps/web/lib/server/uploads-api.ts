@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { MIME_EXT, STORAGE_KEY_RE, orgKey, orgOfKey } from '@adforge/core/providers/storage-key';
+import { MIME_EXT, orgKey, parseKey } from '@adforge/core/providers/storage-key';
 import { MAX_PHOTO, PHOTO_TYPES } from '@adforge/pipeline/job-input';
 import { isSiteOrigin } from './origin';
+import { readBytesCapped } from './read-capped';
 import type { SessionUser } from './session';
 
 /** What the upload routes need from the media store. R2 presigns; local disk is written through our own PUT route. */
@@ -21,7 +22,7 @@ export type UploadsCtx = {
 
 export const PRESIGN_TTL_SEC = 300;
 const json = (body: unknown, status = 200) => Response.json(body, { status });
-const MIME_BY_EXT: Record<string, string> = Object.fromEntries(Object.entries(MIME_EXT).map(([m, e]) => [e, m]));
+const MIME_BY_EXT: Record<string, string> = Object.assign(Object.create(null), Object.fromEntries(Object.entries(MIME_EXT).map(([m, e]) => [e, m])));
 const Mint = z.object({ mime: z.string(), bytes: z.number().int().positive(), sha256: z.string().regex(/^[0-9a-f]{64}$/, 'sha256 must be 64 lowercase hex chars') });
 
 /** Rejects what mint and the dev PUT both refuse, by type then size. Null = acceptable. */
@@ -66,15 +67,14 @@ export async function localPutHandler(ctx: UploadsCtx, req: Request, keyParts: s
   if (user instanceof Response) return user;
   if (!isSiteOrigin(req, ctx.siteUrl)) return json({ error: 'forbidden' }, 403);
   const key = keyParts.join('/');
-  if (!STORAGE_KEY_RE.test(key) || orgOfKey(key) !== null) return json({ error: 'invalid key' }, 400);
-  const [, keySha, ext] = /^[0-9a-f]{2}\/([0-9a-f]{64})\.([a-z0-9]+)$/.exec(key)!;
-  const mime = MIME_BY_EXT[ext!]!;
-  if (!PHOTO_TYPES.includes(mime)) return json({ error: `unsupported type ${mime}` }, 400);
-  if (Number(req.headers.get('content-length') ?? 0) > MAX_PHOTO) return json({ error: 'photo larger than 10 MB' }, 413);
+  const k = parseKey(key);
+  if (!k || k.org !== null || key.slice(0, 2) !== k.sha.slice(0, 2)) return json({ error: 'invalid key' }, 400);
+  const mime = MIME_BY_EXT[k.ext];
+  if (!mime || !PHOTO_TYPES.includes(mime)) return json({ error: `unsupported type .${k.ext}` }, 400);
   if (!ctx.store.put) throw new Error('local store cannot put');
-  const bytes = new Uint8Array(await req.arrayBuffer());
-  if (bytes.byteLength > MAX_PHOTO) return json({ error: 'photo larger than 10 MB' }, 413);
-  if (createHash('sha256').update(bytes).digest('hex') !== keySha || key.slice(0, 2) !== keySha!.slice(0, 2)) return json({ error: 'body does not match the key' }, 400);
+  const bytes = await readBytesCapped(req, MAX_PHOTO);
+  if (!bytes) return json({ error: 'photo larger than 10 MB' }, 413);
+  if (createHash('sha256').update(bytes).digest('hex') !== k.sha) return json({ error: 'body does not match the key' }, 400);
   await ctx.store.put(bytes, { mime });
   return json({ key });
 }

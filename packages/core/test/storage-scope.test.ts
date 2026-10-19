@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MIME_EXT, orgKey, orgOfKey } from '../src/providers/storage-key';
+import { MIME_EXT, orgKey, orgOfKey, parseKey } from '../src/providers/storage-key';
 import { storageOrg, withStorageOrg } from '../src/providers/storage-scope';
 import { StorageKey } from '../src/spec/video-spec';
 
@@ -46,5 +46,17 @@ describe('storage scope', () => {
   it('MIME_EXT is frozen and covers the stored media types', () => {
     expect(MIME_EXT['image/jpeg']).toBe('jpg');
     expect(Object.isFrozen(MIME_EXT)).toBe(true);
+  });
+});
+
+describe('parseKey', () => {
+  const sha = 'ab'.repeat(32);
+  const org = '11111111-2222-4333-8444-555555555555';
+  it('splits org, sha and ext; null org for dev keys', () => {
+    expect(parseKey(`org/${org}/ab/${sha}.png`)).toEqual({ org, sha, ext: 'png' });
+    expect(parseKey(`ab/${sha}.jpg`)).toEqual({ org: null, sha, ext: 'jpg' });
+  });
+  it('null for anything that is not a storage key', () => {
+    for (const k of ['', '../x', `org/../../ab/${sha}.png`, `ab/${sha}`, 'x/y.png']) expect(parseKey(k)).toBeNull();
   });
 });

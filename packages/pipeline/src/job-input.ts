@@ -61,5 +61,6 @@ export function parseJobRequest(body: unknown): JobRequest {
   const r = Request_.safeParse(body);
   if (!r.success) return bad('invalid fields', z.flattenError(r.error).fieldErrors) as JobRequest;
   const { photoKeys, ...fields } = r.data;
+  if (new Set(photoKeys).size !== photoKeys.length) return bad('photos must be different files') as JobRequest;
   return { ok: true, fields, photoKeys };
 }

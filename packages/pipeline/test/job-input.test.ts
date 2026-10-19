@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_BODY, parseJobUpload } from '../src/job-input';
+import { MAX_BODY, parseJobRequest, parseJobUpload } from '../src/job-input';
 
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 const JPG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1]);
@@ -42,5 +42,16 @@ describe('parseJobUpload', () => {
   it('413 when the photos together exceed the body cap', async () => {
     expect(MAX_BODY).toBe(30 * 1024 * 1024);
     expect(await parseJobUpload(form({}, three()), { maxBody: 5 })).toMatchObject({ ok: false, status: 413 });
+  });
+});
+
+describe('parseJobRequest', () => {
+  const key = (i: number) => `ab/${String(i).repeat(64).slice(0, 64).replace(/[^0-9a-f]/g, 'a')}.png`;
+  const base = { name: 'S', price: '1', description: 'd', language: 'en', broll: false };
+  it('accepts 3 distinct keys', () => {
+    expect(parseJobRequest({ ...base, photoKeys: [key(1), key(2), key(3)] })).toMatchObject({ ok: true });
+  });
+  it('rejects duplicate keys', () => {
+    expect(parseJobRequest({ ...base, photoKeys: [key(1), key(1), key(3)] })).toEqual({ ok: false, status: 400, error: 'photos must be different files' });
   });
 });

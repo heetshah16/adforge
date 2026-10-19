@@ -75,12 +75,21 @@ describe('PUT /api/uploads/local/[...key]', () => {
     expect((await localPutHandler(ctxDev(store), put(PNG), ['ab', `${SHA}.png`])).status).toBe(400);
     expect(await store.head(`ab/${SHA}.png`)).toBeNull();
   });
+  it('a chunked (no Content-Length) body over the cap -> 413, nothing written', async () => {
+    const store = dev();
+    const big = new ReadableStream({ start(c) { c.enqueue(new Uint8Array(11 * 1024 * 1024)); c.close(); } });
+    const r = await localPutHandler(ctxDev(store), new Request('http://w/x', { method: 'PUT', body: big, headers: { origin: SITE }, duplex: 'half' } as RequestInit), k);
+    expect(r.status).toBe(413);
+    expect(await store.head(k.join('/'))).toBeNull();
+  });
   it('r2 profile -> 404; cross-origin -> 403; no session -> 401; oversize -> 413; non-dev key -> 400', async () => {
     expect((await localPutHandler(ctxDev(dev(), { r2: true }), put(PNG), k)).status).toBe(404);
     expect((await localPutHandler(ctxDev(), put(PNG, 'http://evil.example'), k)).status).toBe(403);
     expect((await localPutHandler(ctxDev(dev(), { auth: async () => Response.json({}, { status: 401 }) }), put(PNG), k)).status).toBe(401);
     expect((await localPutHandler(ctxDev(), new Request('http://w/x', { method: 'PUT', body: new Blob([PNG as BlobPart]), headers: { origin: SITE, 'content-length': String(11 * 1024 * 1024) } }), k)).status).toBe(413);
     expect((await localPutHandler(ctxDev(), put(PNG), ['..', 'x'])).status).toBe(400);
+    const odd = await localPutHandler(ctxDev(), put(PNG), [h.slice(0, 2), `${h}.constructor`]);
+    expect([odd.status, await odd.json()]).toEqual([400, { error: 'unsupported type .constructor' }]);
     expect((await localPutHandler(ctxDev(), put(PNG), ['org', ORG, h.slice(0, 2), `${h}.png`])).status).toBe(400);
   });
 });
