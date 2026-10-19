@@ -10,7 +10,8 @@ import { openDb } from '@adforge/db/client';
 import { seedOperator, seedVocabulary } from '@adforge/db/seed/seed';
 import sharp from 'sharp';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
-import type { PipelineDeps } from '../src/types';
+import { HEAVY } from '../src/heavy';
+import type { PipelineDeps, StepLike } from '../src/types';
 
 /** A tiny decodable PNG, distinct per (a, b): uploads are re-decoded by the normalize step, so fake bytes no longer pass. */
 export const realPng = (a: number, b = 0) =>
@@ -61,7 +62,7 @@ export async function makeDeps(ctl: FakeControls = {}) {
     env: parseEnv({}),
     sleep: async () => {},
     comfy: {
-      workflowHashes: { 'plate-flux-schnell': 'p'.repeat(64) },
+      workflowHashes: { 'plate-flux-schnell': 'p'.repeat(64), 'cutout-birefnet': 'c'.repeat(64), 'broll-wan22-5b': 'b'.repeat(64) },
       preflight: async () => { if (ctl.comfyDown) throw new ProviderError('comfyui', 'UPSTREAM', 'ComfyUI unreachable'); },
       free: async () => { calls.free++; },
       systemStats: async () => ({ vramUsedBytes: 0, vramTotalBytes: 16e9 }),
@@ -117,4 +118,27 @@ export async function makeDeps(ctl: FakeControls = {}) {
 export async function jobRow(deps: PipelineDeps): Promise<string> {
   const [j] = await deps.db.insert(jobs).values({ ...(await seedOperator(deps.db)), inputSpec: {} }).returning();
   return j!.id;
+}
+
+/** Memoizing fake of Inngest's step: JSON round-trip like the real one; heavy tasks run inline. */
+export function memoStep(deps: PipelineDeps, cache = new Map<string, unknown>()): StepLike & { cache: Map<string, unknown> } {
+  const run = async <T>(id: string, fn: () => Promise<T>): Promise<T> => {
+    if (!cache.has(id)) cache.set(id, JSON.parse(JSON.stringify((await fn()) ?? null)));
+    return cache.get(id) as T;
+  };
+  return {
+    cache,
+    run,
+    heavy: (task, id, payload) => run(id, () => (HEAVY[task] as (d: PipelineDeps, p: unknown) => Promise<unknown>)(deps, payload)) as never,
+  };
+}
+
+/** A queued job with three real photos; `broll` turns b-roll on. */
+export async function newJob(deps: PipelineDeps, broll = false, scope?: { orgId: string; projectId: string; userId: string }) {
+  const photos = await Promise.all([1, 2, 3].map((i) => realPng(i).then((b) => deps.storage.put(b, { mime: 'image/png' }))));
+  const [job] = await deps.db.insert(jobs).values({
+    ...(scope ?? (await seedOperator(deps.db))),
+    inputSpec: { product: { name: 'Sattvik Oil', price: '₹450', description: 'Wood-pressed groundnut oil.' }, language: 'en', broll, photoKeys: photos.map((p) => p.id) },
+  }).returning();
+  return job!.id;
 }

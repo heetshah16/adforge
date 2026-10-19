@@ -158,6 +158,23 @@ export const libraryAssets = pgTable(
   ],
 );
 
+/**
+ * Content-addressed recipes (C2): `key` is recipeKey(recipe), which includes the org, so a hit never crosses orgs.
+ * `output_key` is the storage key of what the recipe produced. Written by the pipeline on the owner connection; members read only.
+ */
+export const recipes = pgTable(
+  'recipes',
+  {
+    key: text().primaryKey(),
+    orgId: uuid().notNull().references(() => orgs.id),
+    kind: text().notNull(),
+    recipe: jsonb().notNull(),
+    outputKey: text().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.orgId, t.kind)],
+);
+
 // --- the adaptive vocabulary (architecture §5.1) ----------------------------
 // Slugs are the attribution key: never renamed, never reused, never deleted.
 

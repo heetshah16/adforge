@@ -14,7 +14,10 @@ const url = process.env.ADFORGE_TEST_DATABASE_URL;
 /** Tables without org_id. Each is covered by its own policy; adding a table means adding it here or giving it org_id. */
 const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes'];
 /** Every org_id table, in creation order (parents first). The coverage test fails if the schema gains one not listed. */
-const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls', 'library_assets'] as const;
+const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls', 'library_assets', 'recipes'] as const;
+/** Primary-key column where it is not `id`. */
+const PK: Partial<Record<Tenant, string>> = { recipes: 'key' };
+const pkOf = (t: Tenant) => sql.identifier(PK[t] ?? 'id');
 type Tenant = (typeof TENANT)[number];
 type Fixture = { org: string; user: string } & Record<Tenant, string>;
 
@@ -30,6 +33,7 @@ const PRIVILEGES: Record<string, string[]> = {
   variants: ['SELECT', 'UPDATE(status)'],
   provider_calls: ['SELECT'],
   library_assets: ['SELECT'],
+  recipes: ['SELECT'],
   orgs: ['SELECT'],
   memberships: ['SELECT'],
   users: ['SELECT'],
@@ -84,6 +88,7 @@ const ROW: Record<Tenant, (db: Db, f: Fixture, id: string) => Promise<unknown>> 
     }),
   library_assets: (db, f, id) =>
     db.insert(schema.libraryAssets).values({ id, orgId: f.org, projectId: f.projects, tag: `@prop_rls_${id}`, version: 1, kind: 'prop', descriptor: 'rls' }),
+  recipes: (db, f, id) => db.insert(schema.recipes).values({ key: id, orgId: f.org, kind: 'tts', recipe: {}, outputKey: 'k' }),
 };
 
 async function makeOrg(db: Db): Promise<Fixture> {
@@ -193,14 +198,15 @@ describe.each(backends)('RLS on %s', (_name, open) => {
   for (const t of TENANT) {
     describe(t, () => {
       const T = sql.identifier(t);
+      const ID = pkOf(t);
 
       it(`a member of A sees A's row and none of B's`, async () => {
-        expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select id from ${T} where id = ${a[t]}`)))).toBe(1);
-        expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select id from ${T} where org_id = ${b.org}`)))).toBe(0);
+        expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select ${ID} from ${T} where ${ID} = ${a[t]}`)))).toBe(1);
+        expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select ${ID} from ${T} where org_id = ${b.org}`)))).toBe(0);
       });
 
       const update = (id: string, column: string) => withUser(db, a.user, (u) =>
-        u.execute(sql`update ${T} set ${sql.identifier(column)} = ${sql.identifier(column)} where id = ${id} returning id`));
+        u.execute(sql`update ${T} set ${sql.identifier(column)} = ${sql.identifier(column)} where ${ID} = ${id} returning ${ID}`));
 
       it(`a member of A updates and deletes 0 of B's rows, and never moves a row between orgs`, async () => {
         const col = UPDATABLE[t];
@@ -210,9 +216,9 @@ describe.each(backends)('RLS on %s', (_name, open) => {
         }
         expect(await affected(update(b[t], 'org_id'))).toBe('denied');
         expect(await affected(update(a[t], 'org_id'))).toBe('denied');
-        const del = withUser(db, a.user, (u) => u.execute(sql`delete from ${T} where id = ${b[t]} returning id`));
+        const del = withUser(db, a.user, (u) => u.execute(sql`delete from ${T} where ${ID} = ${b[t]} returning ${ID}`));
         expect(await affected(del)).toBe('denied');
-        expect(await affected(db.execute(sql`select id from ${T} where id = ${b[t]}`))).toBe(1); // still there
+        expect(await affected(db.execute(sql`select ${ID} from ${T} where ${ID} = ${b[t]}`))).toBe(1); // still there
       });
 
       it(`a member of A cannot insert a row with org_id = B`, async () => {
@@ -234,7 +240,7 @@ describe.each(backends)('RLS on %s', (_name, open) => {
         });
       }
 
-      if (t !== 'projects') {
+      if (t !== 'projects' && t !== 'recipes') { // a recipe's only parent is its org
         it(`a row in org A cannot reference org B's parents (composite FK, even for the owner)`, async () => {
           expect(await errorCode(ROW[t](db, { ...b, org: a.org, user: a.user }, randomUUID()))).toBe('23503');
         });
@@ -272,10 +278,10 @@ describe.each(backends)('RLS on %s', (_name, open) => {
   });
 
   it('anon reads nothing from any tenant table or the waitlist', async () => {
-    for (const t of [...TENANT, 'waitlist']) {
+    for (const t of [...TENANT, 'waitlist'] as const) {
       const r = db.transaction(async (tx) => {
         await tx.execute(sql`set local role anon`);
-        return tx.execute(sql`select id from ${sql.identifier(t)}`);
+        return tx.execute(sql`select ${t === 'waitlist' ? sql.identifier('id') : pkOf(t)} from ${sql.identifier(t)}`);
       });
       expect([0, 'denied'], t).toContain(await affected(r));
     }

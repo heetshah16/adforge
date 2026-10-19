@@ -3,11 +3,8 @@ import { eq } from 'drizzle-orm';
 import { loadPrompt } from '@adforge/core/llm/prompts';
 import { ProviderError } from '@adforge/core/providers/types';
 import { assets, jobs, orgs, projects, providerCalls, variants } from '@adforge/db/schema';
-import { seedOperator } from '@adforge/db/seed/seed';
-import { HEAVY } from '../src/heavy';
 import { generateAds } from '../src/orchestrate';
-import type { PipelineDeps, StepLike } from '../src/types';
-import { PLATE, anchor, makeDeps, realPng } from './fakes';
+import { PLATE, anchor, makeDeps, memoStep, newJob } from './fakes';
 
 /** buildSpec stays real; a test can make one variant's spec throw. */
 const specFault = vi.hoisted(() => ({ variantNo: 0 }));
@@ -16,30 +13,8 @@ vi.mock('@adforge/core/spec/build-spec', async (orig) => {
   return { ...m, buildSpec: (i: Parameters<typeof m.buildSpec>[0]) => { if (i.variant.variant_no === specFault.variantNo) throw new Error('spec boom'); return m.buildSpec(i); } };
 });
 
-/** Memoizing fake of Inngest's step: JSON round-trip like the real one; heavy tasks run inline. */
-function memoStep(deps: PipelineDeps, cache = new Map<string, unknown>()): StepLike & { cache: Map<string, unknown> } {
-  const run = async <T>(id: string, fn: () => Promise<T>): Promise<T> => {
-    if (!cache.has(id)) cache.set(id, JSON.parse(JSON.stringify((await fn()) ?? null)));
-    return cache.get(id) as T;
-  };
-  return {
-    cache,
-    run,
-    heavy: (task, id, payload) => run(id, () => (HEAVY[task] as (d: PipelineDeps, p: unknown) => Promise<unknown>)(deps, payload)) as never,
-  };
-}
-
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; specFault.variantNo = 0; });
-
-async function newJob(deps: PipelineDeps, broll = false, scope?: { orgId: string; projectId: string; userId: string }) {
-  const photos = await Promise.all([1, 2, 3].map((i) => realPng(i).then((b) => deps.storage.put(b, { mime: 'image/png' }))));
-  const [job] = await deps.db.insert(jobs).values({
-    ...(scope ?? (await seedOperator(deps.db))),
-    inputSpec: { product: { name: 'Sattvik Oil', price: '₹450', description: 'Wood-pressed groundnut oil.' }, language: 'en', broll, photoKeys: photos.map((p) => p.id) },
-  }).returning();
-  return job!.id;
-}
 
 describe('generateAds', () => {
   it('a rejected photo fails the job at stage normalize with the message; no plates step runs', async () => {

@@ -4,9 +4,10 @@ import { NonRetriableError } from 'inngest';
 import { z } from 'zod';
 import { MIME_EXT, STORAGE_KEY_RE } from '@adforge/core/providers/storage-key';
 import type { MediaRef, ProviderResult, StorageProvider } from '@adforge/core/providers/types';
+import { recipeKey, type Recipe } from '@adforge/core/recipe/index';
 import type { Db } from '@adforge/db/client';
 import { assetsForInsert } from '@adforge/db/assets-insert';
-import { assets, jobs, products, providerCalls } from '@adforge/db/schema';
+import { assets, jobs, products, providerCalls, recipes } from '@adforge/db/schema';
 import { toWire, type WireResult } from './wire';
 
 /** The job row is the only source of a pipeline write's org and project — never the worker's own config. */
@@ -78,6 +79,18 @@ export async function saveAsset(db: Db, scope: { orgId: string; projectId: strin
     .onConflictDoNothing();
   const [row] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.orgId, orgId), eq(assets.sha256, ref.sha256)));
   return row!.id;
+}
+
+/** Records what produced `outputKey`. The first output for a key wins: a later run with the same recipe is a cache hit, not a rewrite. */
+export async function recordRecipe(db: Db, recipe: Recipe, outputKey: string): Promise<string> {
+  const key = recipeKey(recipe);
+  await db.insert(recipes).values({ key, orgId: recipe.orgId, kind: recipe.kind, recipe, outputKey }).onConflictDoNothing({ target: recipes.key });
+  return key;
+}
+
+export async function findRecipe(db: Db, key: string): Promise<{ outputKey: string } | null> {
+  const [r] = await db.select({ outputKey: recipes.outputKey }).from(recipes).where(eq(recipes.key, key));
+  return r ?? null;
 }
 
 const MIME = Object.fromEntries(Object.entries(MIME_EXT).map(([mime, ext]) => [ext, mime]));

@@ -1,15 +1,17 @@
+import { createHash } from 'node:crypto';
 import { PIPELINE, QwenSpeaker } from '@adforge/core/config/pipeline';
 import { TREATMENTS } from '@adforge/core/config/treatments';
 import type { DirectorVariant } from '@adforge/core/llm/schemas';
 import type { MediaRef, ProviderResult, VoiceBible } from '@adforge/core/providers/types';
 import { ttsText } from '@adforge/core/llm/tts-text';
+import { canonicalJson, type Recipe } from '@adforge/core/recipe/index';
 import { alignCaptions } from '@adforge/core/spec/align-captions';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import type { Language } from '@adforge/core/vocab/enums';
 import { and, desc, eq } from 'drizzle-orm';
 import { formatTag, makeTag } from '@adforge/core/library/tags';
 import { libraryAssets } from '@adforge/db/schema';
-import { jobScope, recordCall, refFromKey, saveAsset } from './record';
+import { jobScope, recordCall, recordRecipe, refFromKey, saveAsset } from './record';
 import type { BrollResult, PipelineDeps, PlateResult, PlateVisionResult, RenderResult, VoiceBeats, VoiceResult } from './types';
 import { toWire } from './wire';
 
@@ -24,6 +26,20 @@ async function call<T>(deps: PipelineDeps, jobId: string, kind: string, provider
 type Scope = { orgId: string; projectId: string };
 const keep = async (deps: PipelineDeps, scope: Scope, kind: string, r: ProviderResult<MediaRef>) =>
   r.status === 'done' ? (await saveAsset(deps.db, scope, kind, r.value), r.value) : null;
+
+/** Records how `ref` was made, after the call succeeded and inside the same step; a failed call records nothing. Returns `ref`. */
+async function remember<T extends { id: string }>(deps: PipelineDeps, scope: Scope, r: Omit<Recipe, 'orgId'>, ref: T | null): Promise<T | null> {
+  if (ref) await recordRecipe(deps.db, { ...r, orgId: scope.orgId }, ref.id);
+  return ref;
+}
+/** A comfy recipe's model is its workflow; its version is that workflow's hash, as the config snapshot records it. */
+function comfyModel(deps: PipelineDeps, workflow: string): { model: string; version: string } {
+  const version = deps.comfy.workflowHashes[workflow];
+  if (!version) throw new Error(`no ComfyUI workflow hash for ${workflow}: a recipe without it could hit across workflow changes`);
+  return { model: workflow, version };
+}
+/** TTS and alignment output depend on the whole voice config (engine routing, speaker, instructs, ASR language), as the snapshot records it. */
+const VOICE_VERSION = createHash('sha256').update(canonicalJson(PIPELINE.voice)).digest('hex');
 
 type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallback: string; triedTag: string; warn: boolean };
 /**
@@ -67,17 +83,19 @@ export const HEAVY = {
       for (const v of p.variants) {
         for (const [b, s] of v.scenes.entries()) {
           const key = `${p.jobId}:plate:${v.variant_no}:${b}`;
-          const r = await call(deps, p.jobId, 'image', deps.comfy.image.id, key, () =>
-            deps.comfy.image.generate({ prompt: `${s.scene}, ${TREATMENTS[v.visual_treatment].platePromptSuffix}`, width: PIPELINE.plate.width, height: PIPELINE.plate.height, idempotencyKey: key }),
-          );
-          plates[`${v.variant_no}:${b}`] = (await keep(deps, scope, 'plate', r))?.id ?? null;
+          const req = { prompt: `${s.scene}, ${TREATMENTS[v.visual_treatment].platePromptSuffix}`, width: PIPELINE.plate.width, height: PIPELINE.plate.height };
+          const r = await call(deps, p.jobId, 'image', deps.comfy.image.id, key, () => deps.comfy.image.generate({ ...req, idempotencyKey: key }));
+          const ref = await keep(deps, scope, 'plate', r);
+          await remember(deps, scope, { kind: 'plate', provider: deps.comfy.image.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_PLATE), request: req }, ref);
+          plates[`${v.variant_no}:${b}`] = ref?.id ?? null;
         }
       }
       const photo = await refFromKey(deps.storage, p.photoKey);
       const c = await call(deps, p.jobId, 'cutout', deps.comfy.cutout.id, `${p.jobId}:cutout`, () =>
         deps.comfy.cutout.cutout({ image: photo, idempotencyKey: `${p.jobId}:cutout` }),
       );
-      return { cutout: (await keep(deps, scope, 'cutout', c))?.id ?? null, plates };
+      const cut = await remember(deps, scope, { kind: 'cutout', provider: deps.comfy.cutout.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_CUTOUT), request: { imageKey: photo.id } }, await keep(deps, scope, 'cutout', c));
+      return { cutout: cut?.id ?? null, plates };
     } finally {
       await deps.comfy.free().catch(() => {});
     }
@@ -122,12 +140,13 @@ export const HEAVY = {
         const key = `${p.jobId}:broll:${v.variant_no}`;
         try {
           const firstFrame = await refFromKey(deps.storage, p.plates[`${v.variant_no}:${beat}`]!);
+          const req = {
+            mode: 'image_to_video', prompt: `${v.scenes[beat]!.scene}, subtle ambient motion, static camera`,
+            durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p',
+          } as const;
           let result: ProviderResult<MediaRef> | null = null;
           for (let attempt = 0; attempt < 2; attempt++) {
-            const handle = await deps.comfy.video.submit({
-              mode: 'image_to_video', prompt: `${v.scenes[beat]!.scene}, subtle ambient motion, static camera`, firstFrame,
-              durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p', idempotencyKey: key,
-            });
+            const handle = await deps.comfy.video.submit({ ...req, firstFrame, idempotencyKey: key });
             // Deterministic deadline: elapsed is the sum of requested poll waits, not the wall clock.
             let elapsed = 0;
             let r = await deps.comfy.video.poll(handle);
@@ -145,7 +164,9 @@ export const HEAVY = {
             jobId: p.jobId, kind: 'video', provider: deps.comfy.video.id, idempotencyKey: key, result: res,
             latencyMs: res.status === 'done' ? res.latencyMs : undefined, costUsd: res.status === 'done' ? res.cost.amountUsd : 0,
           });
-          const ref = await keep(deps, scope, 'broll', res);
+          const ref = await remember(deps, scope, {
+            kind: 'broll', provider: deps.comfy.video.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_BROLL), request: { ...req, imageKey: firstFrame.id },
+          }, await keep(deps, scope, 'broll', res));
           out[v.variant_no] = ref ? { beat, key: ref.id, durationSec: ref.durationSec ?? PIPELINE.broll.durationSec } : null;
         } catch (e) {
           // B-roll is never fatal: the beat degrades to its plate.
@@ -182,17 +203,26 @@ export const HEAVY = {
           let text: string;
           try { text = ttsText(s, p.language); } catch { out[`${v.variant_no}:${b}`] = null; continue; }
           const tKey = `${p.jobId}:tts:${v.variant_no}:${b}`;
-          const t = await call(deps, p.jobId, 'tts', deps.voice.tts.idFor?.(p.language) ?? deps.voice.tts.id, tKey, () =>
-            deps.voice.tts.synthesize({ text, language: p.language, emotion: s.emotion, idempotencyKey: tKey, ...(bible ? { voiceBible: bible } : {}) }),
-            voiceUsed,
-          );
-          const audio = await keep(deps, scope, 'voice', t);
+          const ttsProvider = deps.voice.tts.idFor?.(p.language) ?? deps.voice.tts.id;
+          const req = { text, language: p.language, emotion: s.emotion, ...(bible ? { voiceBible: { ...bible } } : {}) }; // spread: an interface is not a JsonValue
+          const t = await call(deps, p.jobId, 'tts', ttsProvider, tKey, () => deps.voice.tts.synthesize({ ...req, idempotencyKey: tKey }), voiceUsed);
+          const audio = await remember(deps, scope, {
+            kind: 'tts', provider: ttsProvider, model: PIPELINE.voice.engineByLanguage[p.language], version: VOICE_VERSION, request: req,
+          }, await keep(deps, scope, 'voice', t));
           if (!audio) { out[`${v.variant_no}:${b}`] = null; continue; }
           const dur = audio.durationSec ?? 0;
           const aKey = `${p.jobId}:align:${v.variant_no}:${b}`;
           const a = await call(deps, p.jobId, 'align', deps.voice.aligner.id, aKey, () =>
             deps.voice.aligner.align({ audio, text, language: p.language, idempotencyKey: aKey }),
           );
+          if (a.status === 'done') {
+            // Alignment has no media output: its words are stored as JSON, so a recipe hit can skip the aligner too.
+            const stored = await deps.storage.put(new TextEncoder().encode(JSON.stringify(a.value)), { mime: 'application/json' });
+            await remember(deps, scope, {
+              kind: 'align', provider: deps.voice.aligner.id, model: deps.env.ADFORGE_PROVIDER_ALIGNER, version: VOICE_VERSION,
+              request: { audioKey: audio.id, text, language: p.language },
+            }, stored);
+          }
           const words = alignCaptions(s, p.language, a.status === 'done' ? a.value.words : [], dur);
           out[`${v.variant_no}:${b}`] = { key: audio.id, durationSec: dur, words };
         }
