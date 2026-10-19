@@ -1,0 +1,128 @@
+import { createHash } from 'node:crypto';
+import { AwsClient } from 'aws4fetch';
+import { z } from 'zod';
+import { classifyFailure, classifyStatus, readClassified } from '@adforge/core/providers/http';
+import { MIME_EXT, STORAGE_KEY_RE, orgKey } from '@adforge/core/providers/storage-key';
+import { storageOrg } from '@adforge/core/providers/storage-scope';
+import { ProviderError, type MediaRef, type PutOptions, type StorageProvider } from '@adforge/core/providers/types';
+import { R2Config } from './config';
+
+const P = 'r2';
+const LABEL = 'R2';
+/** R2 presigned URLs live 1 second to 7 days (docs/providers/r2.md). */
+const Ttl = z.number().int().min(1).max(604_800);
+const PresignPutOpts = z.object({ mime: z.string().refine((m) => m in MIME_EXT, 'unsupported mime'), bytes: z.number().int().positive(), ttlSec: Ttl });
+
+function assertKey(key: string): void {
+  if (!STORAGE_KEY_RE.test(key)) throw new Error(`not a storage key: ${key}`);
+}
+
+/** Maps a HEAD response to its metadata: 404 is absence, not an error. */
+export function headFromResponse(status: number, headers: Headers): { bytes: number; mime: string } | null {
+  if (status === 404) return null;
+  if (status !== 200) throw new ProviderError(P, classifyStatus(status), `${LABEL} HEAD -> HTTP ${status}`);
+  const bytes = Number(headers.get('content-length'));
+  const mime = headers.get('content-type');
+  if (!Number.isInteger(bytes) || bytes < 0 || !mime) throw new ProviderError(P, 'UPSTREAM', `${LABEL} HEAD response lacks content-length/content-type`);
+  return { bytes, mime };
+}
+
+export class R2Storage implements StorageProvider {
+  readonly id = 'r2';
+  private readonly cfg: R2Config;
+  private readonly aws: AwsClient;
+
+  /** `datetime` pins the signing clock (tests only): form `20261019T000000Z`. */
+  constructor(
+    cfg: R2Config,
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly datetime?: () => string,
+  ) {
+    this.cfg = R2Config.parse(cfg);
+    // retries: 0, the timeout and retry policy are ours (aws4fetch's default is 10 retries).
+    this.aws = new AwsClient({ accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, service: 's3', region: 'auto', retries: 0 });
+  }
+
+  urlFor(key: string): string {
+    assertKey(key);
+    return `${this.cfg.publicUrl.replace(/\/$/, '')}/media/${key}`;
+  }
+
+  private endpoint(key: string): URL {
+    assertKey(key);
+    return new URL(`https://${this.cfg.accountId}.r2.cloudflarestorage.com/${this.cfg.bucket}/${key}`);
+  }
+
+  private sign(url: URL, method: string, headers: Record<string, string>, body: Uint8Array | undefined, signQuery = false) {
+    // allHeaders: aws4fetch skips content-type by default; we want it signed (R2 then rejects a different type).
+    return this.aws.sign(url.toString(), { method, headers, body, aws: { allHeaders: true, signQuery, datetime: this.datetime?.() } });
+  }
+
+  /** One signed request under a deadline covering the body. 404 returns as-is (callers map it); other non-2xx throw. */
+  private async send(method: string, key: string, headers: Record<string, string> = {}, body?: Uint8Array): Promise<{ status: number; headers: Headers; body: Uint8Array }> {
+    const signed = await this.sign(this.endpoint(key), method, headers, body);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), this.cfg.timeoutMs);
+    const what = `${method} /${this.cfg.bucket}/${key}`;
+    try {
+      let res: Response;
+      try {
+        res = await this.fetchImpl(signed.url, { method, headers: signed.headers, body, signal: ctl.signal });
+      } catch (e) {
+        throw classifyFailure(P, LABEL, e, what, this.cfg.timeoutMs);
+      }
+      const buf = await readClassified(P, LABEL, what, this.cfg.timeoutMs, async () => new Uint8Array(await res.arrayBuffer()));
+      if (res.status === 404 || res.ok) return { status: res.status, headers: res.headers, body: buf };
+      const detail = new TextDecoder().decode(buf).slice(0, 500);
+      const code = res.status === 429 ? 'RATE_LIMIT' : res.status < 500 ? 'INVALID_INPUT' : 'UPSTREAM';
+      throw new ProviderError(P, code, `${LABEL} ${what} -> HTTP ${res.status}: ${detail}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async head(key: string): Promise<{ bytes: number; mime: string } | null> {
+    const r = await this.send('HEAD', key);
+    return headFromResponse(r.status, r.headers);
+  }
+
+  async put(bytes: Uint8Array, opts: PutOptions): Promise<MediaRef> {
+    const org = storageOrg();
+    if (!org) throw new Error('missing storage org scope: R2Storage.put must run inside withStorageOrg');
+    const ext = MIME_EXT[opts.mime];
+    if (!ext) throw new Error(`Unsupported mime type: ${opts.mime}`);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const key = orgKey(org, sha256, ext);
+    // Content-addressed + locked prod bucket (no overwrite): skip the PUT when the object exists.
+    if (!(await this.head(key))) {
+      const r = await this.send('PUT', key, { 'content-type': opts.mime }, bytes);
+      if (r.status !== 200) throw new ProviderError(P, 'UPSTREAM', `${LABEL} PUT -> HTTP ${r.status}`);
+    }
+    return { id: key, url: this.urlFor(key), mime: opts.mime, sha256, bytes: bytes.byteLength, width: opts.width, height: opts.height, durationSec: opts.durationSec };
+  }
+
+  async read(key: string): Promise<Uint8Array> {
+    const r = await this.send('GET', key);
+    if (r.status === 404) throw new ProviderError(P, 'INVALID_INPUT', `${LABEL} GET ${key}: no such object`);
+    return r.body;
+  }
+
+  /**
+   * URL + headers for a browser PUT. content-type is signed. `bytes` is validated but NOT signed:
+   * docs/providers/r2.md records that R2's Content-Length enforcement on presigned PUT is undocumented.
+   */
+  async presignPut(key: string, o: { mime: string; bytes: number; ttlSec: number }): Promise<{ url: string; headers: Record<string, string> }> {
+    const v = PresignPutOpts.parse(o);
+    const url = this.endpoint(key);
+    url.searchParams.set('X-Amz-Expires', String(v.ttlSec));
+    const headers = { 'content-type': v.mime };
+    const signed = await this.sign(url, 'PUT', headers, undefined, true);
+    return { url: signed.url, headers };
+  }
+
+  async presignGet(key: string, ttlSec: number): Promise<string> {
+    const url = this.endpoint(key);
+    url.searchParams.set('X-Amz-Expires', String(Ttl.parse(ttlSec)));
+    return (await this.sign(url, 'GET', {}, undefined, true)).url;
+  }
+}
