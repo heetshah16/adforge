@@ -22,6 +22,7 @@
     "e2e:llm": "pnpm --filter @adforge/provider-claude-agent-sdk e2e",
     "e2e:pipeline": "pnpm --filter @adforge/worker e2e",
     "e2e:library": "pnpm --filter @adforge/worker e2e:library",
+    "e2e:r2": "pnpm --filter @adforge/worker e2e:r2",
     "e2e:ui": "pnpm --filter @adforge/web e2e"
   },
   "devDependencies": {
