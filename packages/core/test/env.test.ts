@@ -32,6 +32,11 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ ADFORGE_PROVIDER_STORAGE: 'r2', ...noBucket })).toThrow(/R2_BUCKET/);
   });
 
+  it.each(['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'])('r2 requires %s', (k) => {
+    const { [k]: _, ...rest } = R2 as Record<string, string>;
+    expect(() => parseEnv({ ADFORGE_PROVIDER_STORAGE: 'r2', ...rest })).toThrow(new RegExp(k));
+  });
+
   it('r2 defaults: 30s timeout, 900s media TTL; the TTL is range-checked', () => {
     const env = parseEnv({ ADFORGE_PROVIDER_STORAGE: 'r2', ...R2 });
     expect(env.R2_TIMEOUT_MS).toBe(30_000);

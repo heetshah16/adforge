@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { STORAGE_KEY_RE } from '@adforge/core/providers/storage-key';
 import type { MediaRef, PutOptions, StorageProvider } from '@adforge/core/providers/types';
@@ -34,24 +34,33 @@ export class CachedStorage implements StorageProvider {
     return ref;
   }
 
+  /** Any cache read failure is a miss: the cache is best-effort, the inner store is the truth. */
   async read(key: string): Promise<Uint8Array> {
     const path = this.pathFor(key);
     try {
       return await readFile(path);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    } catch {
+      // miss
     }
     const bytes = await this.inner.read(key); // its errors propagate unchanged
     await this.fill(key, bytes);
     return bytes;
   }
 
-  /** Write-then-rename so a crash never leaves a truncated file under a valid key. */
+  /**
+   * Best-effort: never throws, so a failed cache write cannot fail a read or put that already succeeded.
+   * Write-then-rename so a crash never leaves a truncated file under a valid key.
+   */
   private async fill(key: string, bytes: Uint8Array): Promise<void> {
-    const path = this.pathFor(key);
-    await mkdir(dirname(path), { recursive: true });
-    const tmp = `${path}.${randomUUID()}.tmp`;
-    await writeFile(tmp, bytes);
-    await rename(tmp, path);
+    let tmp = '';
+    try {
+      const path = this.pathFor(key);
+      tmp = `${path}.${randomUUID()}.tmp`;
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(tmp, bytes);
+      await rename(tmp, path);
+    } catch {
+      if (tmp) await unlink(tmp).catch(() => {});
+    }
   }
 }

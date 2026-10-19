@@ -6,6 +6,9 @@ import type { MediaRef, PutOptions, StorageProvider } from '@adforge/core/provid
 
 export { CachedStorage } from './cached';
 
+/** Extension -> mime, the inverse of MIME_EXT. */
+const MIME_BY_EXT: Readonly<Record<string, string>> = Object.freeze(Object.fromEntries(Object.entries(MIME_EXT).map(([mime, ext]) => [ext, mime])));
+
 /** Dev keys only: unprefixed (no org), unlike prod's org-scoped keys. */
 const KEY = /^[0-9a-f]{2}\/[0-9a-f]{64}\.[a-z0-9]+$/;
 
@@ -69,7 +72,7 @@ export class LocalDiskStorage implements StorageProvider {
       throw e;
     }
     const ext = key.slice(key.lastIndexOf('.') + 1);
-    const mime = Object.keys(MIME_EXT).find((m) => MIME_EXT[m] === ext) ?? 'application/octet-stream';
+    const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream';
     return { bytes: size, mime };
   }
 }

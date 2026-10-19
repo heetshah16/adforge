@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -15,11 +15,13 @@ class MemStore implements StorageProvider {
   readonly files = new Map<string, Uint8Array>();
   readonly reads: string[] = [];
   puts = 0;
+  /** The key the next put stores under. */
+  nextKey = KEY;
 
   async put(bytes: Uint8Array, opts: PutOptions): Promise<MediaRef> {
     this.puts++;
-    this.files.set(KEY, bytes);
-    return { id: KEY, url: this.urlFor(KEY), mime: opts.mime, sha256: 'a'.repeat(64), bytes: bytes.byteLength };
+    this.files.set(this.nextKey, bytes);
+    return { id: this.nextKey, url: this.urlFor(this.nextKey), mime: opts.mime, sha256: 'a'.repeat(64), bytes: bytes.byteLength };
   }
   async read(key: string): Promise<Uint8Array> {
     this.reads.push(key);
@@ -85,6 +87,49 @@ describe('CachedStorage', () => {
     }
     expect(inner.reads).toEqual([]);
     expect(existsSync(dir)).toBe(false);
+  });
+
+  it('parallel reads on a cold cache both resolve to the same bytes', async () => {
+    inner.files.set(KEY, BYTES);
+    const cs = new CachedStorage(inner, dir);
+    const [a, b] = await Promise.all([cs.read(KEY), cs.read(KEY)]);
+    expect(Buffer.from(a)).toEqual(Buffer.from(BYTES));
+    expect(Buffer.from(b)).toEqual(Buffer.from(BYTES));
+    expect(readFileSync(CACHE_FILE(dir))).toEqual(Buffer.from(BYTES));
+  });
+
+  it('a failing cache fill does not fail read or put', async () => {
+    // The cache dir is a FILE, so mkdir/readFile under it fail.
+    writeFileSync(dir, 'not a dir');
+    inner.files.set(KEY, BYTES);
+    const cs = new CachedStorage(inner, dir);
+    expect(Buffer.from(await cs.read(KEY))).toEqual(Buffer.from(BYTES));
+    const ref = await cs.put(BYTES, { mime: 'image/png' });
+    expect(ref.id).toBe(KEY);
+  });
+
+  it('a failed rename leaves no .tmp file behind and the read still succeeds', async () => {
+    // A directory at the target makes rename(tmp, target) fail.
+    mkdirSync(CACHE_FILE(dir), { recursive: true });
+    inner.files.set(KEY, BYTES);
+    const cs = new CachedStorage(inner, dir);
+    expect(Buffer.from(await cs.read(KEY))).toEqual(Buffer.from(BYTES));
+    expect(readdirSync(join(dir, 'ab')).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('an org key reads and writes under <dir>/org/<uuid>/ab/<sha>.png', async () => {
+    const uuid = '0123abcd-0123-4abc-8def-0123456789ab';
+    const orgKey = `org/${uuid}/ab/${'a'.repeat(64)}.png`;
+    const orgPath = join(dir, 'org', uuid, 'ab', `${'a'.repeat(64)}.png`);
+    inner.files.set(orgKey, BYTES);
+    const cs = new CachedStorage(inner, dir);
+    expect(Buffer.from(await cs.read(orgKey))).toEqual(Buffer.from(BYTES));
+    expect(readFileSync(orgPath)).toEqual(Buffer.from(BYTES));
+    // put writes the cache under the org key the inner store returns.
+    rmSync(orgPath);
+    inner.nextKey = orgKey;
+    await cs.put(BYTES, { mime: 'image/png' });
+    expect(readFileSync(orgPath)).toEqual(Buffer.from(BYTES));
   });
 
   it('id is cached:<inner id>, urlFor delegates to inner', () => {

@@ -36,6 +36,13 @@ describe('storage profile', () => {
     const { R2_BUCKET: _, ...noBucket } = R2P;
     expect(() => parseServerEnv({ ...OK, ...noBucket })).toThrow(/R2_BUCKET/);
   });
+  it('R2_TIMEOUT_MS defaults to 30000 and ADFORGE_MEDIA_TTL_SEC is range-checked', () => {
+    const e = parseServerEnv({ ...OK, ...R2P });
+    expect(e.R2_TIMEOUT_MS).toBe(30_000);
+    expect(e.ADFORGE_MEDIA_TTL_SEC).toBe(900);
+    expect(() => parseServerEnv({ ...OK, ADFORGE_MEDIA_TTL_SEC: '59' })).toThrow(/ADFORGE_MEDIA_TTL_SEC/);
+    expect(() => parseServerEnv({ ...OK, ADFORGE_MEDIA_TTL_SEC: '3601' })).toThrow(/ADFORGE_MEDIA_TTL_SEC/);
+  });
   it('local is the default and needs no R2 vars', () => {
     expect(parseServerEnv(OK).ADFORGE_PROVIDER_STORAGE).toBe('local');
   });
