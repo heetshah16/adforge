@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
+import sharp from 'sharp';
 import { REPO_ROOT, parseEnv } from '@adforge/core/config/env';
 import { withStorageOrg } from '@adforge/core/providers/storage-scope';
 import type { MediaRef } from '@adforge/core/providers/types';
@@ -86,7 +87,11 @@ try {
   });
 
   // 1. mint + CORS preflight + browser-style PUT
-  const photo = readFileSync(join(REPO_ROOT, 'fixtures', 'eval-products', 'krishna-hing-ras', '1-tins.jpg'));
+  // Unique per run: a random 4x4 patch changes the pixels, so the sha and key are new and mint must say exists:false.
+  const base = readFileSync(join(REPO_ROOT, 'fixtures', 'eval-products', 'krishna-hing-ras', '1-tins.jpg'));
+  const [r, g, b] = randomBytes(3);
+  const patch = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: r!, g: g!, b: b! } } }).png().toBuffer();
+  const photo = await sharp(base).composite([{ input: patch, left: 0, top: 0 }]).jpeg({ quality: 92 }).toBuffer();
   const sha = createHash('sha256').update(photo).digest('hex');
   const mintRes = await mintUploadHandler(uploadsCtx, new Request(`${ORIGIN}/api/uploads`, {
     method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json' },
@@ -94,15 +99,14 @@ try {
   }));
   const mint = (await mintRes.json()) as { key: string; url?: string; headers?: Record<string, string>; exists: boolean };
   check('mint ok, key is org-prefixed', mintRes.status === 200 && mint.key.startsWith(`${operator.orgId}/`), `status ${mintRes.status}`);
+  check('mint says the unique photo is new (exists:false)', mint.exists === false);
   if (mint.url) {
     const pre = await fetch(mint.url, { method: 'OPTIONS', headers: { origin: ORIGIN, 'access-control-request-method': 'PUT', 'access-control-request-headers': Object.keys(mint.headers ?? {}).join(',') } });
     const allow = pre.headers.get('access-control-allow-origin');
     check('CORS preflight allows the UI origin', pre.ok && (allow === ORIGIN || allow === '*'), `${pre.status} on ${host(mint.url)}, allow-origin=${allow}`);
     const put = await fetch(mint.url, { method: 'PUT', headers: { ...mint.headers, origin: ORIGIN }, body: photo });
     check('presigned PUT of the eval photo', put.ok, `status ${put.status}`);
-  } else {
-    console.log('  (photo already in the bucket: mint said exists, so preflight and PUT were skipped)');
-  }
+  } else check('mint returned a presigned URL', false);
   check('uploaded photo is in the bucket', (await inner.head(mint.key))?.bytes === photo.length);
 
   // 2. normalize (reads the uploaded key back through the cache, writes the normalized photo)
