@@ -15,6 +15,7 @@
     "@adforge/db": "workspace:*",
     "@adforge/pipeline": "workspace:*",
     "@adforge/provider-local-storage": "workspace:*",
+    "@adforge/provider-r2": "workspace:*",
     "@supabase/ssr": "catalog:",
     "@supabase/supabase-js": "catalog:",
     "drizzle-orm": "catalog:",

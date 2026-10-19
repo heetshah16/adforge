@@ -10,6 +10,7 @@ const OK = {
   ADFORGE_DATA_DIR: 'C:/adforge-data',
   ADFORGE_PUBLIC_URL: 'http://127.0.0.1:3001',
 };
+const R2P = { ADFORGE_PROVIDER_STORAGE: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_ACCESS_KEY_ID: 'AKID', R2_SECRET_ACCESS_KEY: 'SECRET', R2_BUCKET: 'adforge-media' };
 
 describe('parseServerEnv', () => {
   it('normalizes admin emails', () => {
@@ -26,10 +27,24 @@ describe('parseServerEnv', () => {
   });
 });
 
+describe('storage profile', () => {
+  const PROD = { ...OK, ADFORGE_ENV: 'prod', ADFORGE_SITE_URL: 'https://app.example.com', INNGEST_EVENT_KEY: 'ek' };
+  it('prod must use r2', () => {
+    expect(() => parseServerEnv({ ...PROD, ADFORGE_PROVIDER_STORAGE: 'local' })).toThrow(/ADFORGE_PROVIDER_STORAGE/);
+  });
+  it('r2 without R2_BUCKET names it', () => {
+    const { R2_BUCKET: _, ...noBucket } = R2P;
+    expect(() => parseServerEnv({ ...OK, ...noBucket })).toThrow(/R2_BUCKET/);
+  });
+  it('local is the default and needs no R2 vars', () => {
+    expect(parseServerEnv(OK).ADFORGE_PROVIDER_STORAGE).toBe('local');
+  });
+});
+
 describe('ADFORGE_ENV / ADFORGE_SITE_URL', () => {
   it('unset env: production NODE_ENV fails closed to prod (and then needs a site url)', () => {
     expect(() => parseServerEnv({ ...OK, NODE_ENV: 'production' })).toThrow(/ADFORGE_SITE_URL/);
-    expect(parseServerEnv({ ...OK, NODE_ENV: 'production', ADFORGE_SITE_URL: 'https://app.example.com', INNGEST_EVENT_KEY: 'ek' }).ADFORGE_ENV).toBe('prod');
+    expect(parseServerEnv({ ...OK, NODE_ENV: 'production', ADFORGE_SITE_URL: 'https://app.example.com', INNGEST_EVENT_KEY: 'ek', ...R2P }).ADFORGE_ENV).toBe('prod');
   });
   it('unset env: non-production NODE_ENV is dev, site url defaults to localhost:3000', () => {
     for (const NODE_ENV of [undefined, 'development', 'test']) {
@@ -39,7 +54,7 @@ describe('ADFORGE_ENV / ADFORGE_SITE_URL', () => {
     }
   });
   it('prod requires INNGEST_EVENT_KEY; dev does not', () => {
-    const prod = { ...OK, ADFORGE_ENV: 'prod', ADFORGE_SITE_URL: 'https://app.example.com' };
+    const prod = { ...OK, ...R2P, ADFORGE_ENV: 'prod', ADFORGE_SITE_URL: 'https://app.example.com' };
     expect(() => parseServerEnv(prod)).toThrow(/INNGEST_EVENT_KEY/);
     expect(parseServerEnv({ ...prod, INNGEST_EVENT_KEY: 'ek' }).INNGEST_EVENT_KEY).toBe('ek');
     expect(parseServerEnv({ ...OK, ADFORGE_ENV: 'dev' }).ADFORGE_ENV).toBe('dev');

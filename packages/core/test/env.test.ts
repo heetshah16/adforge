@@ -2,6 +2,14 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { REPO_ROOT, dataDirWarnings, parseEnv } from '../src/config/env';
 
+const R2 = {
+  R2_ACCOUNT_ID: 'a'.repeat(32),
+  R2_ACCESS_KEY_ID: 'AKID',
+  R2_SECRET_ACCESS_KEY: 'SECRET',
+  R2_BUCKET: 'adforge-media',
+};
+const PROD = { ADFORGE_ENV: 'prod', DATABASE_URL: 'postgresql://u:p@h:5432/d', ADFORGE_PROVIDER_STORAGE: 'r2', ...R2 };
+
 describe('parseEnv', () => {
   it('defaults to the dev profile with no DATABASE_URL', () => {
     const env = parseEnv({});
@@ -10,9 +18,30 @@ describe('parseEnv', () => {
   });
 
   it('requires DATABASE_URL in prod', () => {
-    expect(() => parseEnv({ ADFORGE_ENV: 'prod' })).toThrow(/DATABASE_URL/);
-    const env = parseEnv({ ADFORGE_ENV: 'prod', DATABASE_URL: 'postgresql://u:p@h:5432/d' });
+    expect(() => parseEnv({ ADFORGE_ENV: 'prod', ADFORGE_PROVIDER_STORAGE: 'r2', ...R2 })).toThrow(/DATABASE_URL/);
+    const env = parseEnv(PROD);
     expect(env.ADFORGE_ENV).toBe('prod');
+  });
+
+  it('prod with ADFORGE_PROVIDER_STORAGE=local fails to parse', () => {
+    expect(() => parseEnv({ ...PROD, ADFORGE_PROVIDER_STORAGE: 'local' })).toThrow(/ADFORGE_PROVIDER_STORAGE/);
+  });
+
+  it('r2 without R2_BUCKET fails, naming it', () => {
+    const { R2_BUCKET: _, ...noBucket } = R2;
+    expect(() => parseEnv({ ADFORGE_PROVIDER_STORAGE: 'r2', ...noBucket })).toThrow(/R2_BUCKET/);
+  });
+
+  it('r2 defaults: 30s timeout, 900s media TTL; the TTL is range-checked', () => {
+    const env = parseEnv({ ADFORGE_PROVIDER_STORAGE: 'r2', ...R2 });
+    expect(env.R2_TIMEOUT_MS).toBe(30_000);
+    expect(env.ADFORGE_MEDIA_TTL_SEC).toBe(900);
+    expect(() => parseEnv({ ADFORGE_MEDIA_TTL_SEC: '59' })).toThrow(/ADFORGE_MEDIA_TTL_SEC/);
+    expect(() => parseEnv({ ADFORGE_MEDIA_TTL_SEC: '3601' })).toThrow(/ADFORGE_MEDIA_TTL_SEC/);
+  });
+
+  it('local storage needs no R2 vars', () => {
+    expect(parseEnv({}).ADFORGE_PROVIDER_STORAGE).toBe('local');
   });
 
   it('rejects a non-postgres DATABASE_URL', () => {

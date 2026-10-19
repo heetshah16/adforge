@@ -15,9 +15,16 @@ const ServerEnv = z
     .string()
     .default('')
     .transform((s) => s.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)),
-  // Dev media until B3.
+  // Dev media on local disk; prod media on R2 (ADFORGE_PROVIDER_STORAGE=r2, same as the worker).
   ADFORGE_DATA_DIR: z.string().min(1),
   ADFORGE_PUBLIC_URL: z.url(),
+  ADFORGE_PROVIDER_STORAGE: z.enum(['local', 'r2']).default('local'),
+  R2_ACCOUNT_ID: z.string().min(1).optional(),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  R2_BUCKET: z.string().min(1).optional(),
+  R2_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  ADFORGE_MEDIA_TTL_SEC: z.coerce.number().int().min(60).max(3600).default(900),
   INNGEST_EVENT_KEY: z.string().min(1).optional(),
   INNGEST_DEV: z.string().min(1).optional(),
   })
@@ -27,6 +34,16 @@ const ServerEnv = z
       const missing = (['ADFORGE_SITE_URL', 'INNGEST_EVENT_KEY'] as const).filter((k) => !e[k]);
       for (const k of missing) ctx.addIssue({ code: 'custom', path: [k], message: 'required when ADFORGE_ENV=prod' });
       if (missing.length) return z.NEVER;
+    }
+    if (ADFORGE_ENV === 'prod' && e.ADFORGE_PROVIDER_STORAGE !== 'r2') {
+      ctx.addIssue({ code: 'custom', path: ['ADFORGE_PROVIDER_STORAGE'], message: 'must be r2 when ADFORGE_ENV=prod' });
+      return z.NEVER;
+    }
+    if (e.ADFORGE_PROVIDER_STORAGE === 'r2') {
+      for (const k of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'] as const) {
+        if (!e[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when ADFORGE_PROVIDER_STORAGE=r2` });
+      }
+      if (!e.R2_ACCOUNT_ID || !e.R2_ACCESS_KEY_ID || !e.R2_SECRET_ACCESS_KEY || !e.R2_BUCKET) return z.NEVER;
     }
     return { ...e, ADFORGE_ENV, ADFORGE_SITE_URL: e.ADFORGE_SITE_URL ?? 'http://localhost:3000' };
   });

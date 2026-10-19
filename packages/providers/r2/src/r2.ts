@@ -63,7 +63,8 @@ export class R2Storage implements StorageProvider {
 
   private sign(url: URL, method: string, headers: Record<string, string>, body: Uint8Array | undefined, signQuery = false) {
     // allHeaders: aws4fetch skips content-type by default; we want it signed (R2 then rejects a different type).
-    return this.aws.sign(url.toString(), { method, headers, body, aws: { allHeaders: true, signQuery, datetime: this.datetime?.() } });
+    // Uint8Array is a valid BodyInit at runtime; the DOM lib (web's tsconfig) types it over ArrayBufferLike, so the cast is needed there.
+    return this.aws.sign(url.toString(), { method, headers, body: body as RequestInit['body'], aws: { allHeaders: true, signQuery, datetime: this.datetime?.() } });
   }
 
   /** One signed request under a deadline covering the body. 404 returns only when allow404 (HEAD); other non-2xx throw. */
@@ -75,7 +76,7 @@ export class R2Storage implements StorageProvider {
     try {
       let res: Response;
       try {
-        res = await this.fetchImpl(signed.url, { method, headers: signed.headers, body, signal: ctl.signal });
+        res = await this.fetchImpl(signed.url, { method, headers: signed.headers, body: body as RequestInit['body'], signal: ctl.signal });
       } catch (e) {
         throw classifyFailure(P, LABEL, e, what, this.cfg.timeoutMs);
       }

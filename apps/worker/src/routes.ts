@@ -6,14 +6,15 @@ import type { PipelineDeps } from '@adforge/pipeline';
 import { MAX_BODY, parseJobUpload } from '@adforge/pipeline/job-input';
 import { failJob } from '@adforge/pipeline/progress';
 import { saveAsset } from '@adforge/pipeline/record';
-import type { LocalDiskStorage } from '@adforge/provider-local-storage';
+import type { StorageProvider } from '@adforge/core/providers/types';
+import { LocalDiskStorage } from '@adforge/provider-local-storage';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const bad = (error: string) => json({ error }, 400);
 
 /** `operator` (seedOperator's ids) owns every job the dev route creates. */
 export function makeRoutes(ctx: {
-  deps: PipelineDeps; storage: LocalDiskStorage; operator: { orgId: string; userId: string; projectId: string };
+  deps: PipelineDeps; storage: StorageProvider; operator: { orgId: string; userId: string; projectId: string };
   sendEvent(name: string, data: unknown, id?: string): Promise<void>;
 }) {
   const { deps, storage, operator } = ctx;
@@ -72,6 +73,8 @@ export function makeRoutes(ctx: {
     },
 
     async getMedia(req: Request): Promise<Response> {
+      // Dev-only: under r2 media is served from R2 (B4 replaces this route).
+      if (!(storage instanceof LocalDiskStorage)) return json({ error: 'not found' }, 404);
       let key: string;
       const reqUrl = new URL(req.url);
       try { key = decodeURIComponent(reqUrl.pathname.replace(/^\/media\//, '')); } catch { return json({ error: 'invalid media key' }, 400); }

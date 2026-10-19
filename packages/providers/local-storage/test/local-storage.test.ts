@@ -50,3 +50,11 @@ describe('LocalDiskStorage', () => {
     await expect(storage.put(bytes, { mime: 'application/x-msdownload' })).rejects.toThrow(/Unsupported mime/);
   });
 });
+
+describe('LocalDiskStorage.head', () => {
+  it('returns { bytes, mime } for a stored key and null for a missing one', async () => {
+    const ref = await storage.put(bytes, { mime: 'image/png' });
+    expect(await storage.head(ref.id)).toEqual({ bytes: bytes.byteLength, mime: 'image/png' });
+    expect(await storage.head(`00/${'0'.repeat(64)}.png`)).toBeNull();
+  });
+});

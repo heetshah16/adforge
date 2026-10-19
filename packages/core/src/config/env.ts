@@ -35,7 +35,13 @@ export const Env = z
     ADFORGE_PUBLIC_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:3001').transform((u) => u.replace(/\/+$/, '')),
     ADFORGE_UI_ORIGIN: z.url({ protocol: /^https?$/ }).default('http://localhost:3000').transform((u) => new URL(u).origin),
 
-    ADFORGE_PROVIDER_STORAGE: z.enum(['local']).default('local'),
+    ADFORGE_PROVIDER_STORAGE: z.enum(['local', 'r2']).default('local'),
+    R2_ACCOUNT_ID: z.string().min(1).optional(),
+    R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+    R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    R2_BUCKET: z.string().min(1).optional(),
+    R2_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+    ADFORGE_MEDIA_TTL_SEC: z.coerce.number().int().min(60).max(3600).default(900),
     ADFORGE_PROVIDER_IMAGE: z.enum(['comfyui']).default('comfyui'),
     ADFORGE_PROVIDER_CUTOUT: z.enum(['comfyui']).default('comfyui'),
     ADFORGE_PROVIDER_VIDEO: z.enum(['comfyui']).default('comfyui'),
@@ -61,6 +67,14 @@ export const Env = z
   .superRefine((env, ctx) => {
     if (env.ADFORGE_ENV === 'prod' && !env.DATABASE_URL) {
       ctx.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'DATABASE_URL is required when ADFORGE_ENV=prod' });
+    }
+    if (env.ADFORGE_ENV === 'prod' && env.ADFORGE_PROVIDER_STORAGE !== 'r2') {
+      ctx.addIssue({ code: 'custom', path: ['ADFORGE_PROVIDER_STORAGE'], message: 'must be r2 when ADFORGE_ENV=prod' });
+    }
+    if (env.ADFORGE_PROVIDER_STORAGE === 'r2') {
+      for (const k of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'] as const) {
+        if (!env[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when ADFORGE_PROVIDER_STORAGE=r2` });
+      }
     }
   });
 export type Env = z.infer<typeof Env>;

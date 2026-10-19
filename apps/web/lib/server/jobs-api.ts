@@ -3,7 +3,7 @@ import type { MediaRef } from '@adforge/core/providers/types';
 import { MAX_BODY, parseJobUpload } from '@adforge/pipeline/job-input';
 import { saveAsset } from '@adforge/pipeline/record';
 import type { UserDb } from '@adforge/db/with-user';
-import type { LocalDiskStorage } from '@adforge/provider-local-storage';
+import type { StorageProvider } from '@adforge/core/providers/types';
 import { approveVariant, createJobRow, ensureDefaultProject, getJobView } from '../data/jobs';
 import { isSiteOrigin } from './origin';
 import type { SessionUser } from './session';
@@ -13,7 +13,7 @@ export type JobsCtx = {
   auth(): Promise<SessionUser | Response>;
   run<T>(userId: string, fn: (udb: UserDb) => Promise<T>): Promise<T>;
   siteUrl: string;
-  storage: LocalDiskStorage;
+  storage: StorageProvider;
   send(jobId: string): Promise<void>;
   fail(jobId: string, reason: string, stage: string): Promise<void>;
 };
