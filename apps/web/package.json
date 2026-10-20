@@ -4,10 +4,8 @@
   "type": "module",
   "scripts": {
     "hf-assets": "tsx scripts/copy-hf-assets.ts",
-    "predev": "pnpm hf-assets",
-    "prebuild": "pnpm hf-assets",
-    "dev": "next dev -p 3000",
-    "build": "next build",
+    "dev": "tsx scripts/copy-hf-assets.ts && next dev -p 3000",
+    "build": "tsx scripts/copy-hf-assets.ts && next build",
     "test": "vitest run --dir test",
     "typecheck": "next typegen && tsc -p .",
     "e2e": "playwright test",

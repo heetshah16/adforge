@@ -133,6 +133,6 @@ describe('variantCards preview', () => {
   it('only a ready revision with a spec previews; legacy and pending do not', () => {
     expect(v(null).preview).toBeNull();
     expect(v(rev('pending', null)).preview).toBeNull();
-    expect(v(rev('ready', { fake: 1 })).preview).toMatchObject({ spec: { fake: 1 }, locked: true });
+    expect(v(rev('ready', { fake: 1 })).preview).toMatchObject({ id: 'r1', spec: { fake: 1 }, locked: true });
   });
 });

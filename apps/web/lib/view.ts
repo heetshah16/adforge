@@ -47,7 +47,7 @@ export function variantCards(view: JobView) {
     bet: v.strategicBet,
     status: v.status,
     canApprove: v.status === 'completed',
-    preview: v.revision?.status === 'ready' && v.revision.spec ? { spec: v.revision.spec, assetUrls: v.revision.assetUrls, locked: v.revision.locked } : null,
+    preview: v.revision?.status === 'ready' && v.revision.spec ? { id: v.revision.id, spec: v.revision.spec, assetUrls: v.revision.assetUrls, locked: v.revision.locked } : null,
     videoUrl: v.status === 'completed' || v.status === 'approved' ? v.renderUrl : null,
     ...(v.status === 'failed' ? { failureReason: why(v.error) ?? 'This variant failed — see the job log.' } : {}),
     ...(terminal && v.status !== 'failed' && !(['completed', 'approved'].includes(v.status) && v.renderUrl) ? { placeholder: 'Not rendered' } : {}),

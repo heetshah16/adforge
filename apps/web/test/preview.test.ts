@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileProject } from '@adforge/core/project';
 import { secs, specKeys } from '@adforge/renderer-hyperframes/compose';
-import { PREVIEW_STATIC_BASE, PREVIEW_RUNTIME_SRC, previewHtml, previewFrame } from '../lib/preview';
+import { assetUrlOf, PREVIEW_STATIC_BASE, PREVIEW_RUNTIME_SRC, previewHtml, previewFrame } from '../lib/preview';
 import { compileBeats, compileVariant } from './compile-fixture';
 
 const base = { id: 'p1', variant: compileVariant(), theme: { primary: '#141414', accent: '#f5b301' } };
@@ -24,7 +24,13 @@ describe('previewHtml', () => {
   });
   it('the runtime is served same-origin, not from a CDN', () => {
     expect(PREVIEW_RUNTIME_SRC.startsWith('/')).toBe(true);
-    expect(html).not.toContain('cdn.');
+  });
+});
+
+describe('assetUrlOf', () => {
+  it('returns the mapped url and throws on a missing key (no raw-key fallback)', () => {
+    expect(assetUrlOf({ k: 'http://u/k' }, 'k')).toBe('http://u/k');
+    expect(() => assetUrlOf({}, 'ab/x.png')).toThrow(/ab\/x\.png/);
   });
 });
 

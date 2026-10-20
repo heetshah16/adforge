@@ -21,7 +21,7 @@ The element is created imperatively (`document.createElement('hyperframes-player
 
 `player.play()`, `player.pause()`, `player.seek(seconds)`, `player.currentTime`, `player.duration`, events `ready`, `timeupdate`, `ended`. Seek is in seconds. `lib/preview.ts#previewFrame(frame, fps)` converts with the compositor's own `secs()` (floor to microseconds), so frame n lands inside frame n's window. `player.iframeElement` reaches the composition's document and `__timelines` (same-origin sandbox).
 
-**Deterministic seek for the e2e (ruling 6):** the preview host `<div data-preview>` carries `seekToFrame(n)`, which pauses and seeks to frame n. From Playwright: `await page.locator('[data-preview]').first().evaluate((el, n) => el.seekToFrame(n), 12)`. Wait for the `ready` event / a painted frame before screenshotting (`player.ready`; `assetsready` and `painted` events exist for images and fonts).
+**Deterministic seek for the e2e (ruling 6):** the preview host `<div data-preview>` carries `seekToFrame(n)`, which pauses and seeks to frame n. From Playwright: `await page.locator('[data-preview]').first().evaluate((el, n) => el.seekToFrame(n), 12)`. The host gets a `data-ready` attribute when the player fires `ready`; the e2e waits with `page.locator('[data-preview][data-ready]')` (open the collapsed `<details>` first). A `seekToFrame` call before ready is queued and applied at `ready`. The player is keyed on the revision id only, so poll refreshes do not remount it (`data-ready` is cleared and re-set only when the revision changes). For image/font paint, the player also fires `assetsready` and `painted`.
 
 ## How assets load
 

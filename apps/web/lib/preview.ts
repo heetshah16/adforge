@@ -9,5 +9,12 @@ export const PREVIEW_RUNTIME_SRC = `${PREVIEW_STATIC_BASE}/hyperframe.runtime.ii
 export const previewHtml = (spec: VideoSpec, mediaUrl: (key: string) => string): string =>
   composeHtml(spec, { assetUrl: mediaUrl, staticBase: PREVIEW_STATIC_BASE });
 
+/** A missing url is a bug in the job view; fail loudly rather than load the raw storage key as a URL. */
+export function assetUrlOf(assetUrls: Record<string, string>, key: string): string {
+  const u = assetUrls[key];
+  if (!u) throw new Error(`preview: no media url for asset ${key}`);
+  return u;
+}
+
 /** The player seeks in seconds; this is the compositor's own frame to seconds conversion, so frame n lands on frame n. */
 export const previewFrame = (frame: number, fps: number): number => Number(secs(frame, fps));

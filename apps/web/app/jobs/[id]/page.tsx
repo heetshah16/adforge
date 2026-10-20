@@ -95,7 +95,7 @@ export default function JobPage() {
               {c.preview && (
                 <details>
                   <summary>Composition preview{c.preview.locked ? '' : ' (unlocked)'}</summary>
-                  <VariantPreview spec={c.preview.spec} assetUrls={c.preview.assetUrls} label={`Variant ${c.variantNo} composition preview`} />
+                  <VariantPreview revisionId={c.preview.id} spec={c.preview.spec} assetUrls={c.preview.assetUrls} label={`Variant ${c.variantNo} composition preview`} />
                 </details>
               )}
               <p><strong>Bet:</strong> {c.bet}</p>
