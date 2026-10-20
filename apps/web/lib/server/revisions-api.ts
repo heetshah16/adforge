@@ -16,6 +16,8 @@ export type RevisionsCtx = {
   siteUrl: string;
   /** Queues adforge/variant.edit { revisionId }; called after the row commits. */
   send(revisionId: string): Promise<void>;
+  /** Queues adforge/variant.export { revisionId }. */
+  sendExport(revisionId: string): Promise<void>;
   /** Owner connection: marks a revision whose event could not be queued as failed. */
   fail(revisionId: string, reason: string): Promise<void>;
 };
@@ -112,4 +114,24 @@ export async function unlockRevisionHandler(ctx: RevisionsCtx, req: Request): Pr
   if (user instanceof Response) return user;
   if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
   return json({ error: 'a locked revision is immutable; POST [unlock] as an edit to branch a new revision' }, 409);
+}
+
+/** Renders a ready revision of a variant the caller's org owns (RLS scopes the read). The worker's export is idempotent, so a repeat is harmless. */
+export async function exportRevisionHandler(ctx: RevisionsCtx, req: Request, variantId: string, rev: string): Promise<Response> {
+  const user = await ctx.auth();
+  if (user instanceof Response) return user;
+  if (!isSiteOrigin(req, ctx.siteUrl)) return forbidden();
+  if (!isUuid(variantId) || !isUuid(rev)) return notFound();
+  const r = await ctx.run(user.userId, async (udb) => {
+    const [row] = await udb.select({ status: variantRevisions.status }).from(variantRevisions).where(and(eq(variantRevisions.id, rev), eq(variantRevisions.variantId, variantId)));
+    return row ?? null;
+  });
+  if (!r) return notFound();
+  if (r.status !== 'ready') return json({ error: 'only a ready revision can be exported' }, 409);
+  try {
+    await ctx.sendExport(rev);
+  } catch {
+    return json({ error: 'could not queue the export' }, 503);
+  }
+  return json({ revisionId: rev }, 202);
 }

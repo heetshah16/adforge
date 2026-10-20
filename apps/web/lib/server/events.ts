@@ -14,6 +14,11 @@ export async function sendVariantEdit(revisionId: string): Promise<void> {
   await inngest().send({ name: 'adforge/variant.edit', data: { revisionId }, id: revisionId });
 }
 
+/** Same name as EVENTS.variantExport in packages/pipeline. Not event-id deduped: the worker skips a revision that already has a render. */
+export async function sendVariantExport(revisionId: string): Promise<void> {
+  await inngest().send({ name: 'adforge/variant.export', data: { revisionId } });
+}
+
 /** Dedupes on the job id, like the worker's dev route. Throws if the event can't be queued. */
 export async function sendJobRequested(jobId: string): Promise<void> {
   await inngest().send({ name: 'adforge/job.requested', data: { jobId }, id: jobId });

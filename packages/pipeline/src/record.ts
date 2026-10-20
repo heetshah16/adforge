@@ -7,7 +7,7 @@ import type { MediaRef, ProviderResult, StorageProvider } from '@adforge/core/pr
 import { recipeKey, type Recipe } from '@adforge/core/recipe';
 import type { Db } from '@adforge/db/client';
 import { assetsForInsert } from '@adforge/db/assets-insert';
-import { assets, jobs, products, providerCalls, recipes } from '@adforge/db/schema';
+import { assets, jobs, products, providerCalls, recipes, variantRevisions, variants } from '@adforge/db/schema';
 import { toWire, type WireResult } from './wire';
 
 /** The job row is the only source of a pipeline write's org and project — never the worker's own config. */
@@ -17,11 +17,20 @@ export async function jobScope(db: Db, jobId: string): Promise<{ orgId: string; 
   return j;
 }
 
-const EventRef = z.object({ jobId: z.uuid().optional(), productId: z.uuid().optional() });
+/** A revision's org and the job its provider calls are recorded on (via its variant). Missing: non-retriable. */
+export async function revisionScope(db: Db, revisionId: string): Promise<{ orgId: string; projectId: string; jobId: string }> {
+  const [r] = await db.select({ orgId: variantRevisions.orgId, jobId: variants.jobId }).from(variantRevisions)
+    .innerJoin(variants, eq(variants.id, variantRevisions.variantId)).where(eq(variantRevisions.id, revisionId));
+  if (!r) throw new NonRetriableError(`revision ${revisionId} not found`);
+  return { ...(await jobScope(db, r.jobId)), jobId: r.jobId };
+}
+
+const EventRef = z.object({ jobId: z.uuid().optional(), productId: z.uuid().optional(), revisionId: z.uuid().optional() });
 /** The org owning an Inngest event's job (or, failing that, product): the storage scope its handler runs in. */
-export async function orgForEvent(db: Db, data: { jobId?: string; productId?: string }): Promise<string> {
+export async function orgForEvent(db: Db, data: { jobId?: string; productId?: string; revisionId?: string }): Promise<string> {
   const ref = EventRef.safeParse(data);
-  if (!ref.success || !(ref.data.jobId ?? ref.data.productId)) throw new NonRetriableError('event names no valid jobId or productId');
+  if (!ref.success || !(ref.data.jobId ?? ref.data.productId ?? ref.data.revisionId)) throw new NonRetriableError('event names no valid jobId, productId or revisionId');
+  if (ref.data.revisionId && !ref.data.jobId) return (await revisionScope(db, ref.data.revisionId)).orgId;
   if (ref.data.jobId) return (await jobScope(db, ref.data.jobId)).orgId;
   const [p] = await db.select({ orgId: products.orgId }).from(products).where(eq(products.id, ref.data.productId!));
   if (!p) throw new NonRetriableError(`product ${ref.data.productId} not found`);

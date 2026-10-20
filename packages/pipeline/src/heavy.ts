@@ -2,16 +2,16 @@ import { createHash } from 'node:crypto';
 import { PIPELINE, QwenSpeaker } from '@adforge/core/config/pipeline';
 import { TREATMENTS } from '@adforge/core/config/treatments';
 import type { DirectorVariant } from '@adforge/core/llm/schemas';
-import type { MediaRef, ProviderResult, VoiceBible } from '@adforge/core/providers/types';
+import type { AlignedWord, MediaRef, ProviderResult, TTSRequest, VoiceBible } from '@adforge/core/providers/types';
 import { ttsText } from '@adforge/core/llm/tts-text';
-import { canonicalJson, type Recipe } from '@adforge/core/recipe';
+import { canonicalJson, recipeKey, type Recipe } from '@adforge/core/recipe';
 import { alignCaptions } from '@adforge/core/spec/align-captions';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import type { Language } from '@adforge/core/vocab/enums';
 import { and, desc, eq } from 'drizzle-orm';
 import { formatTag, makeTag } from '@adforge/core/library/tags';
-import { libraryAssets } from '@adforge/db/schema';
-import { jobScope, recordCall, recordRecipe, refFromKey, saveAsset } from './record';
+import { assets, libraryAssets } from '@adforge/db/schema';
+import { findRecipe, jobScope, recordCall, recordRecipe, refFromKey, revisionScope, saveAsset } from './record';
 import type { BrollResult, PipelineDeps, PlateResult, PlateVisionResult, RenderResult, VoiceBeats, VoiceResult } from './types';
 import { toWire } from './wire';
 
@@ -47,22 +47,23 @@ function comfyModel(deps: PipelineDeps, workflow: string): { model: string; vers
  */
 const VOICE_VERSION = createHash('sha256').update(canonicalJson(PIPELINE.voice)).digest('hex');
 
-type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallback: string; triedTag: string; warn: boolean };
+export type BibleLookup = { bible: VoiceBible; tag: string; version: number } | { fallback: string; triedTag: string; warn: boolean };
 /**
  * The brand's active English voice bible (`@voice_<brand>_en`) in this org. Never throws: every miss is a `fallback` with its reason.
  * `warn` says a bible was expected: the job named its brand explicitly, or the org has any voice row. A plain miss for a job with
  * neither is the normal no-bible path (silent; still recorded as `config-defaults`). Unusable rows, unmakeable slugs and lookup errors always warn.
  */
-async function voiceBible(deps: PipelineDeps, orgId: string, brand: { explicit?: string; fromName?: string }): Promise<BibleLookup> {
+export async function voiceBible(deps: PipelineDeps, orgId: string, brand: { explicit?: string; fromName?: string }, pin?: { tag: string; version: number }): Promise<BibleLookup> {
   // English must be on Qwen for a bible to apply; otherwise it is unused and must not be attributed.
   if (PIPELINE.voice.engineByLanguage.en !== 'qwen') return { fallback: 'English voice engine is not qwen', triedTag: '(none)', warn: false };
   const name = brand.explicit ?? brand.fromName;
-  if (!name) return { fallback: 'job names no brand', triedTag: '(none)', warn: !!brand.explicit };
+  if (!pin && !name) return { fallback: 'job names no brand', triedTag: '(none)', warn: !!brand.explicit };
   let tag: string;
-  try { tag = makeTag('voice', [name, 'en']); } catch { return { fallback: `no usable brand slug from "${name}"`, triedTag: `(${name})`, warn: true }; }
+  try { tag = pin ? pin.tag : makeTag('voice', [name!, 'en']); } catch { return { fallback: `no usable brand slug from "${name}"`, triedTag: `(${name})`, warn: true }; }
   try {
+    // A pin re-resolves the exact row a job recorded (`<tag>_v<version>`), whatever its status is now.
     const [row] = await deps.db.select({ meta: libraryAssets.meta, version: libraryAssets.version }).from(libraryAssets).where(and(
-      eq(libraryAssets.orgId, orgId), eq(libraryAssets.tag, tag), eq(libraryAssets.kind, 'voice'), eq(libraryAssets.status, 'active'),
+      eq(libraryAssets.orgId, orgId), eq(libraryAssets.tag, tag), eq(libraryAssets.kind, 'voice'), pin ? eq(libraryAssets.version, pin.version) : eq(libraryAssets.status, 'active'),
     )).orderBy(desc(libraryAssets.version)).limit(1);
     if (!row) {
       const [any] = brand.explicit ? [true] : await deps.db.select({ id: libraryAssets.id }).from(libraryAssets).where(and(eq(libraryAssets.orgId, orgId), eq(libraryAssets.kind, 'voice'))).limit(1);
@@ -79,6 +80,67 @@ async function voiceBible(deps: PipelineDeps, orgId: string, brand: { explicit?:
   } catch (e) {
     return { fallback: `lookup failed: ${e instanceof Error ? e.message : String(e)}`, triedTag: tag, warn: true };
   }
+}
+
+/** One voice beat to (re)make for a revision. `nonce` varies the recipe only (TTS has no seed): a regenerate must miss the cache. */
+export interface VoiceLine { beat: number; text: string; language: Language; emotion: number; voiceBible?: VoiceBible; nonce?: string }
+/** `words` are the aligner's raw ASR words; the caller maps them onto captions. */
+export type VoiceLineOut = { key: string; durationSec: number; words: AlignedWord[] };
+export interface PlateLine { beat: number; prompt: string }
+
+/** Deterministic per (revision, beat): a regenerate must not hit the cache of the plate it replaces. */
+export const plateSeed = (revisionId: string, beat: number) => parseInt(createHash('sha256').update(`${revisionId}:${beat}`).digest('hex').slice(0, 8), 16);
+
+/**
+ * Resolves one voice line through the recipe cache, calling a provider only on a miss (and only if `mayCall`). A retry after the
+ * TTS succeeded finds its recipe and skips the TTS; a hit on both returns without any provider call. null: a call was needed but not allowed, or the TTS failed.
+ */
+async function voiceLine(deps: PipelineDeps, scope: Scope, jobId: string, revisionId: string, l: VoiceLine, mayCall: boolean): Promise<VoiceLineOut | null> {
+  const { db } = deps;
+  const ttsProvider = deps.voice.tts.idFor?.(l.language) ?? deps.voice.tts.id;
+  const req = { text: l.text, language: l.language, emotion: l.emotion, ...(l.voiceBible ? { voiceBible: { ...l.voiceBible } } : {}), ...(l.nonce ? { nonce: l.nonce } : {}) };
+  const ttsRecipe: Recipe = { kind: 'tts', provider: ttsProvider, model: PIPELINE.voice.engineByLanguage[l.language], version: VOICE_VERSION, request: req, orgId: scope.orgId };
+  let audio: MediaRef;
+  const hit = await findRecipe(db, scope.orgId, recipeKey(ttsRecipe));
+  if (hit) {
+    const [a] = await db.select({ durationSec: assets.durationSec }).from(assets).where(and(eq(assets.orgId, scope.orgId), eq(assets.storageKey, hit.outputKey)));
+    audio = { ...(await refFromKey(deps.storage, hit.outputKey)), ...(a?.durationSec != null ? { durationSec: a.durationSec } : {}) };
+  } else {
+    if (!mayCall) return null;
+    const tKey = `${revisionId}:tts:${l.beat}`;
+    const sent: TTSRequest = { text: l.text, language: l.language, emotion: l.emotion, ...(l.voiceBible ? { voiceBible: { ...l.voiceBible } } : {}), idempotencyKey: tKey };
+    const t = await call(deps, jobId, 'tts', ttsProvider, tKey, () => deps.voice.tts.synthesize(sent));
+    const made = await remember(deps, scope, ttsRecipe, await keep(deps, scope, 'voice', t));
+    if (!made) return null;
+    audio = made;
+  }
+  const alignRecipe: Recipe = {
+    kind: 'align', provider: deps.voice.aligner.id, model: deps.env.ADFORGE_PROVIDER_ALIGNER, version: VOICE_VERSION,
+    request: { audioKey: audio.id, text: l.text, language: l.language }, orgId: scope.orgId,
+  };
+  const ahit = await findRecipe(db, scope.orgId, recipeKey(alignRecipe));
+  let words: AlignedWord[];
+  if (ahit) {
+    words = (JSON.parse(new TextDecoder().decode(await deps.storage.read(ahit.outputKey))) as { words: AlignedWord[] }).words;
+  } else {
+    if (!mayCall) return null;
+    const aKey = `${revisionId}:align:${l.beat}`;
+    const a = await call(deps, jobId, 'align', deps.voice.aligner.id, aKey, () => deps.voice.aligner.align({ audio, text: l.text, language: l.language, idempotencyKey: aKey }));
+    words = a.status === 'done' ? a.value.words : [];
+    if (a.status === 'done') {
+      const stored = await deps.storage.put(new TextEncoder().encode(JSON.stringify(a.value)), { mime: 'application/json' });
+      await remember(deps, scope, alignRecipe, stored);
+    }
+  }
+  return { key: audio.id, durationSec: audio.durationSec ?? 0, words };
+}
+
+/** What `HEAVY.voiceLines` would return with no provider call: only the lines the recipe cache fully answers (the rest are null). */
+export async function cachedVoiceLines(deps: PipelineDeps, revisionId: string, lines: VoiceLine[]): Promise<Record<string, VoiceLineOut | null>> {
+  const { jobId, ...scope } = await revisionScope(deps.db, revisionId);
+  const out: Record<string, VoiceLineOut | null> = {};
+  for (const l of lines) out[l.beat] = await voiceLine(deps, scope, jobId, revisionId, l, false);
+  return out;
 }
 
 export const HEAVY = {
@@ -245,8 +307,40 @@ export const HEAVY = {
     }
   },
 
-  async render(deps: PipelineDeps, p: { jobId: string; variantNo: number; spec: VideoSpec }): Promise<RenderResult> {
-    const key = `${p.jobId}:render:${p.variantNo}`;
+  /** Re-synthesizes and re-aligns voice beats for one revision; recipe hits (including a retry's own earlier output) make no provider call. */
+  async voiceLines(deps: PipelineDeps, p: { revisionId: string; lines: VoiceLine[] }): Promise<Record<string, VoiceLineOut | null>> {
+    const out: Record<string, VoiceLineOut | null> = {};
+    try {
+      const { jobId, ...scope } = await revisionScope(deps.db, p.revisionId);
+      for (const l of p.lines) out[l.beat] = await voiceLine(deps, scope, jobId, p.revisionId, l, true);
+      return out;
+    } finally {
+      await deps.voice.unload().catch(() => {});
+    }
+  },
+
+  /** Regenerates plates for one revision with a seed derived from it (so a regenerate is never a cache no-op); the recipe makes a retry free. */
+  async plateLines(deps: PipelineDeps, p: { revisionId: string; lines: PlateLine[] }): Promise<Record<string, string | null>> {
+    const out: Record<string, string | null> = {};
+    try {
+      const { jobId, ...scope } = await revisionScope(deps.db, p.revisionId);
+      for (const l of p.lines) {
+        const req = { prompt: l.prompt, width: PIPELINE.plate.width, height: PIPELINE.plate.height, seed: plateSeed(p.revisionId, l.beat) };
+        const recipe: Recipe = { kind: 'plate', provider: deps.comfy.image.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_PLATE), request: req, orgId: scope.orgId };
+        const hit = await findRecipe(deps.db, scope.orgId, recipeKey(recipe));
+        if (hit) { out[l.beat] = hit.outputKey; continue; }
+        const key = `${p.revisionId}:plate:${l.beat}`;
+        const r = await call(deps, jobId, 'image', deps.comfy.image.id, key, () => deps.comfy.image.generate({ ...req, idempotencyKey: key }));
+        out[l.beat] = (await remember(deps, scope, recipe, await keep(deps, scope, 'plate', r)))?.id ?? null;
+      }
+      return out;
+    } finally {
+      await deps.comfy.free().catch(() => {});
+    }
+  },
+
+  async render(deps: PipelineDeps, p: { jobId: string; variantNo: number; spec: VideoSpec; revisionId?: string }): Promise<RenderResult> {
+    const key = p.revisionId ? `${p.revisionId}:render` : `${p.jobId}:render:${p.variantNo}`;
     try {
       const scope = await jobScope(deps.db, p.jobId);
       const r = await call(deps, p.jobId, 'render', deps.renderer.id, key, () => deps.renderer.render({ spec: p.spec, idempotencyKey: key }));

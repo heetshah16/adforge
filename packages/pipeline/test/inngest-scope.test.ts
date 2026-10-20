@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InngestFunction } from 'inngest';
 import { storageOrg } from '@adforge/core/providers/storage-scope';
-import { jobs, orgs, products, projects } from '@adforge/db/schema';
+import { jobs, orgs, products, projects, variantRevisions, variants } from '@adforge/db/schema';
 import { HEAVY } from '../src/heavy';
 import { createFunctions, inngest } from '../src/inngest';
 import { jobRow, makeDeps } from './fakes';
@@ -15,6 +15,14 @@ vi.mock('../src/orchestrate', () => ({
     return s.run('probe', async () => { seen.push(['generate-ads step', storageOrg()]); return null; });
   },
 }));
+vi.mock('../src/edit', () => {
+  type S = { run: (id: string, fn: () => Promise<unknown>) => Promise<unknown> };
+  const probe = (name: string) => async (_id: string, s: S) => {
+    seen.push([`${name} body`, storageOrg()]);
+    return s.run('probe', async () => { seen.push([`${name} step`, storageOrg()]); return null; });
+  };
+  return { failRevision: async () => undefined, editVariant: probe('variant-edit'), exportRevision: probe('variant-export') };
+});
 vi.mock('../src/ingest', () => ({
   ingestProduct: async (_data: unknown, s: { run: (id: string, fn: () => Promise<unknown>) => Promise<unknown> }) => {
     seen.push(['product-ingest body', storageOrg()]);
@@ -50,8 +58,10 @@ async function setup() {
   const [p] = await m.deps.db.insert(projects).values({ orgId, userId: m.op.userId, name: 'A' }).returning();
   const [j] = await m.deps.db.insert(jobs).values({ orgId, projectId: p!.id, userId: m.op.userId, inputSpec: {} }).returning();
   const [pr] = await m.deps.db.insert(products).values({ orgId, projectId: p!.id, name: 'Oil' }).returning();
+  const [v] = await m.deps.db.insert(variants).values({ orgId, jobId: j!.id, variantNo: 1, formatSlug: 'f', hookSlug: 'h', archetypeSlug: 'a', visualTreatment: 'v', strategicBet: 'b', status: 'completed' }).returning();
+  const [rev] = await m.deps.db.insert(variantRevisions).values({ orgId, variantId: v!.id, ops: [], beats: [], status: 'ready' }).returning();
   const fns = new Map(createFunctions(m.deps).map((f) => [f.id(), f]));
-  return { orgId, jobId: j!.id, productId: pr!.id, operatorJobId: await jobRow(m.deps), fns };
+  return { orgId, revisionId: rev!.id, jobId: j!.id, productId: pr!.id, operatorJobId: await jobRow(m.deps), fns };
 }
 
 const TASKS = Object.keys(HEAVY) as (keyof typeof HEAVY)[];
@@ -74,6 +84,18 @@ describe('Inngest handlers run inside the owning org storage scope', () => {
     expect(storageOrg()).toBeUndefined();
   });
 
+  it('variant-edit, variant-export and revision-keyed heavy events take the org from the revision row', async () => {
+    const { orgId, revisionId, fns } = await setup();
+    for (const t of ['voiceLines', 'plateLines'] as const) vi.spyOn(HEAVY, t).mockImplementation((async () => { seen.push([`heavy-${t} step`, storageOrg()]); return null; }) as never);
+    for (const id of ['heavy-voiceLines', 'heavy-plateLines', 'variant-edit', 'variant-export']) expect((await execute(fns.get(id)!, { revisionId })).type).toBe('step-ran');
+    expect(seen).toEqual([
+      ['heavy-voiceLines step', orgId], ['heavy-plateLines step', orgId],
+      ['variant-edit body', orgId], ['variant-edit step', orgId],
+      ['variant-export body', orgId], ['variant-export step', orgId],
+    ]);
+    expect((await execute(fns.get('variant-edit')!, { revisionId: randomUUID() })).retriable).toBe(false);
+  });
+
   it('an event whose job/product does not exist fails non-retriably before any put', async () => {
     const { fns } = await setup();
     for (const t of TASKS) vi.spyOn(HEAVY, t).mockImplementation((async () => { seen.push([`heavy-${t}`, storageOrg()]); return null; }) as never);
@@ -86,7 +108,7 @@ describe('Inngest handlers run inside the owning org storage scope', () => {
       await execute(fns.get('generate-ads')!, {}),
       await execute(fns.get('product-ingest')!, { productId: 'not-a-uuid' }),
     ];
-    for (const o of outcomes) expect(o).toMatchObject({ type: 'function-rejected', retriable: false, error: { name: 'NonRetriableError', message: expect.stringMatching(/not found|no valid jobId or productId/) } });
+    for (const o of outcomes) expect(o).toMatchObject({ type: 'function-rejected', retriable: false, error: { name: 'NonRetriableError', message: expect.stringMatching(/not found|no valid jobId, productId or revisionId/) } });
     expect(seen).toEqual([]);
   });
 });

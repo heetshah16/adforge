@@ -7,7 +7,7 @@ import { compileProject } from '@adforge/core/project';
 import { compileBeats, compileVariant } from './compile-fixture';
 import { currentRevision } from '../lib/data/jobs';
 import { approveHandler, type JobsCtx } from '../lib/server/jobs-api';
-import { createRevisionHandler, listRevisionsHandler, lockRevisionHandler, unlockRevisionHandler, type RevisionsCtx } from '../lib/server/revisions-api';
+import { createRevisionHandler, exportRevisionHandler, listRevisionsHandler, lockRevisionHandler, unlockRevisionHandler, type RevisionsCtx } from '../lib/server/revisions-api';
 import { dropTenants, makeTenant, type Tenant } from './tenant-fixture';
 
 const SITE = 'http://w';
@@ -22,6 +22,7 @@ describe('revision routes (pglite, fake session)', () => {
   let b: Tenant;
   const sent: string[] = [];
   const failed: string[] = [];
+  const exported: string[] = [];
   let sendError: Error | undefined;
   const ctxFor = (t: Tenant) =>
     ({
@@ -29,6 +30,7 @@ describe('revision routes (pglite, fake session)', () => {
       auth: async () => ({ userId: t.userId, email: 'x@y.z', isAdmin: false, orgId: t.orgId }),
       run: (userId: string, fn: never) => withUser(h.db, userId, fn),
       send: async (id: string) => { if (sendError) throw sendError; sent.push(id); },
+      sendExport: async (id: string) => { exported.push(id); },
       fail: async (id: string) => { failed.push(id); },
     }) as unknown as RevisionsCtx & JobsCtx;
 
@@ -177,5 +179,21 @@ describe('revision routes (pglite, fake session)', () => {
     } finally { sendError = undefined; }
     expect(failed).toHaveLength(1);
     expect(await count(variantId)).toBe(before + 1);
+  });
+
+  it('export: 202 only for a ready revision the org owns; pending 409, foreign 404, CSRF 403', async () => {
+    const c = await makeTenant(h.db, ['completed']);
+    const { variantId, tip, rev0 } = await editable(c, 1);
+    const pending = await idOf(await post(c, variantId, { parentId: tip, ops: [MOVE] }));
+    const go = (t: Tenant, v: string, r: string, origin: string | null = SITE) => exportRevisionHandler(ctxFor(t), req(undefined, origin), v, r);
+    expect((await go(c, variantId, tip)).status).toBe(202);
+    expect(exported).toEqual([tip]);
+    expect((await go(c, variantId, rev0)).status).toBe(202); // revision 0 is ready too
+    expect((await go(c, variantId, pending)).status).toBe(409);
+    expect((await go(b, variantId, tip)).status).toBe(404);
+    expect((await go(c, variantId, tip, 'http://evil.example')).status).toBe(403);
+    expect((await go(c, variantId, 'nope')).status).toBe(404);
+    expect(exported).toEqual([tip, rev0]);
+    await dropTenants(h.db, [c]);
   });
 });

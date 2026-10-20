@@ -42,6 +42,8 @@ export interface FakeControls {
   plateTransient?: number;    // the first N plate-analysis LLM calls fail retryably
   depthDown?: boolean;        // every depth estimate fails
   visionDown?: boolean;       // every OCR read fails (retryable UPSTREAM)
+  ttsSec?: (r: TTSRequest) => number; // spoken duration per request (default 3 s)
+  alignThrows?: number;       // the first N align calls throw (a crash between TTS and align)
 }
 
 export async function makeDeps(ctl: FakeControls = {}) {
@@ -78,8 +80,8 @@ export async function makeDeps(ctl: FakeControls = {}) {
     voice: {
       health: async () => ({ ok: true, sm120: ctl.voiceSm120 ?? true }),
       unload: async () => { calls.unload++; return { unloaded: [] }; },
-      tts: { id: 'fake', synthesize: async (r) => { calls.tts++; ttsReqs.push(r); return done(await put('audio/wav', { durationSec: 3 })); } },
-      aligner: { id: 'fake', align: async () => { calls.align++; return done({ words: [{ text: 'w', startSec: 0.1, endSec: 0.4 }] }); } },
+      tts: { id: 'fake', synthesize: async (r) => { calls.tts++; ttsReqs.push(r); return done(await put('audio/wav', { durationSec: ctl.ttsSec?.(r) ?? 3 })); } },
+      aligner: { id: 'fake', align: async () => { calls.align++; if (ctl.alignThrows) { ctl.alignThrows--; throw new Error('align crashed'); } return done({ words: [{ text: 'w', startSec: 0.1, endSec: 0.4 }] }); } },
     },
     vision: {
       ocr: { id: 'fake-ocr', read: async () => { calls.ocr++; return ctl.visionDown ? fail('UPSTREAM', true) : done(ctl.ocr ?? [{ text: 'KRISHNA HING RAS', box: [0.1, 0.1, 0.5, 0.1], conf: 0.9 }]); } },
