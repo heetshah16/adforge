@@ -23,6 +23,7 @@
     "e2e:pipeline": "pnpm --filter @adforge/worker e2e",
     "e2e:library": "pnpm --filter @adforge/worker e2e:library",
     "e2e:r2": "pnpm --filter @adforge/worker e2e:r2",
+    "e2e:edit": "pnpm --filter @adforge/worker e2e:edit",
     "e2e:ui": "pnpm --filter @adforge/web e2e"
   },
   "devDependencies": {
