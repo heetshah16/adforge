@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "hf-assets": "tsx scripts/copy-hf-assets.ts",
+    "predev": "pnpm hf-assets",
+    "prebuild": "pnpm hf-assets",
     "dev": "next dev -p 3000",
     "build": "next build",
     "test": "vitest run --dir test",
@@ -16,6 +19,8 @@
     "@adforge/pipeline": "workspace:*",
     "@adforge/provider-local-storage": "workspace:*",
     "@adforge/provider-r2": "workspace:*",
+    "@adforge/renderer-hyperframes": "workspace:*",
+    "@hyperframes/player": "catalog:",
     "@supabase/ssr": "catalog:",
     "@supabase/supabase-js": "catalog:",
     "drizzle-orm": "catalog:",
@@ -30,6 +35,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "tsx": "catalog:",
     "typescript": "5.9.3",
     "vitest": "catalog:"
   }

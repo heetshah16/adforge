@@ -3,6 +3,8 @@ import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
 import type { Db } from '@adforge/db/client';
 import type { UserDb } from '@adforge/db/with-user';
+import { readSpec } from '@adforge/core/spec/upgrade-spec';
+import { specKeys } from '@adforge/renderer-hyperframes/compose';
 import type { JobView } from '../api';
 
 /** Everything here takes a UserDb: RLS decides what exists. A foreign id looks exactly like a missing one. */
@@ -22,11 +24,18 @@ export async function createJobRow(udb: UserDb, v: { orgId: string; projectId: s
   return j!.id;
 }
 
+function revisionView(r: Awaited<ReturnType<typeof currentRevision>>, mediaUrl: (storageKey: string) => string): JobView['variants'][number]['revision'] {
+  if (!r) return null;
+  const spec = r.status === 'ready' ? readSpec(r.spec) : null;
+  return { id: r.id, status: r.status, locked: r.locked, spec, assetUrls: spec ? Object.fromEntries(specKeys(spec).map((k) => [k, mediaUrl(k)])) : {} };
+}
+
 export async function getJobView(udb: UserDb, jobId: string, mediaUrl: (storageKey: string) => string): Promise<JobView | null> {
   const [j] = await udb.select().from(jobs).where(eq(jobs.id, jobId));
   if (!j) return null;
   const vs = await udb.select().from(variants).leftJoin(assets, eq(variants.renderAssetId, assets.id)).where(eq(variants.jobId, jobId));
   const registry = await loadRegistry(udb);
+  const revisions = new Map(await Promise.all(vs.map(async ({ variants: v }) => [v.id, await currentRevision(udb, v.id)] as const)));
   return {
     job: { id: j.id, status: j.status, progress: j.progress, brief: j.brief, error: j.error, costUsd: j.costUsd, createdAt: j.createdAt.toISOString(), completedAt: j.completedAt?.toISOString() ?? null },
     variants: vs
@@ -36,6 +45,7 @@ export async function getJobView(udb: UserDb, jobId: string, mediaUrl: (storageK
         formatFamily: registry.formats.find((f) => f.slug === v.formatSlug)?.family ?? null,
         hookFamily: registry.hooks.find((h) => h.slug === v.hookSlug)?.family ?? null,
         renderUrl: a ? mediaUrl(a.storageKey) : null,
+        revision: revisionView(revisions.get(v.id), mediaUrl),
       }))
       .sort((x, y) => x.variantNo - y.variantNo),
   };

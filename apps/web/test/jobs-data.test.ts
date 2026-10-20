@@ -3,7 +3,10 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '@adforge/db/client';
 import { seedVocabulary } from '@adforge/db/seed/seed';
-import { jobs, projects } from '@adforge/db/schema';
+import { jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
+import { compileProject } from '@adforge/core/project';
+import { specKeys } from '@adforge/renderer-hyperframes/compose';
+import { compileBeats, compileVariant } from './compile-fixture';
 import { withUser } from '@adforge/db/with-user';
 import { approveVariant, createJobRow, ensureDefaultProject, getJobView } from '../lib/data/jobs';
 import { dropTenants, makeTenant, type Tenant } from './tenant-fixture';
@@ -27,6 +30,26 @@ describe('jobs data under RLS (pglite)', () => {
     expect(typeof own!.job.createdAt).toBe('string');
     expect(await withUser(h.db, a.userId, (u) => getJobView(u, b.jobId, url))).toBeNull();
     expect(await withUser(h.db, a.userId, (u) => getJobView(u, randomUUID(), url))).toBeNull();
+  });
+
+  it('getJobView: the current revision (spec + asset urls) for a ready variant; none for a legacy one; no spec while pending; failed edits skipped', async () => {
+    const t = await makeTenant(h.db, ['completed', 'completed', 'completed']);
+    const vs = await h.db.select().from(variants).where(eq(variants.jobId, t.jobId));
+    const [v1, v2, v3] = [1, 2, 3].map((n) => vs.find((v) => v.variantNo === n)!);
+    const base = { id: 'x', variant: compileVariant(), theme: { primary: '#141414', accent: '#f5b301' } };
+    const spec = compileProject({ base, ops: [] }, compileBeats()).spec;
+    const row = { orgId: t.orgId, ops: [], beats: [], spec, status: 'ready' as const, locked: true };
+    const [r0] = await h.db.insert(variantRevisions).values({ ...row, variantId: v1!.id }).returning();
+    await h.db.insert(variantRevisions).values({ ...row, variantId: v1!.id, parentId: r0!.id, status: 'failed', spec: null, locked: false });
+    await h.db.insert(variantRevisions).values({ ...row, variantId: v3!.id, status: 'pending', spec: null, locked: false });
+    const got = (await withUser(h.db, t.userId, (u) => getJobView(u, t.jobId, url)))!.variants;
+    expect(got[0]!.revision).toMatchObject({ id: r0!.id, status: 'ready', locked: true, spec });
+    expect(Object.keys(got[0]!.revision!.assetUrls).sort()).toEqual(specKeys(spec).sort());
+    expect(got[0]!.revision!.assetUrls[specKeys(spec)[0]!]).toBe(url(specKeys(spec)[0]!));
+    expect(got[1]!.revision).toBeNull(); // legacy: no revisions
+    expect(got[2]!.revision).toMatchObject({ status: 'pending', spec: null, assetUrls: {} });
+    void v2;
+    await dropTenants(h.db, [t]);
   });
 
   it('approveVariant: foreign -> not_found, pending -> conflict, completed -> ok with exactly one approved', async () => {

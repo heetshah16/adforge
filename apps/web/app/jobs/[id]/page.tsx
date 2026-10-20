@@ -3,6 +3,7 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMediaUrl } from '@/lib/use-media-url';
 import { approveVariant, getJob, type JobView } from '@/lib/api';
+import { VariantPreview } from './preview';
 import { briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, stageRows, variantCards } from '@/lib/view';
 
 function VariantVideo({ src, label }: { src: string; label: string }) {
@@ -91,6 +92,12 @@ export default function JobPage() {
               <h3>V{c.variantNo}: {c.title}</h3>
               <p className="muted">{c.families}</p>
               {c.videoUrl ? <VariantVideo src={c.videoUrl} label={`Variant ${c.variantNo} video`} /> : <p className="errors">{c.failureReason ?? c.placeholder ?? 'Rendering…'}</p>}
+              {c.preview && (
+                <details>
+                  <summary>Composition preview{c.preview.locked ? '' : ' (unlocked)'}</summary>
+                  <VariantPreview spec={c.preview.spec} assetUrls={c.preview.assetUrls} label={`Variant ${c.variantNo} composition preview`} />
+                </details>
+              )}
               <p><strong>Bet:</strong> {c.bet}</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" disabled={!c.canApprove} onClick={() => approve(c.variantNo)}>{c.status === 'approved' ? 'Approved' : 'Approve'}</button>

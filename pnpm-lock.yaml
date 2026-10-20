@@ -179,6 +179,9 @@ catalogs:
     '@fontsource/noto-sans-devanagari':
       specifier: 5.3.0
       version: 5.3.0
+    '@hyperframes/player':
+      specifier: 0.8.106
+      version: 0.8.106
     '@hyperframes/producer':
       specifier: 0.8.106
       version: 0.8.106
@@ -284,6 +287,12 @@ importers:
       '@adforge/provider-r2':
         specifier: workspace:*
         version: link:../../packages/providers/r2
+      '@adforge/renderer-hyperframes':
+        specifier: workspace:*
+        version: link:../../packages/renderer-hyperframes
+      '@hyperframes/player':
+        specifier: 'catalog:'
+        version: 0.8.106(@types/node@26.6.5)
       '@supabase/ssr':
         specifier: 'catalog:'
         version: 0.12.7(@supabase/supabase-js@2.117.2(@opentelemetry/api@1.9.1))
@@ -321,6 +330,9 @@ importers:
       '@types/react-dom':
         specifier: 'catalog:'
         version: 19.3.0(@types/react@19.3.0)
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.15
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -1286,6 +1298,9 @@ packages:
 
   '@hyperframes/parsers@0.8.106':
     resolution: {integrity: sha512-28SmV7Ytg7uenhEwGzIHQ7yOer4eJm9SlZgFptmBIqfQMOaI6WT7T0+oMsTzi1iKdPA1bTdoU9VqI110/SDeRA==}
+
+  '@hyperframes/player@0.8.106':
+    resolution: {integrity: sha512-sMTEkZ8AzpME/Zkw89NNbZzJKUoXY4PyNwuQhzJ8+f9sAKa0qnqI5/34KLQBKzU8zU1C/0kn2tIe1kGi3k63tw==}
 
   '@hyperframes/producer@0.8.106':
     resolution: {integrity: sha512-mANW1zRtFaYJQ6zkfWbRbjCcrtULzQOx3RhXGiwJnFDIhjpDVmfe6sC3/blO6jqt+5zBA+lQuyZ1HfFEr27fhA==}
@@ -4317,6 +4332,13 @@ snapshots:
       magic-string: 0.30.21
       recast: 0.23.21
     transitivePeerDependencies:
+      - canvas
+
+  '@hyperframes/player@0.8.106(@types/node@26.6.5)':
+    dependencies:
+      '@hyperframes/core': 0.8.106(@types/node@26.6.5)
+    transitivePeerDependencies:
+      - '@types/node'
       - canvas
 
   '@hyperframes/producer@0.8.106(@types/node@26.6.5)':

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { VideoSpec } from '@adforge/core/spec/video-spec';
 import { NOT_INVITED } from './not-invited';
 
 const T = () => AbortSignal.timeout(10_000);
@@ -15,6 +16,8 @@ const Variant = z.object({
   variantNo: z.number(), formatSlug: z.string(), formatFamily: z.string().nullable(), hookSlug: z.string(), hookFamily: z.string().nullable(),
   visualTreatment: z.string(), strategicBet: z.string(), isExploratory: z.boolean(),
   status: z.enum(['pending', 'running', 'completed', 'failed', 'approved']), error: z.unknown().nullable(), renderUrl: z.string().nullable(),
+  /** The current revision (null: a legacy variant). spec only when ready; assetUrls maps each spec storage key to its storage.urlFor URL. */
+  revision: z.object({ id: z.string(), status: z.enum(['pending', 'ready', 'failed']), locked: z.boolean(), spec: VideoSpec.nullable(), assetUrls: z.record(z.string(), z.string()) }).nullable(),
 });
 const JobViewSchema = z.object({
   job: z.object({

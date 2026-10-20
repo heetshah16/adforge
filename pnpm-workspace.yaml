@@ -19,6 +19,7 @@ catalog:
   postgres: 3.4.9
   "@hyperframes/producer": 0.8.106
   "@hyperframes/engine": 0.8.106
+  "@hyperframes/player": 0.8.106
   gsap: 3.15.0
   "@fontsource/inter": 5.3.0
   "@fontsource/noto-sans-devanagari": 5.3.0

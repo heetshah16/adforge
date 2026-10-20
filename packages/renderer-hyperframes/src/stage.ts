@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { StorageProvider } from '@adforge/core/providers/types';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
-import { assetPath, FONT_FILES } from './compose';
+import { assetPath, FONT_FILES, specKeys } from './compose';
 
 const require = createRequire(import.meta.url);
 
@@ -14,12 +14,7 @@ export class MissingAssetError extends Error {
   }
 }
 
-export function specKeys(spec: VideoSpec): string[] {
-  const keys = new Set<string>();
-  for (const scene of spec.scenes) for (const l of scene.layers) if ('key' in l) keys.add(l.key);
-  for (const a of [...spec.audio.voice, ...spec.audio.music, ...spec.audio.sfx]) keys.add(a.key);
-  return [...keys];
-}
+export { specKeys };
 
 /** Everything the composition references, copied locally: render needs no network and no storage access. */
 export async function stageProject(spec: VideoSpec, storage: StorageProvider, dir: string): Promise<void> {

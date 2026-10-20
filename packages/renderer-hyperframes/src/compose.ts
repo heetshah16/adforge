@@ -27,12 +27,11 @@ export const FONT_FILES = [
   { family: 'Noto Sans Devanagari', weight: 800, pkg: '@fontsource/noto-sans-devanagari', src: 'files/noto-sans-devanagari-devanagari-800-normal.woff2', file: 'noto-dev-800.woff2' },
 ] as const;
 
-const fontFaces = FONT_FILES.map(
-  (f) => `@font-face { font-family: '${f.family}'; font-weight: ${f.weight}; src: url('assets/fonts/${f.file}') format('woff2'); }`,
-).join('\n');
+const fontFaces = (base: string) =>
+  FONT_FILES.map((f) => `@font-face { font-family: '${f.family}'; font-weight: ${f.weight}; src: url('${base}/fonts/${f.file}') format('woff2'); }`).join('\n');
 
-function css(spec: VideoSpec): string {
-  return `${fontFaces}
+function css(spec: VideoSpec, staticBase: string): string {
+  return `${fontFaces(staticBase)}
 body { margin: 0; background: ${spec.theme.primary}; }
 #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: ${spec.theme.primary};
   font-family: 'Inter', 'Noto Sans Devanagari', sans-serif; }
@@ -113,6 +112,16 @@ function sceneElements(scene: Scene, fps: number, url: (key: string) => string):
 export interface ComposeOptions {
   /** Storage key → the src the composition loads. Default: the staged project path (assetPath). The preview passes a media URL. */
   assetUrl?: (key: string) => string;
+  /** Where gsap.min.js and fonts/ live, relative to the composition (staged project) or absolute (the preview serves them from /hf). */
+  staticBase?: string;
+}
+
+/** Every storage key a spec references (layers and audio tracks). Browser-safe: stage.ts and the preview both use it. */
+export function specKeys(spec: VideoSpec): string[] {
+  const keys = new Set<string>();
+  for (const scene of spec.scenes) for (const l of scene.layers) if ('key' in l) keys.add(l.key);
+  for (const a of [...spec.audio.voice, ...spec.audio.music, ...spec.audio.sfx]) keys.add(a.key);
+  return [...keys];
 }
 
 const dbVolume = (gainDb: number) => (10 ** (gainDb / 20)).toFixed(4);
@@ -120,6 +129,7 @@ const dbVolume = (gainDb: number) => (10 ** (gainDb / 20)).toFixed(4);
 export function composeHtml(spec: VideoSpec, opts: ComposeOptions = {}): string {
   const { fps } = spec;
   const url = opts.assetUrl ?? assetPath;
+  const staticBase = opts.staticBase ?? 'assets';
   const body: string[] = [];
   const tweens: string[] = [];
 
@@ -163,9 +173,9 @@ export function composeHtml(spec: VideoSpec, opts: ComposeOptions = {}): string 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=${spec.width}, height=${spec.height}">
 <title>${esc(spec.id)}</title>
-<script src="assets/gsap.min.js"></script>
+<script src="${staticBase}/gsap.min.js"></script>
 <style>
-${css(spec)}
+${css(spec, staticBase)}
 </style>
 </head>
 <body>

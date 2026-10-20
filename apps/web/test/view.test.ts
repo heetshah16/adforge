@@ -55,6 +55,7 @@ const view = (statuses: string[], errors: unknown[] = []): JobView => ({
     visualTreatment: 'macro_texture', strategicBet: `bet ${i + 1}`, isExploratory: i === 2, status: status as JobView['variants'][number]['status'],
     error: errors[i] ?? null,
     renderUrl: status === 'failed' ? null : `http://127.0.0.1:3001/media/v${i + 1}.mp4`,
+    revision: null,
   })),
 });
 
@@ -123,5 +124,15 @@ describe('not rendered placeholder', () => {
     expect(b).not.toHaveProperty('placeholder');
     v.job.status = 'running';
     expect(variantCards(v)[0]).not.toHaveProperty('placeholder');
+  });
+});
+
+describe('variantCards preview', () => {
+  const rev = (status: 'ready' | 'pending', spec: unknown) => ({ id: 'r1', status, locked: true, spec, assetUrls: {} });
+  const v = (revision: unknown) => { const w = view(['completed']); (w.variants[0] as { revision: unknown }).revision = revision; return variantCards(w)[0]!; };
+  it('only a ready revision with a spec previews; legacy and pending do not', () => {
+    expect(v(null).preview).toBeNull();
+    expect(v(rev('pending', null)).preview).toBeNull();
+    expect(v(rev('ready', { fake: 1 })).preview).toMatchObject({ spec: { fake: 1 }, locked: true });
   });
 });
