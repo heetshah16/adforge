@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '@adforge/db/client';
-import { variantRevisions, variants } from '@adforge/db/schema';
+import { jobs, variantRevisions, variants } from '@adforge/db/schema';
 import { withUser } from '@adforge/db/with-user';
 import { compileProject } from '@adforge/core/project';
 import { compileBeats, compileVariant } from './compile-fixture';
@@ -194,6 +194,23 @@ describe('revision routes (pglite, fake session)', () => {
     expect((await go(c, variantId, tip, 'http://evil.example')).status).toBe(403);
     expect((await go(c, variantId, 'nope')).status).toBe(404);
     expect(exported).toEqual([tip, rev0]);
+    await h.db.update(variantRevisions).set({ status: 'failed' }).where(eq(variantRevisions.id, pending));
+    expect((await go(c, variantId, pending)).status).toBe(409); // a failed revision can't be exported either
+    await dropTenants(h.db, [c]);
+  });
+
+  it('certain-to-fail edits are refused at POST: bad emotion/vo values 400, Hinglish VO 422 (emotion and free ops still pass)', async () => {
+    const c = await makeTenant(h.db, ['completed']);
+    const { variantId, tip } = await editable(c, 1);
+    const setField = (path: string, value: string) => ({ op: 'setField', beat: 0, path, value });
+    for (const bad of [setField('emotion', 'angry'), setField('emotion', '1.5'), setField('emotion', ''), setField('vo', ''), setField('vo', 'x'.repeat(241))]) {
+      expect((await post(c, variantId, { parentId: tip, ops: [bad] })).status, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await post(c, variantId, { parentId: tip, ops: [setField('emotion', '0.7'), setField('vo', 'x'.repeat(240))] })).status).toBe(202);
+    await h.db.update(jobs).set({ inputSpec: { language: 'hinglish' } }).where(eq(jobs.id, c.jobId));
+    const res = await post(c, variantId, { parentId: tip, ops: [setField('vo', 'naya')] });
+    expect([res.status, ((await res.json()) as { error: string }).error]).toEqual([422, 'Hinglish VO edits arrive with C3']);
+    expect((await post(c, variantId, { parentId: tip, ops: [setField('emotion', '0.2'), MOVE] })).status).toBe(202);
     await dropTenants(h.db, [c]);
   });
 });

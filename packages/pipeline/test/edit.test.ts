@@ -14,10 +14,10 @@ type M = Awaited<ReturnType<typeof makeDeps>>;
 const UNLOCK: EditOp = { op: 'unlock' };
 const LONG = 'A much longer replacement line for the second beat of this ad';
 
-async function generated(m: M, scope?: Parameters<typeof newJob>[2]) {
-  const jobId = await newJob(m.deps, false, scope);
+async function generated(m: M, scope?: Parameters<typeof newJob>[2], broll = false, variantNo = 1) {
+  const jobId = await newJob(m.deps, broll, scope);
   await generateAds(jobId, memoStep(m.deps), m.deps);
-  const [variant] = await m.deps.db.select().from(variants).where(and(eq(variants.jobId, jobId), eq(variants.variantNo, 1)));
+  const [variant] = await m.deps.db.select().from(variants).where(and(eq(variants.jobId, jobId), eq(variants.variantNo, variantNo)));
   const [rev0] = await m.deps.db.select().from(variantRevisions).where(eq(variantRevisions.variantId, variant!.id));
   return { jobId, variant: variant!, rev0: rev0! };
 }
@@ -36,16 +36,17 @@ describe('variant.edit executor', () => {
   it('free ops make no provider calls and the spec reflects them', async () => {
     const m = await makeDeps(); close = m.close;
     const g = await generated(m);
-    const r = await child(m, g, [UNLOCK, { op: 'move', layerId: 's1.headline', x: 0.1, y: 0.3 }, { op: 'setStyle', layerId: 'captions', style: { weight: 'regular' } }, { op: 'setText', layerId: 's0.headline', content: 'Edited' }]);
+    const r = await child(m, g, [UNLOCK, { op: 'move', layerId: 's1.headline', x: 0.1, y: 0.3 }, { op: 'setStyle', layerId: 'captions', style: { weight: 'regular' } }, { op: 'setText', layerId: 's0.headline', content: 'Edited' }, { op: 'retime', layerId: 's1.headline', reveal: { kind: 'scene', offsetFrames: 5 } }]);
     const before = snap(m);
     await run(m, r.id);
     expect([m.calls.tts - before.tts, m.calls.align - before.align, m.calls.image - before.image]).toEqual([0, 0, 0]);
     const out = await load(m, r.id);
     expect(out.status).toBe('ready');
-    const spec = out.spec as { scenes: { layers: { layerId: string; content?: string; box: { x: number; y: number } }[] }[]; captions: { style: { weight: string } } };
+    const spec = out.spec as { scenes: { startFrame: number; layers: { layerId: string; content?: string; revealFrame: number; box: { x: number; y: number } }[] }[]; captions: { style: { weight: string } } };
     expect(spec.scenes[0]!.layers.find((l) => l.layerId === 's0.headline')!.content).toBe('Edited');
     expect(spec.scenes[1]!.layers.find((l) => l.layerId === 's1.headline')!.box).toMatchObject({ x: 0.1, y: 0.3 });
     expect(spec.captions.style.weight).toBe('regular');
+    expect(spec.scenes[1]!.layers.find((l) => l.layerId === 's1.headline')!.revealFrame).toBe(spec.scenes[1]!.startFrame + 5);
     expect(out.error).toBeNull();
   });
 
@@ -102,6 +103,7 @@ describe('variant.edit executor', () => {
     expect((await load(m, r.id)).status).toBe('ready');
     const keys = (await m.deps.db.select({ k: providerCalls.idempotencyKey }).from(providerCalls)).map((x) => x.k);
     expect(keys.filter((k) => k === `${r.id}:tts:1`)).toHaveLength(1);
+    expect(keys.filter((k) => k === `${r.id}:align:1`)).toHaveLength(1);
   });
 
   it('regenerate voice re-synthesizes; a scene edit regenerates the plate once, under its idempotency key', async () => {
@@ -144,6 +146,58 @@ describe('variant.edit executor', () => {
   });
 });
 
+describe('variant.edit failures and b-roll', () => {
+  const rows = (m: M, key: string) => m.deps.db.select().from(providerCalls).where(eq(providerCalls.idempotencyKey, key));
+
+  it('a retryable provider failure throws; the retry succeeds with exactly one successful call recorded', async () => {
+    const ctl: FakeControls = {};
+    const m = await makeDeps(ctl); close = m.close;
+    const g = await generated(m);
+    ctl.ttsFail = { retryable: true, times: 1 };
+    const r = await child(m, g, [UNLOCK, { op: 'setField', beat: 1, path: 'vo', value: LONG }]);
+    await expect(run(m, r.id)).rejects.toThrow();
+    expect((await load(m, r.id)).status).toBe('pending');
+    await run(m, r.id);
+    expect((await load(m, r.id)).status).toBe('ready');
+    const calls = await rows(m, `${r.id}:tts:1`);
+    expect(calls.map((c) => c.status)).toEqual(['done']);
+    expect(calls[0]!.model).toBe('config-defaults'); // like generateAds: the voice used
+  });
+
+  it('a non-retryable provider failure fails the revision without throwing', async () => {
+    const ctl: FakeControls = {};
+    const m = await makeDeps(ctl); close = m.close;
+    const g = await generated(m);
+    ctl.ttsFail = { retryable: false, times: 5 };
+    const r = await child(m, g, [UNLOCK, { op: 'setField', beat: 1, path: 'vo', value: LONG }]);
+    const before = m.calls.tts;
+    await run(m, r.id);
+    const out = await load(m, r.id);
+    expect(out.status).toBe('failed');
+    expect(out.error).toMatchObject({ message: expect.stringContaining('tts failed') });
+    expect(m.calls.tts - before).toBe(1);
+  });
+
+  it('a scene edit on the b-roll beat drops the clip: no broll in beats, a plate layer in the spec', async () => {
+    const m = await makeDeps(); close = m.close;
+    let g: G | undefined; let b = -1;
+    for (const n of [1, 2, 3]) {
+      g = await generated(m, undefined, true, n);
+      b = (g.rev0.beats as { broll?: unknown }[]).findIndex((x) => x.broll);
+      if (b >= 0) break;
+    }
+    expect(b).toBeGreaterThanOrEqual(0);
+    const r = await child(m, g!, [UNLOCK, { op: 'setField', beat: b, path: 'scene', value: 'on a marble counter' }]);
+    await run(m, r.id);
+    const out = await load(m, r.id);
+    expect(out.status).toBe('ready');
+    expect((out.beats as { broll?: unknown }[])[b]!.broll).toBeUndefined();
+    const layers = (out.spec as { scenes: { layers: { layerId: string }[] }[] }).scenes[b]!.layers.map((l) => l.layerId);
+    expect(layers).toContain(`s${b}.plate`);
+    expect(layers).not.toContain(`s${b}.broll`);
+  });
+});
+
 describe('variant.export', () => {
   it('renders a ready revision once and sets render_asset_id; a second event renders nothing', async () => {
     const m = await makeDeps(); close = m.close;
@@ -155,6 +209,8 @@ describe('variant.export', () => {
     expect(m.calls.render - before).toBe(1);
     const out = await load(m, r.id);
     expect(out.renderAssetId).toBeTruthy();
+    const rk = await m.deps.db.select().from(providerCalls).where(eq(providerCalls.idempotencyKey, `${r.id}:render`));
+    expect(rk).toHaveLength(1);
     await exportRevision(r.id, memoStep(m.deps), m.deps);
     expect(m.calls.render - before).toBe(1);
   });

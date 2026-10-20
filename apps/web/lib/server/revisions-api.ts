@@ -2,7 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { EditOp, classifyEdit, compileProject, type ProjectBase } from '@adforge/core/project';
 import type { BeatAssets } from '@adforge/core/spec/build-spec';
-import { variantRevisions, variants } from '@adforge/db/schema';
+import { jobs, variantRevisions, variants } from '@adforge/db/schema';
 import { revisionsForInsert } from '@adforge/db/revisions-insert';
 import type { UserDb } from '@adforge/db/with-user';
 import { isSiteOrigin } from './origin';
@@ -55,7 +55,7 @@ export async function createRevisionHandler(ctx: RevisionsCtx, req: Request, var
   const { parentId, ops } = parsed.data;
 
   const out = await ctx.run(user.userId, async (udb): Promise<Response | { id: string }> => {
-    const [v] = await udb.select({ orgId: variants.orgId, status: variants.status, projectBase: variants.projectBase }).from(variants).where(eq(variants.id, variantId));
+    const [v] = await udb.select({ orgId: variants.orgId, status: variants.status, projectBase: variants.projectBase, input: jobs.inputSpec }).from(variants).innerJoin(jobs, eq(jobs.id, variants.jobId)).where(eq(variants.id, variantId));
     if (!v) return notFound();
     const chain = await udb.select({ id: variantRevisions.id, parentId: variantRevisions.parentId, ops: variantRevisions.ops, status: variantRevisions.status, locked: variantRevisions.locked })
       .from(variantRevisions).where(eq(variantRevisions.variantId, variantId));
@@ -71,6 +71,9 @@ export async function createRevisionHandler(ctx: RevisionsCtx, req: Request, var
     if (parent.status !== 'ready') return json({ error: 'revision is not ready' }, 409);
     if (ops.some((o) => classifyEdit(o) === 'structural')) return json({ error: 'structural edits arrive with Director v2' }, 422);
     if (!v.projectBase) return json({ error: 'variant has no editable project' }, 409);
+    // A new Devanagari vo_tts can't be derived from edited text yet; the executor would fail the revision, so refuse it here.
+    const lang = (v.input as { language?: string } | null)?.language;
+    if (lang && lang !== 'en' && ops.some((o) => o.op === 'setField' && o.path === 'vo')) return json({ error: 'Hinglish VO edits arrive with C3' }, 422);
     // Effective ops = the chain from revision 0 to the parent. A newly posted op (by position) that drops for anything but missing_target is rejected.
     const inherited: EditOp[][] = [];
     for (let r: typeof parent | undefined = parent; r; r = r.parentId ? byId.get(r.parentId) : undefined) inherited.unshift(r.ops as EditOp[]);

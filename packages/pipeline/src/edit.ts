@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm';
+import { NonRetriableError } from 'inngest';
 import { TREATMENTS } from '@adforge/core/config/treatments';
 import type { DirectorVariant } from '@adforge/core/llm/schemas';
 import { compileProject, type DroppedOp, type EditOp, type ProjectBase } from '@adforge/core/project';
@@ -6,16 +7,18 @@ import { RecipeGraph } from '@adforge/core/recipe';
 import { alignCaptions } from '@adforge/core/spec/align-captions';
 import type { BeatAssets } from '@adforge/core/spec/build-spec';
 import { ttsText } from '@adforge/core/llm/tts-text';
+import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import type { Language } from '@adforge/core/vocab/enums';
 import { jobs, variantRevisions, variants } from '@adforge/db/schema';
 import type { Db } from '@adforge/db/client';
-import { cachedVoiceLines, voiceBible, type PlateLine, type VoiceLine, type VoiceLineOut } from './heavy';
+import { cachedVoiceLines, voiceBible, type LineError, type PlateLine, type VoiceLine, type VoiceLineOut } from './heavy';
 import type { JobInput, PipelineDeps, StepLike } from './types';
+
 
 type Scene = DirectorVariant['scenes'][number];
 type Loaded = {
   orgId: string; base: ProjectBase; own: EditOp[]; effective: EditOp[]; parentBeats: BeatAssets[];
-  language: Language; brand?: string; nameBrand?: string; voiceUsed: string;
+  language: Language; voiceUsed: string;
 };
 type Plan =
   | { error: string }
@@ -67,8 +70,6 @@ export async function editVariant(revisionId: string, step: StepLike, deps: Pipe
       effective: chain.flat(),
       parentBeats: rev.beats as BeatAssets[],
       language: input.language,
-      brand: input.product.brand,
-      nameBrand: input.product.name.split(/\s+/)[0],
       voiceUsed: ((job!.configSnapshot ?? {}) as { voice?: string }).voice ?? 'config-defaults',
     };
   });
@@ -114,26 +115,29 @@ export async function editVariant(revisionId: string, step: StepLike, deps: Pipe
   });
   if ('error' in plan) return fail(plan.error);
 
-  let voice: Record<string, VoiceLineOut | null> = {};
+  let voice: Record<string, VoiceLineOut | LineError | null> = {};
   if (plan.voice.length) {
     const hits = await step.run('voice-cache', () => cachedVoiceLines(deps, revisionId, plan.voice));
     const misses = plan.voice.filter((l) => !hits[l.beat]);
     voice = { ...hits };
-    if (misses.length) Object.assign(voice, await step.heavy('voiceLines', 'heavy:voiceLines', { revisionId, lines: misses }));
+    if (misses.length) Object.assign(voice, await step.heavy('voiceLines', 'heavy:voiceLines', { revisionId, lines: misses, voiceUsed: ctx.voiceUsed }));
   }
   const plateKeys = plan.plates.length ? await step.heavy('plateLines', 'heavy:plateLines', { revisionId, lines: plan.plates }) : {};
+  // A retryable provider failure threw inside the heavy step (and was retried there); what reaches here is final.
+  const failures = [...Object.values(voice), ...Object.values(plateKeys)].flatMap((r) => (r && typeof r === 'object' && 'error' in r ? [r.error] : []));
+  if (failures.length) return fail(failures.join('; '));
 
   return step.run('compile', async () => {
     const beats: BeatAssets[] = structuredClone(ctx.parentBeats);
     for (const l of plan.voice) {
       const r = voice[l.beat];
-      if (!r) throw new Error(`voice for beat ${l.beat} could not be made`); // provider failure: retry
+      if (!r || 'error' in r) throw new Error(`voice for beat ${l.beat} is missing`);
       beats[l.beat]!.voice = { key: r.key, durationSec: r.durationSec };
       beats[l.beat]!.words = alignCaptions(plan.scenes[l.beat]!, l.language, r.words, r.durationSec);
     }
     for (const p of plan.plates) {
       const key = plateKeys[p.beat];
-      if (!key) throw new Error(`plate for beat ${p.beat} could not be made`);
+      if (!key || typeof key !== 'string') throw new Error(`plate for beat ${p.beat} is missing`);
       beats[p.beat]!.plate = key;
     }
     if (plan.dropBroll !== null) delete beats[plan.dropBroll]!.broll;
@@ -147,18 +151,18 @@ export async function editVariant(revisionId: string, step: StepLike, deps: Pipe
 /** Renders a ready revision once: the render's idempotency key is `<revisionId>:render`, and a revision with a render is skipped. */
 export async function exportRevision(revisionId: string, step: StepLike, deps: PipelineDeps): Promise<{ status: string }> {
   const { db } = deps;
-  const ctx = await step.run('load', async (): Promise<{ skip: string } | { jobId: string; variantNo: number; spec: never }> => {
+  const ctx = await step.run('load', async (): Promise<{ skip: string } | { jobId: string; variantNo: number; spec: VideoSpec }> => {
     const [rev] = await db.select({ status: variantRevisions.status, spec: variantRevisions.spec, renderAssetId: variantRevisions.renderAssetId, variantId: variantRevisions.variantId })
       .from(variantRevisions).where(eq(variantRevisions.id, revisionId));
     if (!rev) throw new Error(`revision ${revisionId} not found`);
     if (rev.status !== 'ready' || !rev.spec) return { skip: `revision is ${rev.status}` };
     if (rev.renderAssetId) return { skip: 'already rendered' };
     const [v] = await db.select({ jobId: variants.jobId, variantNo: variants.variantNo }).from(variants).where(eq(variants.id, rev.variantId));
-    return { jobId: v!.jobId, variantNo: v!.variantNo, spec: rev.spec as never };
+    return { jobId: v!.jobId, variantNo: v!.variantNo, spec: rev.spec as VideoSpec };
   });
   if ('skip' in ctx) return { status: ctx.skip };
   const out = await step.heavy('render', 'heavy:render', { jobId: ctx.jobId, variantNo: ctx.variantNo, spec: ctx.spec, revisionId });
-  if ('error' in out) throw new Error(`render failed: ${out.error}`); // retried; nothing is recorded on the revision
+  if ('error' in out) throw new NonRetriableError(`render failed: ${out.error}`); // a retryable failure already threw (and retried) in the heavy step
   await step.run('save', async () => {
     await db.update(variantRevisions).set({ renderAssetId: out.assetId }).where(eq(variantRevisions.id, revisionId));
     return true;

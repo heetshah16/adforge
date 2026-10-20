@@ -15,7 +15,7 @@ describe('createFunctions', () => {
       expect(heavy).toHaveLength(7);
       for (const f of heavy) expect(f.opts.concurrency).toEqual(HEAVY_CONCURRENCY);
       expect(fns.find((f) => f.id() === 'variant-edit')!.opts).toMatchObject({ retries: 2, triggers: [{ event: 'adforge/variant.edit' }] });
-      expect(fns.find((f) => f.id() === 'variant-export')!.opts).toMatchObject({ triggers: [{ event: 'adforge/variant.export' }] });
+      expect(fns.find((f) => f.id() === 'variant-export')!.opts).toMatchObject({ triggers: [{ event: 'adforge/variant.export' }], concurrency: expect.arrayContaining([{ key: 'event.data.revisionId', limit: 1 }]) });
       const ingest = fns.find((f) => f.id() === 'product-ingest')!;
       expect(ingest.opts).toMatchObject({ concurrency: HEAVY_CONCURRENCY, priority: { run: '600' }, triggers: [{ event: 'adforge/product.ingest' }] });
     } finally {

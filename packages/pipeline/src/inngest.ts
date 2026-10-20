@@ -69,7 +69,7 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
   );
 
   const exportFn = inngest.createFunction(
-    { id: 'variant-export', triggers: [{ event: EVENTS.variantExport }], retries: 2, concurrency: [{ limit: 2 }], timeouts: { finish: '1h' } },
+    { id: 'variant-export', triggers: [{ event: EVENTS.variantExport }], retries: 2, concurrency: [{ limit: 2 }, { key: 'event.data.revisionId', limit: 1 }], timeouts: { finish: '1h' } },
     async ({ event, step }) => {
       const org = await orgForEvent(deps.db, event.data);
       return withStorageOrg(org, () => exportRevision((event.data as { revisionId: string }).revisionId, stepsFor(org, step), deps));

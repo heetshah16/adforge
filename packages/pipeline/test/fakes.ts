@@ -43,6 +43,7 @@ export interface FakeControls {
   depthDown?: boolean;        // every depth estimate fails
   visionDown?: boolean;       // every OCR read fails (retryable UPSTREAM)
   ttsSec?: (r: TTSRequest) => number; // spoken duration per request (default 3 s)
+  ttsFail?: { retryable: boolean; times: number }; // the first N TTS calls fail with a provider error
   alignThrows?: number;       // the first N align calls throw (a crash between TTS and align)
 }
 
@@ -80,7 +81,7 @@ export async function makeDeps(ctl: FakeControls = {}) {
     voice: {
       health: async () => ({ ok: true, sm120: ctl.voiceSm120 ?? true }),
       unload: async () => { calls.unload++; return { unloaded: [] }; },
-      tts: { id: 'fake', synthesize: async (r) => { calls.tts++; ttsReqs.push(r); return done(await put('audio/wav', { durationSec: ctl.ttsSec?.(r) ?? 3 })); } },
+      tts: { id: 'fake', synthesize: async (r) => { calls.tts++; ttsReqs.push(r); if (ctl.ttsFail?.times) { ctl.ttsFail.times--; return fail(ctl.ttsFail.retryable ? 'UPSTREAM' : 'INVALID_INPUT', ctl.ttsFail.retryable); } return done(await put('audio/wav', { durationSec: ctl.ttsSec?.(r) ?? 3 })); } },
       aligner: { id: 'fake', align: async () => { calls.align++; if (ctl.alignThrows) { ctl.alignThrows--; throw new Error('align crashed'); } return done({ words: [{ text: 'w', startSec: 0.1, endSec: 0.4 }] }); } },
     },
     vision: {

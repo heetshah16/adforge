@@ -82,7 +82,17 @@ export async function voiceBible(deps: PipelineDeps, orgId: string, brand: { exp
   }
 }
 
+/** The plates batch freed ComfyUI; confirm VRAM actually dropped before the voice model loads (best-effort, 20 s). */
+async function awaitVram(deps: PipelineDeps): Promise<void> {
+  for (let waited = 0; waited < 20_000; waited += 1000) {
+    const st = await deps.comfy.systemStats().catch(() => null);
+    if (!st || st.vramUsedBytes < st.vramTotalBytes / 2) break;
+    await deps.sleep(1000);
+  }
+}
+
 /** One voice beat to (re)make for a revision. `nonce` varies the recipe only (TTS has no seed): a regenerate must miss the cache. */
+export type LineError = { error: string };
 export interface VoiceLine { beat: number; text: string; language: Language; emotion: number; voiceBible?: VoiceBible; nonce?: string }
 /** `words` are the aligner's raw ASR words; the caller maps them onto captions. */
 export type VoiceLineOut = { key: string; durationSec: number; words: AlignedWord[] };
@@ -93,9 +103,10 @@ export const plateSeed = (revisionId: string, beat: number) => parseInt(createHa
 
 /**
  * Resolves one voice line through the recipe cache, calling a provider only on a miss (and only if `mayCall`). A retry after the
- * TTS succeeded finds its recipe and skips the TTS; a hit on both returns without any provider call. null: a call was needed but not allowed, or the TTS failed.
+ * TTS succeeded finds its recipe and skips the TTS; a hit on both returns without any provider call. null: a call was needed but not allowed.
+ * A RETRYABLE provider failure throws (the heavy step retries; recipes and idempotency keys make that safe); a non-retryable one returns `{ error }`.
  */
-async function voiceLine(deps: PipelineDeps, scope: Scope, jobId: string, revisionId: string, l: VoiceLine, mayCall: boolean): Promise<VoiceLineOut | null> {
+async function voiceLine(deps: PipelineDeps, scope: Scope, jobId: string, revisionId: string, l: VoiceLine, mayCall: boolean, voiceUsed?: string): Promise<VoiceLineOut | LineError | null> {
   const { db } = deps;
   const ttsProvider = deps.voice.tts.idFor?.(l.language) ?? deps.voice.tts.id;
   const req = { text: l.text, language: l.language, emotion: l.emotion, ...(l.voiceBible ? { voiceBible: { ...l.voiceBible } } : {}), ...(l.nonce ? { nonce: l.nonce } : {}) };
@@ -104,14 +115,16 @@ async function voiceLine(deps: PipelineDeps, scope: Scope, jobId: string, revisi
   const hit = await findRecipe(db, scope.orgId, recipeKey(ttsRecipe));
   if (hit) {
     const [a] = await db.select({ durationSec: assets.durationSec }).from(assets).where(and(eq(assets.orgId, scope.orgId), eq(assets.storageKey, hit.outputKey)));
-    audio = { ...(await refFromKey(deps.storage, hit.outputKey)), ...(a?.durationSec != null ? { durationSec: a.durationSec } : {}) };
+    if (a?.durationSec == null) throw new Error(`recipe hit ${hit.outputKey} has no asset duration: refusing to compile a 0-length scene`);
+    audio = { ...(await refFromKey(deps.storage, hit.outputKey)), durationSec: a.durationSec };
   } else {
     if (!mayCall) return null;
     const tKey = `${revisionId}:tts:${l.beat}`;
     const sent: TTSRequest = { text: l.text, language: l.language, emotion: l.emotion, ...(l.voiceBible ? { voiceBible: { ...l.voiceBible } } : {}), idempotencyKey: tKey };
-    const t = await call(deps, jobId, 'tts', ttsProvider, tKey, () => deps.voice.tts.synthesize(sent));
+    const t = await call(deps, jobId, 'tts', ttsProvider, tKey, () => deps.voice.tts.synthesize(sent), voiceUsed);
+    if (t.status === 'failed') { if (t.retryable) throw t.error; return { error: `tts failed for beat ${l.beat}: ${t.error.message}` }; }
     const made = await remember(deps, scope, ttsRecipe, await keep(deps, scope, 'voice', t));
-    if (!made) return null;
+    if (!made) return { error: `tts for beat ${l.beat} did not finish` };
     audio = made;
   }
   const alignRecipe: Recipe = {
@@ -126,6 +139,8 @@ async function voiceLine(deps: PipelineDeps, scope: Scope, jobId: string, revisi
     if (!mayCall) return null;
     const aKey = `${revisionId}:align:${l.beat}`;
     const a = await call(deps, jobId, 'align', deps.voice.aligner.id, aKey, () => deps.voice.aligner.align({ audio, text: l.text, language: l.language, idempotencyKey: aKey }));
+    if (a.status === 'failed' && a.retryable) throw a.error;
+    if (a.status === 'failed') return { error: `align failed for beat ${l.beat}: ${a.error.message}` };
     words = a.status === 'done' ? a.value.words : [];
     if (a.status === 'done') {
       const stored = await deps.storage.put(new TextEncoder().encode(JSON.stringify(a.value)), { mime: 'application/json' });
@@ -136,9 +151,9 @@ async function voiceLine(deps: PipelineDeps, scope: Scope, jobId: string, revisi
 }
 
 /** What `HEAVY.voiceLines` would return with no provider call: only the lines the recipe cache fully answers (the rest are null). */
-export async function cachedVoiceLines(deps: PipelineDeps, revisionId: string, lines: VoiceLine[]): Promise<Record<string, VoiceLineOut | null>> {
+export async function cachedVoiceLines(deps: PipelineDeps, revisionId: string, lines: VoiceLine[]): Promise<Record<string, VoiceLineOut | LineError | null>> {
   const { jobId, ...scope } = await revisionScope(deps.db, revisionId);
-  const out: Record<string, VoiceLineOut | null> = {};
+  const out: Record<string, VoiceLineOut | LineError | null> = {};
   for (const l of lines) out[l.beat] = await voiceLine(deps, scope, jobId, revisionId, l, false);
   return out;
 }
@@ -265,12 +280,7 @@ export const HEAVY = {
       const bible = found && 'bible' in found ? found.bible : undefined;
       const voiceUsed = found && 'bible' in found ? formatTag(found.tag, found.version) : 'config-defaults';
       const warning = found && 'fallback' in found && found.warn ? `voice bible ${found.triedTag} not used (${found.fallback}), using config defaults` : undefined;
-      // The plates batch freed ComfyUI; confirm VRAM actually dropped before the voice model loads (best-effort, 20 s).
-      for (let waited = 0; waited < 20_000; waited += 1000) {
-        const st = await deps.comfy.systemStats().catch(() => null);
-        if (!st || st.vramUsedBytes < st.vramTotalBytes / 2) break;
-        await deps.sleep(1000);
-      }
+      await awaitVram(deps);
       for (const v of p.variants) {
         for (const [b, s] of v.scenes.entries()) {
           // A missing Hinglish vo_tts (rules should prevent it) fails this beat only — partial success stays first-class.
@@ -308,11 +318,12 @@ export const HEAVY = {
   },
 
   /** Re-synthesizes and re-aligns voice beats for one revision; recipe hits (including a retry's own earlier output) make no provider call. */
-  async voiceLines(deps: PipelineDeps, p: { revisionId: string; lines: VoiceLine[] }): Promise<Record<string, VoiceLineOut | null>> {
-    const out: Record<string, VoiceLineOut | null> = {};
+  async voiceLines(deps: PipelineDeps, p: { revisionId: string; lines: VoiceLine[]; voiceUsed?: string }): Promise<Record<string, VoiceLineOut | LineError | null>> {
+    const out: Record<string, VoiceLineOut | LineError | null> = {};
     try {
       const { jobId, ...scope } = await revisionScope(deps.db, p.revisionId);
-      for (const l of p.lines) out[l.beat] = await voiceLine(deps, scope, jobId, p.revisionId, l, true);
+      await awaitVram(deps);
+      for (const l of p.lines) out[l.beat] = await voiceLine(deps, scope, jobId, p.revisionId, l, true, p.voiceUsed);
       return out;
     } finally {
       await deps.voice.unload().catch(() => {});
@@ -320,8 +331,8 @@ export const HEAVY = {
   },
 
   /** Regenerates plates for one revision with a seed derived from it (so a regenerate is never a cache no-op); the recipe makes a retry free. */
-  async plateLines(deps: PipelineDeps, p: { revisionId: string; lines: PlateLine[] }): Promise<Record<string, string | null>> {
-    const out: Record<string, string | null> = {};
+  async plateLines(deps: PipelineDeps, p: { revisionId: string; lines: PlateLine[] }): Promise<Record<string, string | LineError>> {
+    const out: Record<string, string | LineError> = {};
     try {
       const { jobId, ...scope } = await revisionScope(deps.db, p.revisionId);
       for (const l of p.lines) {
@@ -331,7 +342,9 @@ export const HEAVY = {
         if (hit) { out[l.beat] = hit.outputKey; continue; }
         const key = `${p.revisionId}:plate:${l.beat}`;
         const r = await call(deps, jobId, 'image', deps.comfy.image.id, key, () => deps.comfy.image.generate({ ...req, idempotencyKey: key }));
-        out[l.beat] = (await remember(deps, scope, recipe, await keep(deps, scope, 'plate', r)))?.id ?? null;
+        if (r.status === 'failed') { if (r.retryable) throw r.error; out[l.beat] = { error: `plate failed for beat ${l.beat}: ${r.error.message}` }; continue; }
+        const ref = await remember(deps, scope, recipe, await keep(deps, scope, 'plate', r));
+        out[l.beat] = ref ? ref.id : { error: `plate for beat ${l.beat} did not finish` };
       }
       return out;
     } finally {
@@ -345,9 +358,10 @@ export const HEAVY = {
       const scope = await jobScope(deps.db, p.jobId);
       const r = await call(deps, p.jobId, 'render', deps.renderer.id, key, () => deps.renderer.render({ spec: p.spec, idempotencyKey: key }));
       const w = toWire(r);
-      if (!w.ok) return { error: w.message };
+      if (!w.ok) { if (p.revisionId && w.retryable) throw new Error(w.message); return { error: w.message }; } // an edit's export retries a retryable failure (same key)
       return { key: w.value.id, assetId: await saveAsset(deps.db, scope, 'render', w.value) };
     } catch (e) {
+      if (p.revisionId) throw e; // an edit's export lets Inngest retry
       return { error: e instanceof Error ? e.message : String(e) };
     }
   },

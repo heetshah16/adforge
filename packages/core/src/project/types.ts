@@ -31,6 +31,12 @@ export const EditOp = z
     z.object({ op: z.literal('lock') }),
     z.object({ op: z.literal('unlock') }),
   ])
+  .refine((o) => o.op !== 'setField' || o.path !== 'emotion' || (o.value.trim() !== '' && Number(o.value) >= 0 && Number(o.value) <= 1), {
+    message: 'setField emotion needs a number from 0 to 1',
+  })
+  .refine((o) => o.op !== 'setField' || o.path !== 'vo' || (o.value.length >= 1 && o.value.length <= 240), {
+    message: 'setField vo needs 1 to 240 characters (the Director scene limit)',
+  })
   .refine((o) => o.op !== 'setStyle' || o.style.position === undefined || o.layerId === CAPTIONS_ID, {
     message: `style.position applies to the "${CAPTIONS_ID}" target only`,
   });
