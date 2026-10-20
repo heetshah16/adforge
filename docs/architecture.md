@@ -205,6 +205,8 @@ The contract between creative and rendering, from app-spec §5.3, renderer-agnos
 - **Everything is frames, not seconds.** Convert once, at spec-build time. Seconds→frames rounding drift is the top cause of audio desync in programmatic video.
 - **Layers reference `assetId`, never URLs.** The renderer resolves IDs through storage at render time, so a spec stored today still renders next month.
 
+> VideoSpec v2 (element layers, the edit-op project and recipe cache): see [ADR 0019](decisions/0019-c2-editable-composition.md).
+
 ### 5.4 Database (Drizzle)
 
 ```
