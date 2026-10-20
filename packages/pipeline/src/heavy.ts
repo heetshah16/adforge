@@ -4,7 +4,7 @@ import { TREATMENTS } from '@adforge/core/config/treatments';
 import type { DirectorVariant } from '@adforge/core/llm/schemas';
 import type { MediaRef, ProviderResult, VoiceBible } from '@adforge/core/providers/types';
 import { ttsText } from '@adforge/core/llm/tts-text';
-import { canonicalJson, type Recipe } from '@adforge/core/recipe/index';
+import { canonicalJson, type Recipe } from '@adforge/core/recipe';
 import { alignCaptions } from '@adforge/core/spec/align-captions';
 import type { VideoSpec } from '@adforge/core/spec/video-spec';
 import type { Language } from '@adforge/core/vocab/enums';

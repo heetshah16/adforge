@@ -4,7 +4,7 @@ import { NonRetriableError } from 'inngest';
 import { z } from 'zod';
 import { MIME_EXT, STORAGE_KEY_RE } from '@adforge/core/providers/storage-key';
 import type { MediaRef, ProviderResult, StorageProvider } from '@adforge/core/providers/types';
-import { recipeKey, type Recipe } from '@adforge/core/recipe/index';
+import { recipeKey, type Recipe } from '@adforge/core/recipe';
 import type { Db } from '@adforge/db/client';
 import { assetsForInsert } from '@adforge/db/assets-insert';
 import { assets, jobs, products, providerCalls, recipes } from '@adforge/db/schema';

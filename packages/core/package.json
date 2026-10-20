@@ -2,7 +2,7 @@
   "name": "@adforge/core",
   "private": true,
   "type": "module",
-  "exports": { "./project": "./src/project/index.ts", "./*": "./src/*.ts" },
+  "exports": { "./project": "./src/project/index.ts", "./recipe": "./src/recipe/index.ts", "./*": "./src/*.ts" },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p .",

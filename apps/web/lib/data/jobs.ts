@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
 import type { Db } from '@adforge/db/client';
@@ -41,9 +41,9 @@ export async function getJobView(udb: UserDb, jobId: string, mediaUrl: (storageK
   };
 }
 
-/** The newest revision of a variant by created_at (ties by id), or undefined for a legacy variant that has none. */
-export async function currentRevision(db: Db | UserDb, variantId: string) {
-  const [r] = await db.select().from(variantRevisions).where(eq(variantRevisions.variantId, variantId)).orderBy(desc(variantRevisions.createdAt), desc(variantRevisions.id)).limit(1);
+/** The newest non-failed revision by created_at (ties by id), or undefined for a legacy variant that has none. A failed edit never blocks approving the last good one. Takes a Db because a UserDb is one: the approve path passes a UserDb, the owner-side tests a plain Db. */
+export async function currentRevision(db: Db, variantId: string) {
+  const [r] = await db.select().from(variantRevisions).where(and(eq(variantRevisions.variantId, variantId), ne(variantRevisions.status, 'failed'))).orderBy(desc(variantRevisions.createdAt), desc(variantRevisions.id)).limit(1);
   return r;
 }
 

@@ -16,6 +16,5 @@ export async function sendVariantEdit(revisionId: string): Promise<void> {
 
 /** Dedupes on the job id, like the worker's dev route. Throws if the event can't be queued. */
 export async function sendJobRequested(jobId: string): Promise<void> {
-  const client = inngest();
-  await client.send({ name: 'adforge/job.requested', data: { jobId }, id: jobId });
+  await inngest().send({ name: 'adforge/job.requested', data: { jobId }, id: jobId });
 }

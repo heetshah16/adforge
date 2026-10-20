@@ -314,11 +314,13 @@ export const variantRevisions = pgTable(
   },
   (t) => [
     unique().on(t.id, t.orgId),
+    unique().on(t.id, t.variantId),
     index().on(t.variantId, t.createdAt),
     uniqueIndex().on(t.variantId).where(sql`${t.parentId} is null`),
     foreignKey({ columns: [t.variantId, t.orgId], foreignColumns: [variants.id, variants.orgId] }),
     // MATCH SIMPLE: a NULL parent_id / render_asset_id is not checked.
-    foreignKey({ columns: [t.parentId, t.orgId], foreignColumns: [t.id, t.orgId] }),
+    // The parent must be in the same variant (and so the same org, via the composite FK above).
+    foreignKey({ columns: [t.parentId, t.variantId], foreignColumns: [t.id, t.variantId] }),
     foreignKey({ columns: [t.renderAssetId, t.orgId], foreignColumns: [assets.id, assets.orgId] }),
   ],
 );

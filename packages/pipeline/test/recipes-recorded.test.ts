@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { DirectorVariant } from '@adforge/core/llm/schemas';
-import { recipeKey, type Recipe } from '@adforge/core/recipe/index';
+import { recipeKey, type Recipe } from '@adforge/core/recipe';
 import { assets, jobs, recipes, variants } from '@adforge/db/schema';
 import { findRecipe, recordRecipe } from '../src/record';
 import { generateAds } from '../src/orchestrate';

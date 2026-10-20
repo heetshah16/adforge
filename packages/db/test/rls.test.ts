@@ -273,6 +273,11 @@ describe.each(backends)('RLS on %s', (_name, open) => {
     expect(await affected(lock(pending, true))).toBe(1);
     expect(await affected(lock(pending, false))).toBe('denied');
     expect(await affected(lock(b.variant_revisions, true))).toBe(0);
+    // Chain integrity (0018): a parent from another variant of the SAME org is refused by the DB (owner connection).
+    const v2 = randomUUID();
+    await db.insert(schema.variants).values({ id: v2, orgId: a.org, jobId: a.jobs, variantNo: ++variantNo, formatSlug: 'f', hookSlug: 'h', archetypeSlug: 'a', visualTreatment: 't', strategicBet: 'b' });
+    const cross = db.insert(schema.variantRevisions).values({ orgId: a.org, variantId: v2, parentId: a.variant_revisions, ops: [], beats: [], status: 'pending' });
+    expect(await errorCode(cross)).toBe('23503');
   });
 
   it('a member sees only their own org, membership and user row; registry is read-only', async () => {

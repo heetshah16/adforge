@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { variantRevisions, variants } from '@adforge/db/schema';
+import { compileProject, type ProjectBase } from '@adforge/core/project';
+import type { BeatAssets } from '@adforge/core/spec/build-spec';
 import { generateAds } from '../src/orchestrate';
 import { makeDeps, memoStep, newJob } from './fakes';
 
@@ -21,6 +23,8 @@ describe('revision 0', () => {
       expect(revs).toHaveLength(1);
       expect(revs[0]).toMatchObject({ parentId: null, ops: [], status: 'ready', locked: true, orgId: v.orgId, spec: v.spec });
       expect((revs[0]!.beats as unknown[]).length).toBeGreaterThan(0);
+      // Revision 0 is reproducible: the base plus its beats compile back to the stored spec.
+      expect(compileProject({ base: v.projectBase as ProjectBase, ops: [] }, revs[0]!.beats as BeatAssets[]).spec).toEqual(revs[0]!.spec);
     }
   });
 });

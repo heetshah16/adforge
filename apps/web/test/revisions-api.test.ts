@@ -4,7 +4,7 @@ import { openDb } from '@adforge/db/client';
 import { variantRevisions, variants } from '@adforge/db/schema';
 import { withUser } from '@adforge/db/with-user';
 import { compileProject } from '@adforge/core/project';
-import { compileBeats, compileVariant } from '../../../packages/core/test/compile-fixture';
+import { compileBeats, compileVariant } from './compile-fixture';
 import { currentRevision } from '../lib/data/jobs';
 import { approveHandler, type JobsCtx } from '../lib/server/jobs-api';
 import { createRevisionHandler, listRevisionsHandler, lockRevisionHandler, unlockRevisionHandler, type RevisionsCtx } from '../lib/server/revisions-api';
@@ -49,21 +49,21 @@ describe('revision routes (pglite, fake session)', () => {
   /** rev0 -> an unlocked, ready child to edit from. */
   async function editable(t: Tenant, variantNo: number) {
     const s = await seed(t, variantNo);
-    const id = await idOf(await post(t, s.variantId, { parentId: s.rev0, ops: [UNLOCK] }));
+    const id = await idOf(await post(t, s.variantId, { parentId: s.rev0, ops: [UNLOCK, MOVE] }));
     await ready(id);
     return { ...s, tip: id };
   }
 
   beforeAll(async () => {
     h = await openDb();
-    a = await makeTenant(h.db, ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed']);
+    a = await makeTenant(h.db, ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed']);
     b = await makeTenant(h.db, ['completed']);
   });
   afterAll(async () => { await dropTenants(h.db, [a, b]); await h.close(); });
 
   it('chain rev0 -> rev1 -> rev2: GET lists all 3 with parent links; each POST sends the event; beats are copied server-side', async () => {
     const { variantId, rev0 } = await seed(a, 1);
-    const id1 = await idOf(await post(a, variantId, { parentId: rev0, ops: [UNLOCK] }));
+    const id1 = await idOf(await post(a, variantId, { parentId: rev0, ops: [UNLOCK, MOVE] }));
     await ready(id1);
     const r2 = await post(a, variantId, { parentId: id1, ops: [MOVE] });
     expect(r2.status).toBe(202);
@@ -80,21 +80,23 @@ describe('revision routes (pglite, fake session)', () => {
   it('a locked parent rejects edits (409, no row); lock ops and misplaced unlock are refused; a pending parent is refused', async () => {
     const { variantId, rev0 } = await seed(a, 2);
     expect((await post(a, variantId, { parentId: rev0, ops: [MOVE] })).status).toBe(409);
-    expect((await post(a, variantId, { parentId: rev0, ops: [UNLOCK, MOVE] })).status).toBe(409);
-    expect((await post(a, variantId, { parentId: rev0, ops: [{ op: 'lock' }] })).status).toBe(409);
+    expect((await post(a, variantId, { parentId: rev0, ops: [MOVE, UNLOCK] })).status).toBe(409); // unlock must come first
+    expect((await post(a, variantId, { parentId: rev0, ops: [UNLOCK, UNLOCK, MOVE] })).status).toBe(409);
+    expect((await post(a, variantId, { parentId: rev0, ops: [UNLOCK, { op: 'lock' }, MOVE] })).status).toBe(409);
+    const alone = await post(a, variantId, { parentId: rev0, ops: [UNLOCK] });
+    expect([alone.status, await alone.json()]).toEqual([422, { error: 'unlock must be followed by an edit' }]);
     expect(await count(variantId)).toBe(1);
-    const id1 = await idOf(await post(a, variantId, { parentId: rev0, ops: [UNLOCK] }));
+    const id1 = await idOf(await post(a, variantId, { parentId: rev0, ops: [UNLOCK, MOVE] }));
     expect((await post(a, variantId, { parentId: id1, ops: [MOVE] })).status).toBe(409); // pending
     await ready(id1);
-    expect((await post(a, variantId, { parentId: id1, ops: [UNLOCK] })).status).toBe(409); // already unlocked
+    expect((await post(a, variantId, { parentId: id1, ops: [UNLOCK, MOVE] })).status).toBe(409); // already unlocked
     expect(await count(variantId)).toBe(2);
   });
 
   it('approve needs a locked current revision: 409 unlocked, 200 after POST lock; unlock route is 409', async () => {
     const { variantId, rev0 } = await seed(a, 3);
     const appr = () => approveHandler(ctxFor(a), req(), a.jobId, '3');
-    expect((await appr()).status).toBe(200); // rev0 is locked
-    const id1 = await idOf(await post(a, variantId, { parentId: rev0, ops: [UNLOCK] }));
+    const id1 = await idOf(await post(a, variantId, { parentId: rev0, ops: [UNLOCK, MOVE] }));
     const blocked = await appr();
     expect([blocked.status, await blocked.json()]).toEqual([409, { error: 'lock the current revision before approving' }]);
     expect((await lockRevisionHandler(ctxFor(a), req(), variantId, id1)).status).toBe(409); // pending: not lockable
@@ -105,6 +107,20 @@ describe('revision routes (pglite, fake session)', () => {
     expect((await unlockRevisionHandler(ctxFor(a), req())).status).toBe(409);
     expect((await lockRevisionHandler(ctxFor(b), req(), variantId, id1)).status).toBe(404); // foreign org
     expect((await lockRevisionHandler(ctxFor(a), req(undefined, null), variantId, id1)).status).toBe(403);
+  });
+
+  it('an approved variant takes no more edits (409); a failed newest revision does not block approve', async () => {
+    const x = await seed(a, 8);
+    expect((await approveHandler(ctxFor(a), req(), a.jobId, '8')).status).toBe(200);
+    const res = await post(a, x.variantId, { parentId: x.rev0, ops: [UNLOCK, MOVE] });
+    expect([res.status, await res.json()]).toEqual([409, { error: 'variant is approved' }]);
+    expect(await count(x.variantId)).toBe(1);
+    const y = await seed(a, 9);
+    const failedId = await idOf(await post(a, y.variantId, { parentId: y.rev0, ops: [UNLOCK, MOVE] }));
+    expect((await approveHandler(ctxFor(a), req(), a.jobId, '9')).status).toBe(409); // pending unlocked tip
+    await h.db.update(variantRevisions).set({ status: 'failed' }).where(eq(variantRevisions.id, failedId));
+    expect((await currentRevision(h.db, y.variantId))!.id).toBe(y.rev0);
+    expect((await approveHandler(ctxFor(a), req(), a.jobId, '9')).status).toBe(200);
   });
 
   it('a legacy variant with no revisions approves as before', async () => {
@@ -144,7 +160,7 @@ describe('revision routes (pglite, fake session)', () => {
   });
 
   it('validation, CSRF, foreign org, wrong parent, send failure', async () => {
-    const { variantId, tip, rev0 } = await editable(a, 7);
+    const { variantId, tip } = await editable(a, 7);
     const other = await seed(b, 1);
     expect((await post(a, variantId, { parentId: tip, ops: [] })).status).toBe(400);
     expect((await post(a, variantId, { parentId: tip, ops: Array(51).fill(MOVE) })).status).toBe(400);
@@ -161,6 +177,5 @@ describe('revision routes (pglite, fake session)', () => {
     } finally { sendError = undefined; }
     expect(failed).toHaveLength(1);
     expect(await count(variantId)).toBe(before + 1);
-    void rev0;
   });
 });
