@@ -92,5 +92,6 @@ export async function approveHandler(ctx: JobsCtx, req: Request, id: string, nRa
   // Concurrent approves lock the same rows; if Postgres picks this one as a deadlock/serialization victim, the retry sees the winner's commit.
   const r = await attempt().catch((e) => { if (isRetryable(e)) return attempt(); throw e; });
   if (r === 'unlocked') return json({ error: 'lock the current revision before approving' }, 409);
+  if (r === 'unexported') return json({ error: 'export the current revision before approving' }, 409);
   return r === 'ok' ? json({ approved: n }) : r === 'not_found' ? notFound() : json({ error: `variant ${n} is not ready to approve` }, 409);
 }

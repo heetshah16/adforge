@@ -27,7 +27,7 @@ export async function createJobRow(udb: UserDb, v: { orgId: string; projectId: s
 function revisionView(r: Awaited<ReturnType<typeof currentRevision>>, mediaUrl: (storageKey: string) => string): JobView['variants'][number]['revision'] {
   if (!r) return null;
   const spec = r.status === 'ready' ? readSpec(r.spec) : null;
-  return { id: r.id, status: r.status, locked: r.locked, spec, assetUrls: spec ? Object.fromEntries(specKeys(spec).map((k) => [k, mediaUrl(k)])) : {} };
+  return { id: r.id, status: r.status, locked: r.locked, needsExport: !!r.parentId && !r.renderAssetId, spec, assetUrls: spec ? Object.fromEntries(specKeys(spec).map((k) => [k, mediaUrl(k)])) : {} };
 }
 
 export async function getJobView(udb: UserDb, jobId: string, mediaUrl: (storageKey: string) => string): Promise<JobView | null> {
@@ -35,7 +35,15 @@ export async function getJobView(udb: UserDb, jobId: string, mediaUrl: (storageK
   if (!j) return null;
   const vs = await udb.select().from(variants).leftJoin(assets, eq(variants.renderAssetId, assets.id)).where(eq(variants.jobId, jobId));
   const registry = await loadRegistry(udb);
-  const revisions = new Map(await Promise.all(vs.map(async ({ variants: v }) => [v.id, await currentRevision(udb, v.id)] as const)));
+  const revisions = new Map(await Promise.all(vs.map(async ({ variants: v }) => {
+    const r = await currentRevision(udb, v.id);
+    // I1: an edited export is what the variant delivers; falls back to the original render until it is exported.
+    const [ra] = r?.renderAssetId ? await udb.select({ storageKey: assets.storageKey }).from(assets).where(eq(assets.id, r.renderAssetId)) : [];
+    // M8: one corrupt revision spec must not take down the whole job view; that variant just shows no revision.
+    let view: ReturnType<typeof revisionView> = null;
+    try { view = revisionView(r, mediaUrl); } catch (e) { console.error(`getJobView: variant ${v.id} revision ${r?.id} unreadable`, e); }
+    return [v.id, { view, renderUrl: ra ? mediaUrl(ra.storageKey) : null }] as const;
+  })));
   return {
     job: { id: j.id, status: j.status, progress: j.progress, brief: j.brief, error: j.error, costUsd: j.costUsd, createdAt: j.createdAt.toISOString(), completedAt: j.completedAt?.toISOString() ?? null },
     variants: vs
@@ -44,8 +52,8 @@ export async function getJobView(udb: UserDb, jobId: string, mediaUrl: (storageK
         strategicBet: v.strategicBet, isExploratory: v.isExploratory, status: v.status, error: v.error,
         formatFamily: registry.formats.find((f) => f.slug === v.formatSlug)?.family ?? null,
         hookFamily: registry.hooks.find((h) => h.slug === v.hookSlug)?.family ?? null,
-        renderUrl: a ? mediaUrl(a.storageKey) : null,
-        revision: revisionView(revisions.get(v.id), mediaUrl),
+        renderUrl: revisions.get(v.id)?.renderUrl ?? (a ? mediaUrl(a.storageKey) : null),
+        revision: revisions.get(v.id)?.view ?? null,
       }))
       .sort((x, y) => x.variantNo - y.variantNo),
   };
@@ -63,10 +71,13 @@ export async function currentRevision(db: Db, variantId: string) {
  * approves then contend for the same row locks, and the loser re-evaluates its SET and WHERE against the winner's committed row
  * (READ COMMITTED), so it demotes the winner. Touching only changed rows would let both commit and leave two approved.
  */
-export async function approveVariant(udb: UserDb, jobId: string, n: number): Promise<'ok' | 'not_found' | 'conflict' | 'unlocked'> {
+export async function approveVariant(udb: UserDb, jobId: string, n: number): Promise<'ok' | 'not_found' | 'conflict' | 'unlocked' | 'unexported'> {
   // A variant with revisions can only be approved at a locked current revision; legacy variants (none) approve as before.
   const [target] = await udb.select({ id: variants.id }).from(variants).where(and(eq(variants.jobId, jobId), eq(variants.variantNo, n)));
-  if (target && (await currentRevision(udb, target.id))?.locked === false) return 'unlocked';
+  const cur = target ? await currentRevision(udb, target.id) : undefined;
+  if (cur?.locked === false) return 'unlocked';
+  // An edited revision (has a parent) delivers its export; revision 0 delivers variants.renderAssetId as before.
+  if (cur?.parentId && !cur.renderAssetId) return 'unexported';
   const eligible = inArray(variants.status, ['completed', 'approved']);
   const done = await udb
     .update(variants)

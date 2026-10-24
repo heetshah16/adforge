@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '@adforge/db/client';
-import { jobs, variantRevisions, variants } from '@adforge/db/schema';
+import { assets, jobs, variantRevisions, variants } from '@adforge/db/schema';
 import { withUser } from '@adforge/db/with-user';
 import { compileProject } from '@adforge/core/project';
 import { compileBeats, compileVariant } from './compile-fixture';
@@ -40,7 +40,7 @@ describe('revision routes (pglite, fake session)', () => {
     const base = { id: `${t.jobId}-v${variantNo}`, variant: compileVariant(), theme: { primary: '#141414', accent: '#f5b301' } };
     const beats = compileBeats();
     await h.db.update(variants).set({ projectBase: base }).where(eq(variants.id, v!.id));
-    const [r0] = await h.db.insert(variantRevisions).values({ orgId: t.orgId, variantId: v!.id, ops: [], beats, spec: compileProject({ base, ops: [] }, beats).spec, status: 'ready', locked: true }).returning();
+    const [r0] = await h.db.insert(variantRevisions).values({ orgId: t.orgId, variantId: v!.id, ops: [], beats, spec: compileProject({ base, ops: [] }, beats).spec, status: 'ready', locked: true, createdAt: new Date(Date.now() - 60_000) }).returning(); // backdated: createdAt ties would fall to the random id
     return { variantId: v!.id, rev0: r0!.id };
   }
   const post = (t: Tenant, variantId: string, body: unknown) => createRevisionHandler(ctxFor(t), req(body), variantId);
@@ -74,6 +74,7 @@ describe('revision routes (pglite, fake session)', () => {
     const list = (await (await listRevisionsHandler(ctxFor(a), variantId)).json()) as { id: string; parentId: string | null; ops: unknown[]; status: string; locked: boolean }[];
     expect(list.map((r) => [r.id, r.parentId, r.status, r.locked])).toEqual([[rev0, null, 'ready', true], [id1, rev0, 'ready', false], [id2, id1, 'pending', false]]);
     expect(list[2]!.ops).toEqual([MOVE]);
+    expect(list.every((r) => 'error' in r)).toBe(true); // M3
     const [row] = await h.db.select().from(variantRevisions).where(eq(variantRevisions.id, id2));
     expect(row!.beats).toEqual(compileBeats());
     expect((await currentRevision(h.db, variantId))!.id).toBe(id2);
@@ -105,6 +106,10 @@ describe('revision routes (pglite, fake session)', () => {
     await ready(id1);
     expect((await appr()).status).toBe(409);
     expect((await lockRevisionHandler(ctxFor(a), req(), variantId, id1)).status).toBe(200);
+    const blockedExport = await appr(); // I1: an edited revision approves only once exported
+    expect([blockedExport.status, await blockedExport.json()]).toEqual([409, { error: 'export the current revision before approving' }]);
+    const [ra] = await h.db.insert(assets).values({ orgId: a.orgId, projectId: a.projectId, kind: 'render', storageKey: 'e.mp4', mime: 'video/mp4', bytes: 1, sha256: 'e3' }).returning();
+    await h.db.update(variantRevisions).set({ renderAssetId: ra!.id }).where(eq(variantRevisions.id, id1));
     expect((await appr()).status).toBe(200);
     expect((await unlockRevisionHandler(ctxFor(a), req())).status).toBe(409);
     expect((await lockRevisionHandler(ctxFor(b), req(), variantId, id1)).status).toBe(404); // foreign org

@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '@adforge/db/client';
 import { seedVocabulary } from '@adforge/db/seed/seed';
-import { assets, jobs, projects } from '@adforge/db/schema';
+import { assets, jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
 import { withUser } from '@adforge/db/with-user';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
 import { approveHandler, createJobHandler, getJobHandler, type JobsCtx } from '../lib/server/jobs-api';
@@ -53,6 +53,18 @@ describe('job routes (pglite, fake session)', () => {
     expect((await createJobHandler(c, post({ ...FIELDS, photoKeys: await stored() }))).status).toBe(401);
     expect((await getJobHandler(c, a.jobId)).status).toBe(401);
     expect((await approveHandler(c, appr(), a.jobId, '1')).status).toBe(401);
+  });
+
+  it('approve of an edited revision without an export -> 409', async () => {
+    const t = await makeTenant(h.db, ['completed']);
+    const [v] = await h.db.select().from(variants).where(eq(variants.jobId, t.jobId));
+    const row = { orgId: t.orgId, variantId: v!.id, ops: [], beats: [], spec: null, status: 'ready' as const, locked: true };
+    const [r0] = await h.db.insert(variantRevisions).values(row).returning();
+    await h.db.insert(variantRevisions).values({ ...row, parentId: r0!.id });
+    const res = await approveHandler(ctxFor(t), appr(), t.jobId, '1');
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'export the current revision before approving' });
+    await dropTenants(h.db, [t]);
   });
 
   it('a foreign job id is 404 on GET and approve (identical to a missing id), and nothing changes', async () => {

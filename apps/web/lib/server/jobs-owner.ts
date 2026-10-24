@@ -1,5 +1,5 @@
 import { failJob } from '@adforge/pipeline/progress';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { variantRevisions } from '@adforge/db/schema';
 import { withUser, type UserDb } from '@adforge/db/with-user';
 import { getDb } from './db';
@@ -16,5 +16,5 @@ export async function failJobOwner(jobId: string, reason: string, stage: string)
 
 /** Same for a revision whose edit event could not be queued: it would otherwise stay pending forever. */
 export async function failRevisionOwner(revisionId: string, reason: string): Promise<void> {
-  await (await getDb()).update(variantRevisions).set({ status: 'failed', error: { stage: 'enqueue', reason } }).where(eq(variantRevisions.id, revisionId));
+  await (await getDb()).update(variantRevisions).set({ status: 'failed', error: { message: reason } }).where(and(eq(variantRevisions.id, revisionId), eq(variantRevisions.status, 'pending')));
 }

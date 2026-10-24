@@ -46,7 +46,8 @@ export function variantCards(view: JobView) {
     families: `${v.formatFamily ?? '?'} · ${v.hookFamily ?? '?'}`,
     bet: v.strategicBet,
     status: v.status,
-    canApprove: v.status === 'completed',
+    // Mirrors approveVariant: a revision-bearing variant approves only at a ready, locked current revision (and, once edited, its export).
+    canApprove: v.status === 'completed' && (!v.revision || (v.revision.status === 'ready' && v.revision.locked && !v.revision.needsExport)),
     preview: v.revision?.status === 'ready' && v.revision.spec ? { id: v.revision.id, spec: v.revision.spec, assetUrls: v.revision.assetUrls, locked: v.revision.locked } : null,
     videoUrl: v.status === 'completed' || v.status === 'approved' ? v.renderUrl : null,
     ...(v.status === 'failed' ? { failureReason: why(v.error) ?? 'This variant failed — see the job log.' } : {}),

@@ -128,8 +128,16 @@ describe('not rendered placeholder', () => {
 });
 
 describe('variantCards preview', () => {
-  const rev = (status: 'ready' | 'pending', spec: unknown) => ({ id: 'r1', status, locked: true, spec, assetUrls: {} });
+  const rev = (status: 'ready' | 'pending', spec: unknown) => ({ id: 'r1', status, locked: true, needsExport: false, spec, assetUrls: {} });
   const v = (revision: unknown) => { const w = view(['completed']); (w.variants[0] as { revision: unknown }).revision = revision; return variantCards(w)[0]!; };
+  it('canApprove mirrors the approve API: ready + locked (+ exported once edited)', () => {
+    const ok = (r: unknown) => v(r).canApprove;
+    expect(ok(null)).toBe(true);
+    expect(ok(rev('ready', null))).toBe(true);
+    expect(ok({ ...rev('ready', null), locked: false })).toBe(false);
+    expect(ok(rev('pending', null))).toBe(false);
+    expect(ok({ ...rev('ready', null), needsExport: true })).toBe(false);
+  });
   it('only a ready revision with a spec previews; legacy and pending do not', () => {
     expect(v(null).preview).toBeNull();
     expect(v(rev('pending', null)).preview).toBeNull();

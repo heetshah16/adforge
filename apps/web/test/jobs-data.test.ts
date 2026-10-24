@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '@adforge/db/client';
 import { seedVocabulary } from '@adforge/db/seed/seed';
-import { jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
+import { assets, jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
 import { compileProject } from '@adforge/core/project';
 import { specKeys } from '@adforge/renderer-hyperframes/compose';
 import { compileBeats, compileVariant } from './compile-fixture';
@@ -49,6 +49,39 @@ describe('jobs data under RLS (pglite)', () => {
     expect(got[1]!.revision).toBeNull(); // legacy: no revisions
     expect(got[2]!.revision).toMatchObject({ status: 'pending', spec: null, assetUrls: {} });
     void v2;
+    await dropTenants(h.db, [t]);
+  });
+
+  it('I1: renderUrl prefers the current revision export; approving an edited revision needs it (revision 0 approves as before)', async () => {
+    const t = await makeTenant(h.db, ['completed', 'completed']);
+    const vs = await h.db.select().from(variants).where(eq(variants.jobId, t.jobId));
+    const [v1, v2] = [1, 2].map((n) => vs.find((v) => v.variantNo === n)!);
+    const spec = compileProject({ base: { id: 'x', variant: compileVariant(), theme: { primary: '#141414', accent: '#f5b301' } }, ops: [] }, compileBeats()).spec;
+    const asset = async (key: string) => (await h.db.insert(assets).values({ orgId: t.orgId, projectId: t.projectId, kind: 'render', storageKey: key, mime: 'video/mp4', bytes: 1, sha256: key }).returning())[0]!;
+    const orig = await asset('orig.mp4'), exp = await asset('edited.mp4');
+    await h.db.update(variants).set({ renderAssetId: orig.id }).where(eq(variants.jobId, t.jobId));
+    const row = { orgId: t.orgId, ops: [], beats: [], spec, status: 'ready' as const, locked: true };
+    const [r0] = await h.db.insert(variantRevisions).values({ ...row, variantId: v1!.id }).returning();
+    await h.db.insert(variantRevisions).values({ ...row, variantId: v2!.id });
+    const view = async () => (await withUser(h.db, t.userId, (u) => getJobView(u, t.jobId, url)))!.variants;
+    expect((await view())[0]!.renderUrl).toBe(url('orig.mp4')); // revision 0 has no render asset: falls back
+    expect(await withUser(h.db, t.userId, (u) => approveVariant(u, t.jobId, 1))).toBe('ok'); // rev 0 approves as before
+    const [r1] = await h.db.insert(variantRevisions).values({ ...row, variantId: v1!.id, parentId: r0!.id }).returning();
+    expect(await withUser(h.db, t.userId, (u) => approveVariant(u, t.jobId, 1))).toBe('unexported');
+    await h.db.update(variantRevisions).set({ renderAssetId: exp.id }).where(eq(variantRevisions.id, r1!.id));
+    expect((await view())[0]!.renderUrl).toBe(url('edited.mp4'));
+    expect((await view())[1]!.renderUrl).toBe(url('orig.mp4'));
+    expect(await withUser(h.db, t.userId, (u) => approveVariant(u, t.jobId, 1))).toBe('ok');
+    await dropTenants(h.db, [t]);
+  });
+
+  it('M8: one corrupt revision spec does not take down the job view', async () => {
+    const t = await makeTenant(h.db, ['completed', 'completed']);
+    const vs = await h.db.select().from(variants).where(eq(variants.jobId, t.jobId));
+    await h.db.insert(variantRevisions).values({ orgId: t.orgId, variantId: vs[0]!.id, ops: [], beats: [], spec: { nope: true }, status: 'ready', locked: true });
+    const got = (await withUser(h.db, t.userId, (u) => getJobView(u, t.jobId, url)))!.variants;
+    expect(got).toHaveLength(2);
+    expect(got.every((v) => v.revision === null)).toBe(true);
     await dropTenants(h.db, [t]);
   });
 

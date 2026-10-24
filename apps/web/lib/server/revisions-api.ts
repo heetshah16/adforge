@@ -36,11 +36,11 @@ export async function listRevisionsHandler(ctx: RevisionsCtx, variantId: string)
   const rows = await ctx.run(user.userId, async (udb) => {
     const [v] = await udb.select({ id: variants.id }).from(variants).where(eq(variants.id, variantId));
     if (!v) return null;
-    return udb.select({ id: variantRevisions.id, parentId: variantRevisions.parentId, ops: variantRevisions.ops, status: variantRevisions.status, locked: variantRevisions.locked, createdAt: variantRevisions.createdAt })
+    return udb.select({ id: variantRevisions.id, parentId: variantRevisions.parentId, ops: variantRevisions.ops, status: variantRevisions.status, locked: variantRevisions.locked, error: variantRevisions.error, createdAt: variantRevisions.createdAt })
       .from(variantRevisions).where(eq(variantRevisions.variantId, variantId)).orderBy(asc(variantRevisions.createdAt), asc(variantRevisions.id));
   });
   if (!rows) return notFound();
-  return json(rows.map((r) => ({ id: r.id, parentId: r.parentId, ops: r.ops, status: r.status, locked: r.locked, createdAt: r.createdAt.toISOString() })));
+  return json(rows.map((r) => ({ id: r.id, parentId: r.parentId, ops: r.ops, status: r.status, locked: r.locked, error: r.error, createdAt: r.createdAt.toISOString() })));
 }
 
 export async function createRevisionHandler(ctx: RevisionsCtx, req: Request, variantId: string): Promise<Response> {
