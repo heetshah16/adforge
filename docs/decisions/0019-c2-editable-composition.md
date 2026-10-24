@@ -18,6 +18,12 @@
 - Export (`adforge/variant.export`) renders a ready revision through the existing heavy render, one export at a time per revision.
 - Structural edits (format, add/remove beats) are stored but not executed in C2; they return 422 until Director v2 (C3). Hinglish voice-line edits also return 422 until C3.
 - The review page previews the current revision in the browser with `@hyperframes/player` 0.8.106, using the same composition HTML as the render; media comes from `storage.urlFor` (`/media/*` under R2).
+- Status codes of the revisions API: 400 = body or op schema, including the op refines; 409 = state conflicts (lock op posted, misplaced unlock, locked parent without a leading unlock, approved variant, non-ready parent, approve on an unlocked or unrendered current revision); 422 = semantic (a newly dropped op other than missing_target, structural edit, Hinglish VO edit, a bare unlock); 503 = the event could not be enqueued.
+- Migrations 0016 (recipes), 0017 (variant_revisions and the recipes.kind CHECK) and 0018 (chain FK) are applied on the shared dev database and are never edited.
+- RLS: members SELECT recipes and revisions; they INSERT revisions only as pending, unlocked and non-root (column grants); they UPDATE only `locked` from false to true, on ready rows. Everything else is the worker's.
+- The current revision is the newest non-failed one; a legacy variant without revisions approves as before. Approving an edited variant (a revision with a parent) requires its export, and the job view's `renderUrl` is that export once it exists.
+- The janitor fails an edit still pending after 2 hours (the variant-edit finish timeout, one shared constant) and does not free the GPU holders while any edit is pending.
+- The POST 422 pre-check compiles against the parent's beats, so a word cue posted together with a VO edit is judged against the old words (known limitation). An edit or regenerate naming a beat the variant lacks is `invalid`, hence 422.
 
 ## Consequences
 - A layout or style edit costs nothing; a voice-line edit costs one TTS and one alignment call.
@@ -25,4 +31,5 @@
 - Resizing a product keeps its bottom-centre anchor in place.
 - Recipe versions do not see model weights swapped inside the voice, vision or ComfyUI services under the same name; the upgrade path is for services to report model ids through /health.
 - A failed export is visible only in `provider_calls` until the editor UI (C7) surfaces it.
+- The real job-page preview mount in a browser is untested until the C7/B4 Playwright e2e; the e2e script compares a standalone player page with the export.
 - The frame-identity test compares two renders on the same machine, so Chrome or FFmpeg upgrades do not break it.

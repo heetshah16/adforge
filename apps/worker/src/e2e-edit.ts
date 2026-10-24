@@ -43,7 +43,18 @@ const inOrg = <T>(fn: () => Promise<T>) => withStorageOrg(operator.orgId, fn);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const HF_DIR = join(REPO_ROOT, 'apps', 'web', 'public', 'hf');
 const PLAYER_JS = join(REPO_ROOT, 'apps', 'web', 'node_modules', '@hyperframes', 'player', 'dist', 'hyperframes-player.global.js');
-const W = 240, H = 426, MAX_DIFF = 4;
+const W = 240, H = 426;
+// Comparison grid: both images are area-downscaled 2x to AW x AH, then scored per 16x16 block.
+const AW = 120, AH = 213, BLOCK = 16;
+/**
+ * Score = the WORST 16x16 block's mean abs diff (0-255). A global mean dilutes a missing caption or a one-word shift (a few small blocks) into noise,
+ * a block max does not; the global mean is printed as the noise floor. LIMIT is provisional and sits between the expected positive floor and the
+ * deliberate negatives: codec blocking, sub-pixel text placement and font hinting move a block's mean by roughly 2-6/255, while a caption word that
+ * is present in one image and absent in the other (white text on a scrim inside a 16x16 block) moves it by 20+/255. 12 is the midpoint.
+ * The controller calibrates it on the first live run. Positives print their scores; each negative must beat LIMIT or the run fails, so a metric
+ * that cannot tell a 3-frame shift or a missing caption layer from a match is caught here.
+ */
+const LIMIT = 12;
 
 const callCounts = async (jobId: string) => {
   const rows = await db.select({ kind: providerCalls.kind, n: count() }).from(providerCalls).where(eq(providerCalls.jobId, jobId)).groupBy(providerCalls.kind);
@@ -170,10 +181,11 @@ try {
   // ---- 6. preview in headless Chrome vs the MP4 --------------------------------------------------------------------------------------------
   const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.js': 'text/javascript', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.html': 'text/html' };
   const html = previewHtml(spec1, (k) => `/media/${k}`); // same origin as the page: no CORS between the srcdoc iframe and storage
+  const htmlNoCaptions = previewHtml({ ...spec1, captions: { ...spec1.captions, words: [] } }, (k) => `/media/${k}`);
   const page = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#000}[data-preview]{width:${W}px;height:${H}px;overflow:hidden}hyperframes-player{display:block;width:${W}px;height:${H}px}</style>
 <div data-preview></div><script src="/player.js"></script><script>
 const host = document.querySelector('[data-preview]');
-fetch('/comp.html').then((r) => r.text()).then((srcdoc) => {
+fetch(location.search === '?nocap' ? '/comp-nocap.html' : '/comp.html').then((r) => r.text()).then((srcdoc) => {
   const p = document.createElement('hyperframes-player');
   p.setAttribute('runtime-src', location.origin + '/hf/hyperframe.runtime.iife.js');
   p.setAttribute('width', '${spec1.width}'); p.setAttribute('height', '${spec1.height}');
@@ -190,6 +202,7 @@ fetch('/comp.html').then((r) => r.text()).then((srcdoc) => {
         let body: Uint8Array | string;
         if (path === '/') body = page;
         else if (path === '/comp.html') body = html;
+        else if (path === '/comp-nocap.html') body = htmlNoCaptions;
         else if (path === '/player.js') body = await readFile(PLAYER_JS);
         else if (path.startsWith('/hf/')) {
           const f = normalize(join(HF_DIR, path.slice(4)));
@@ -197,7 +210,7 @@ fetch('/comp.html').then((r) => r.text()).then((srcdoc) => {
           body = await readFile(f);
         } else if (path.startsWith('/media/')) body = await inOrg(() => storage.read(path.slice(7)));
         else { res.writeHead(404).end(); return; }
-        res.writeHead(200, { 'content-type': MIME[path === '/' || path === '/comp.html' ? '.html' : extname(path)] ?? 'application/octet-stream' }).end(body);
+        res.writeHead(200, { 'content-type': MIME[path === '/' || path.startsWith('/comp') ? '.html' : extname(path)] ?? 'application/octet-stream' }).end(body);
       } catch { res.writeHead(404).end(); }
     })();
   }).listen(0, '127.0.0.1');
@@ -214,20 +227,67 @@ fetch('/comp.html').then((r) => r.text()).then((srcdoc) => {
   await pg.goto(pageUrl);
   await pg.waitForSelector('[data-preview][data-ready]', { timeout: 60_000 });
 
-  const D = spec1.durationInFrames;
-  const rgb = (input: string | Buffer) => sharp(input).removeAlpha().resize(W, H, { fit: 'fill' }).raw().toBuffer();
-  for (const [label, n] of [['first', 0], ['mid', Math.floor(D / 2)], ['last-1', D - 2]] as const) {
-    await pg.evaluate((s: number) => (globalThis as unknown as { __seekSec(s: number): void }).__seekSec(s), previewFrame(n, spec1.fps));
+  // Take the colour interpretation from the export itself, never ffmpeg's guess: an untagged BT.709 limited-range file decoded as BT.601/full shifts every pixel.
+  const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=color_space,color_range', '-of', 'json', mp4Path]).toString()) as { streams: { color_space?: string; color_range?: string }[] };
+  const st = probe.streams[0] ?? {};
+  const matrix = st.color_space === 'bt470bg' || st.color_space === 'smpte170m' ? 'bt601' : st.color_space === 'smpte240m' ? 'smpte240m' : st.color_space === 'bt2020nc' ? 'bt2020' : 'bt709'; // untagged HD: bt709
+  const range = st.color_range === 'pc' || st.color_range === 'jpeg' ? 'pc' : 'tv'; // untagged h264 yuv420p: broadcast range
+  console.log(`export colour: space=${st.color_space ?? '(untagged)'} range=${st.color_range ?? '(untagged)'} -> matrix ${matrix}, range ${range}`);
+
+  /** MP4 frame n as AWxAH rgb24: area-downscaled, decoded with the export's own matrix and range into full-range RGB. */
+  const mp4Frame = async (n: number) => {
+    const out = join(tmp, `mp4-${n}.png`);
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', mp4Path, '-vf', `select=eq(n\\,${n}),scale=${AW}:${AH}:flags=area:in_color_matrix=${matrix}:in_range=${range}:out_range=pc,format=rgb24`, '-frames:v', '1', out]);
+    return sharp(out).removeAlpha().raw().toBuffer();
+  };
+  /** A preview screenshot as AWxAH rgb24 through the same area filter (a PNG is already full-range sRGB). */
+  const shotFrame = async (png: Buffer, tag: string) => {
+    const inp = join(tmp, `shot-${tag}.png`), out = join(tmp, `shot-${tag}-small.png`);
+    await writeFile(inp, png);
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', inp, '-vf', `scale=${AW}:${AH}:flags=area,format=rgb24`, '-frames:v', '1', out]);
+    return sharp(out).removeAlpha().raw().toBuffer();
+  };
+  const score = (a: Buffer, b: Buffer) => {
+    if (a.length !== b.length) return { max: Infinity, mean: Infinity };
+    let total = 0, worst = 0;
+    for (let y0 = 0; y0 < AH; y0 += BLOCK) for (let x0 = 0; x0 < AW; x0 += BLOCK) {
+      let sum = 0, cnt = 0;
+      for (let y = y0; y < Math.min(y0 + BLOCK, AH); y++) for (let x = x0; x < Math.min(x0 + BLOCK, AW); x++) for (let c = 0; c < 3; c++, cnt++) sum += Math.abs(a[(y * AW + x) * 3 + c]! - b[(y * AW + x) * 3 + c]!);
+      worst = Math.max(worst, sum / cnt);
+    }
+    for (let i = 0; i < a.length; i++) total += Math.abs(a[i]! - b[i]!);
+    return { max: worst, mean: total / a.length };
+  };
+  const seekShot = async (n: number, tag: string) => {
+    await pg.evaluate((sec: number) => (globalThis as unknown as { __seekSec(s: number): void }).__seekSec(sec), previewFrame(n, spec1.fps));
     await sleep(1500); // let the seek paint (images, fonts)
-    const shot = Buffer.from(await pg.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } }));
-    const framePng = join(tmp, `mp4-${n}.png`);
-    execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', mp4Path, '-vf', `select=eq(n\\,${n}),scale=${W}:${H}`, '-frames:v', '1', framePng]);
-    const [a, c] = await Promise.all([rgb(shot), rgb(framePng)]);
-    let sum = 0;
-    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - c[i]!);
-    const mad = sum / a.length;
-    check(`preview frame ${n} (${label}) matches the MP4 within ${MAX_DIFF}/255`, a.length === c.length && mad <= MAX_DIFF, `mean abs diff ${mad.toFixed(2)}/255`);
+    return shotFrame(Buffer.from(await pg.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } })), tag);
+  };
+  const fmt = (r: { max: number; mean: number }) => `worst 16x16 block ${r.max.toFixed(2)}/255, global mean ${r.mean.toFixed(2)}/255`;
+
+  const D = spec1.durationInFrames;
+  const positives: number[] = [];
+  for (const [label, n] of [['first', 0], ['mid', Math.floor(D / 2)], ['last-1', D - 2]] as const) {
+    const r = score(await seekShot(n, `p${n}`), await mp4Frame(n));
+    positives.push(r.max);
+    check(`preview frame ${n} (${label}) matches the MP4: worst block <= ${LIMIT}`, r.max <= LIMIT, fmt(r));
   }
+
+  // Deliberate negatives, scored in this same run: they must EXCEED the positive limit, or the metric cannot see what it is meant to see.
+  const words = spec1.captions.words;
+  if (words.length < 3) throw new Error('need at least 3 caption words for the negatives');
+  const w = words[Math.floor(words.length / 2)]!;
+  const nCap = Math.floor((w.startFrame + w.endFrame) / 2); // a caption word is on screen
+  const nShift = w.startFrame - 1; // the caption changes between N and N+3
+  check('negative frames are inside the video', nShift >= 0 && nShift + 3 < D && nCap < D, `nShift ${nShift}, nCap ${nCap}, D ${D}`);
+  const shifted = score(await seekShot(nShift, 'neg-shift'), await mp4Frame(nShift + 3));
+  check(`negative: preview frame ${nShift} vs MP4 frame ${nShift + 3} exceeds ${LIMIT}`, shifted.max > LIMIT, fmt(shifted));
+  // The same composition without caption words, same frame: the page loads /comp-nocap.html on ?nocap.
+  await pg.goto(`${pageUrl}?nocap`);
+  await pg.waitForSelector('[data-preview][data-ready]', { timeout: 60_000 });
+  const hidden = score(await seekShot(nCap, 'neg-nocap'), await mp4Frame(nCap));
+  check(`negative: preview without the caption layer vs the MP4 (frame ${nCap}) exceeds ${LIMIT}`, hidden.max > LIMIT, fmt(hidden));
+  console.log(`  positives ${positives.map((x) => x.toFixed(2)).join(', ')} | negatives ${shifted.max.toFixed(2)}, ${hidden.max.toFixed(2)} | LIMIT ${LIMIT}`);
 } catch (e) {
   check('run completed', false, e instanceof Error ? e.message : String(e));
 } finally {

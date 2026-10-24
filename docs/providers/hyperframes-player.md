@@ -26,7 +26,7 @@ The element is created imperatively (`document.createElement('hyperframes-player
 ## How assets load
 
 - Composition media (`<img>`, `<video>`, `<audio>`): absolute URLs from `storage.urlFor(key)`, passed through `composeHtml`'s `assetUrl`. The job view returns them per variant in `revision.assetUrls` (key to URL), so the signing and tenancy rules are unchanged. They are fetched with the storage URL, not through the player.
-- GSAP and fonts: `composeHtml(spec, { staticBase: '/hf' })` points them at `apps/web/public/hf/`. That folder is **gitignored** and filled by `apps/web/scripts/copy-hf-assets.ts` (`pnpm --filter @adforge/web hf-assets`, run automatically by `predev` and `prebuild`) from `gsap`, the `@fontsource/*` packages (`FONT_FILES`) and `@hyperframes/core/runtime`. No binaries are committed. The player has no asset-base option, hence the script.
+- GSAP and fonts: `composeHtml(spec, { staticBase: '/hf' })` points them at `apps/web/public/hf/`. That folder is **gitignored** and filled by `apps/web/scripts/copy-hf-assets.ts` (`pnpm --filter @adforge/web hf-assets`, run automatically: the web `dev` and `build` scripts run the copy) from `gsap`, the `@fontsource/*` packages (`FONT_FILES`) and `@hyperframes/core/runtime`. No binaries are committed. The player has no asset-base option, hence the script.
 - Runtime: left alone, the player injects `https://cdn.jsdelivr.net/npm/@hyperframes/core@0.8.106/dist/hyperframe.runtime.iife.js`. The preview overrides it with `runtime-src=/hf/hyperframe.runtime.iife.js` (the same file from node_modules), so the preview needs no third-party network.
 
 ## Determinism notes

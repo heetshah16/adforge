@@ -57,6 +57,11 @@ export function VariantPreview({ revisionId, spec, assetUrls, label }: { revisio
     });
     return () => { cancelled = true; player?.remove(); };
   }, [revisionId]);
-  if (error) return <p className="errors" role="alert">Preview unavailable: {error}</p>;
-  return <div ref={host} data-preview="" aria-label={label} style={{ aspectRatio: `${spec.width} / ${spec.height}`, maxWidth: 270 }} />;
+  // The host div stays mounted while an error shows: unmounting it would leave host.current null, so the effect for the next revision could never clear the error.
+  return (
+    <>
+      {error && <p className="errors" role="alert">Preview unavailable: {error}</p>}
+      <div ref={host} data-preview="" aria-label={label} hidden={!!error} style={{ aspectRatio: `${spec.width} / ${spec.height}`, maxWidth: 270 }} />
+    </>
+  );
 }
