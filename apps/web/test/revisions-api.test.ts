@@ -160,6 +160,10 @@ describe('revision routes (pglite, fake session)', () => {
     const wrong = await post(a, variantId, { parentId: tip, ops: [MOVE, { op: 'retime', layerId: 'captions', reveal: { kind: 'scene', offsetFrames: 0 } }] });
     const body = (await wrong.json()) as { error: string; dropped: { op: { op: string }; reason: string }[] };
     expect([wrong.status, body.error, body.dropped.map((d) => [d.op.op, d.reason])]).toEqual([422, 'invalid edit', [['retime', 'wrong_target']]]);
+    for (const op of [{ op: 'setField', beat: 9, path: 'vo', value: 'hi' }, { op: 'regenerate', assetTag: 'plate:9' }]) { // I3: a beat the variant lacks
+      const gone = await post(a, variantId, { parentId: tip, ops: [op] });
+      expect([gone.status, ((await gone.json()) as { dropped: { reason: string }[] }).dropped.map((d) => d.reason)]).toEqual([422, ['invalid']]);
+    }
     expect(await count(variantId)).toBe(before);
     expect((await post(a, variantId, { parentId: tip, ops: [MOVE] })).status).toBe(202);
     // A target gone in the base (missing_target) is legitimate history, not an error.

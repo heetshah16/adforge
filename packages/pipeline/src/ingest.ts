@@ -9,7 +9,8 @@ import type { ProductAnalysis } from '@adforge/core/understand/schemas';
 import type { Db } from '@adforge/db/client';
 import { assets, libraryAssets, products } from '@adforge/db/schema';
 import { Rejected, normalizeStored } from './normalize';
-import { recordCall, saveAsset } from './record';
+import { comfyModel } from './heavy';
+import { recordCall, recordRecipe, saveAsset } from './record';
 import { visionConfig } from './snapshot';
 import type { PipelineDeps } from './types';
 import { toWire, type WireResult } from './wire';
@@ -125,6 +126,7 @@ export async function ingestProduct(data: unknown, step: IngestStep, deps: Pipel
         const key = `${ctx.ns}:cutout:${ph.ref.sha256}`;
         const ref = await call(deps, orgId, 'cutout', deps.comfy.cutout.id, key, () => deps.comfy.cutout.cutout({ image: ph.ref, idempotencyKey: key }));
         await saveAsset(db, { orgId, projectId }, 'cutout', ref);
+        await recordRecipe(db, { kind: 'cutout', provider: deps.comfy.cutout.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_CUTOUT), request: { imageKey: ph.ref.id }, orgId }, ref.id); // M6: same recipe as heavy.ts
         keys.push(ref.id);
       }
       return keys;

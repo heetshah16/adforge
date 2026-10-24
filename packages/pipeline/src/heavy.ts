@@ -36,7 +36,7 @@ async function remember<T extends { id: string }>(deps: PipelineDeps, scope: Sco
  * A comfy recipe's model is its workflow; its version is that workflow's hash, as the config snapshot records it.
  * ponytail: the weight files a workflow loads by name are not captured; upgrade path: ComfyUI reports model ids via /health, folded into version.
  */
-function comfyModel(deps: PipelineDeps, workflow: string): { model: string; version: string } {
+export function comfyModel(deps: PipelineDeps, workflow: string): { model: string; version: string } {
   const version = deps.comfy.workflowHashes[workflow];
   if (!version) throw new Error(`no ComfyUI workflow hash for ${workflow}: a recipe without it could hit across workflow changes`);
   return { model: workflow, version };
@@ -99,7 +99,8 @@ export type VoiceLineOut = { key: string; durationSec: number; words: AlignedWor
 export interface PlateLine { beat: number; prompt: string }
 
 /** Deterministic per (revision, beat): a regenerate must not hit the cache of the plate it replaces. */
-export const plateSeed = (revisionId: string, beat: number) => parseInt(createHash('sha256').update(`${revisionId}:${beat}`).digest('hex').slice(0, 8), 16);
+export const keySeed = (key: string) => parseInt(createHash('sha256').update(key).digest('hex').slice(0, 8), 16);
+export const plateSeed = (revisionId: string, beat: number) => keySeed(`${revisionId}:${beat}`);
 
 /**
  * Resolves one voice line through the recipe cache, calling a provider only on a miss (and only if `mayCall`). A retry after the
@@ -166,7 +167,7 @@ export const HEAVY = {
       for (const v of p.variants) {
         for (const [b, s] of v.scenes.entries()) {
           const key = `${p.jobId}:plate:${v.variant_no}:${b}`;
-          const req = { prompt: `${s.scene}, ${TREATMENTS[v.visual_treatment].platePromptSuffix}`, width: PIPELINE.plate.width, height: PIPELINE.plate.height };
+          const req = { prompt: `${s.scene}, ${TREATMENTS[v.visual_treatment].platePromptSuffix}`, width: PIPELINE.plate.width, height: PIPELINE.plate.height, seed: keySeed(key) }; // explicit seed from the idempotency key: two jobs with one prompt are two recipes
           const r = await call(deps, p.jobId, 'image', deps.comfy.image.id, key, () => deps.comfy.image.generate({ ...req, idempotencyKey: key }));
           const ref = await keep(deps, scope, 'plate', r);
           await remember(deps, scope, { kind: 'plate', provider: deps.comfy.image.id, ...comfyModel(deps, deps.env.ADFORGE_COMFY_WORKFLOW_PLATE), request: req }, ref);
@@ -223,7 +224,7 @@ export const HEAVY = {
         const key = `${p.jobId}:broll:${v.variant_no}`;
         const req = {
           mode: 'image_to_video', prompt: `${v.scenes[beat]!.scene}, subtle ambient motion, static camera`,
-          durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p',
+          durationSec: PIPELINE.broll.durationSec, aspectRatio: '9:16', resolution: '720p', seed: keySeed(key),
         } as const;
         let made: { ref: MediaRef; imageKey: string } | null = null;
         try {

@@ -103,10 +103,14 @@ function apply(spec: VideoSpec, cues: Map<string, { cue: Cue; op: EditOp }>, op:
   if (!EditOp.safeParse(op).success) return 'invalid'; // ops arrive from stored jsonb: never trust the static type
   switch (op.op) {
     case 'setField':
-    case 'regenerate':
+    case 'regenerate': {
+      // An op on a beat the variant lacks can never take effect (the executor would skip it): invalid, so POST refuses it.
+      const beat = op.op === 'setField' ? op.beat : Number(op.assetTag.split(':')[1]);
+      return beat < spec.scenes.length ? undefined : 'invalid'; // otherwise their effect arrives through new beats from the executor
+    }
     case 'lock':
     case 'unlock':
-      return; // their effect arrives through new beats from the executor, or is revision state
+      return; // revision state
   }
   if (op.layerId === CAPTIONS_ID) {
     if (op.op !== 'setStyle' || op.style.scrim !== undefined) return 'wrong_target'; // captions have no box, cue or scrim

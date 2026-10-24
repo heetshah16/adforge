@@ -34,7 +34,7 @@ export class RecipeGraph {
     return [...out].sort();
   }
 
-  /** The sorted tags whose recipes change. Free ops invalidate nothing; an op on a beat the variant lacks is dropped (compileProject lists it). */
+  /** The sorted tags whose recipes change. Free ops invalidate nothing; an op on a beat the variant lacks changes nothing here; compileProject drops it as 'invalid' (so the revisions POST refuses it). */
   invalidated(ops: EditOp[]): AssetTag[] {
     const roots: AssetTag[] = [];
     for (const op of ops) {

@@ -39,7 +39,7 @@ describe('recipes recorded by generateAds', () => {
     }
     // Comfy kinds are versioned by workflow hash; media inputs are storage keys, never MediaRefs.
     expect((of(first, 'plate')[0]!.recipe as Recipe)).toMatchObject({ model: 'plate-flux-schnell', version: 'p'.repeat(64) });
-    expect(Object.keys((of(first, 'plate')[0]!.recipe as Recipe).request as object).sort()).toEqual(['height', 'prompt', 'width']);
+    expect(Object.keys((of(first, 'plate')[0]!.recipe as Recipe).request as object).sort()).toEqual(['height', 'prompt', 'seed', 'width']);
     expect((of(first, 'cutout')[0]!.recipe as Recipe).request).toEqual({ imageKey: expect.stringMatching(/\.png$/) });
     expect((of(first, 'broll')[0]!.recipe as Recipe).request).toMatchObject({ mode: 'image_to_video', imageKey: expect.stringMatching(/\.png$/) });
     expect((of(first, 'broll')[0]!.recipe as Recipe).request).not.toHaveProperty('firstFrame');
@@ -63,8 +63,19 @@ describe('recipes recorded by generateAds', () => {
     const id2 = await newJob(m.deps, true);
     expect((await generateAds(id2, memoStep(m.deps), m.deps)).status).toBe('completed');
     const second = await db.select().from(recipes);
-    for (const k of ['plate', 'cutout', 'tts']) expect(of(second, k), k).toEqual(of(first, k));
-    expect(second).toHaveLength(first.length + brolls + beats);
+    for (const k of ['cutout', 'tts']) expect(of(second, k), k).toEqual(of(first, k));
+    // I4: plates and b-roll send an explicit seed derived from their (per-job) idempotency key: the same prompt in a second job is its own recipe.
+    const seeds = (rows: typeof first, k: string) => rows.filter((r) => r.kind === k).map((r) => ((r.recipe as Recipe).request as { seed: number }).seed);
+    const newPlates = of(second, 'plate').filter((r) => !of(first, 'plate').some((o) => o.key === r.key));
+    expect(newPlates).toHaveLength(beats);
+    expect(new Set([...seeds(first, 'plate'), ...seeds(newPlates, 'plate')]).size).toBe(beats * 2);
+    // each recorded seed is exactly what the provider was sent
+    const sentSeeds = m.imageReqs.map((r) => r.seed);
+    expect(sentSeeds.every((s) => typeof s === 'number')).toBe(true);
+    expect([...seeds(first, 'plate'), ...seeds(newPlates, 'plate')].sort()).toEqual([...sentSeeds].sort());
+    const brollSeeds = [...of(second, 'broll')].map((r) => ((r.recipe as Recipe).request as { seed: number }).seed);
+    expect(brollSeeds.sort()).toEqual(m.videoReqs.map((r) => r.seed).sort());
+    expect(second.length).toBeGreaterThan(first.length + brolls);
   });
 });
 

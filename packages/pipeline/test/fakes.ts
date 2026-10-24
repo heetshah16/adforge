@@ -58,6 +58,8 @@ export async function makeDeps(ctl: FakeControls = {}) {
     ({ ...(await storage.put(new Uint8Array([...PNG, n++]), { mime })), ...extra });
   const done = <T>(value: T): ProviderResult<T> => ({ status: 'done', value, cost: { amountUsd: 0, estimated: false }, latencyMs: 1 });
   const ttsReqs: TTSRequest[] = [];
+  const imageReqs: { prompt: string; seed?: number }[] = [];
+  const videoReqs: { seed?: number }[] = [];
   const director = ctl.director ?? [anchor()];
 
   const deps: PipelineDeps = {
@@ -69,12 +71,12 @@ export async function makeDeps(ctl: FakeControls = {}) {
       preflight: async () => { if (ctl.comfyDown) throw new ProviderError('comfyui', 'UPSTREAM', 'ComfyUI unreachable'); },
       free: async () => { calls.free++; },
       systemStats: async () => ({ vramUsedBytes: 0, vramTotalBytes: 16e9 }),
-      image: { id: 'fake', generate: async () => { calls.image++; return done(await put('image/png', { width: 768, height: 1344 })); } },
+      image: { id: 'fake', generate: async (r) => { calls.image++; imageReqs.push(r); return done(await put('image/png', { width: 768, height: 1344 })); } },
       cutout: { id: 'fake', cutout: async () => { calls.cutout++; return done(await put('image/png')); } },
       video: {
         id: 'fake',
         capabilities: { modes: ['image_to_video'], maxDurationSec: 5, resolutions: ['720p'], typicalLatencyMs: 1 },
-        submit: async (r) => { calls.videoSubmit++; return { provider: 'fake', externalId: r.idempotencyKey, pollAfterMs: 1 }; },
+        submit: async (r) => { calls.videoSubmit++; videoReqs.push(r); return { provider: 'fake', externalId: r.idempotencyKey, pollAfterMs: 1 }; },
         poll: async () => { calls.videoPoll++; return ctl.failBroll ? fail('UPSTREAM', true) : done(await put('video/mp4', { durationSec: 121 / 24 })); },
       },
     },
@@ -114,7 +116,7 @@ export async function makeDeps(ctl: FakeControls = {}) {
       },
     },
   };
-  return { deps, calls, close, op, ttsReqs };
+  return { deps, calls, close, op, ttsReqs, imageReqs, videoReqs };
 }
 
 /** A real jobs row in the Operator org (provider_calls.jobId is a foreign key; the job row scopes every write). */

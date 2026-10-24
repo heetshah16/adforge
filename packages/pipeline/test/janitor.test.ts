@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { jobs } from '@adforge/db/schema';
+import { jobs, variantRevisions, variants } from '@adforge/db/schema';
 import { failJob } from '../src/progress';
 import { runJanitor } from '../src/janitor';
 import { makeDeps } from './fakes';
@@ -34,6 +34,36 @@ describe('runJanitor', () => {
     } finally {
       await m.close();
     }
+  });
+});
+
+describe('runJanitor: edits', () => {
+  async function pendingRevision(m: Awaited<ReturnType<typeof makeDeps>>, ageMin: number) {
+    const [job] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'completed' }).returning();
+    const [v] = await m.deps.db.insert(variants).values({ orgId: m.op.orgId, jobId: job!.id, variantNo: 1, formatSlug: 'f', hookSlug: 'h', archetypeSlug: 'a', visualTreatment: 'v', strategicBet: 'b', status: 'completed' }).returning();
+    const [r] = await m.deps.db.insert(variantRevisions).values({ orgId: m.op.orgId, variantId: v!.id, ops: [], beats: [], status: 'pending', createdAt: new Date(Date.now() - ageMin * 60_000) }).returning();
+    return r!.id;
+  }
+  const status = async (m: Awaited<ReturnType<typeof makeDeps>>, id: string) => (await m.deps.db.select().from(variantRevisions).where(eq(variantRevisions.id, id)))[0]!;
+
+  it('fails a revision pending past the edit timeout', async () => {
+    const m = await makeDeps();
+    try {
+      const id = await pendingRevision(m, 121);
+      await runJanitor(m.deps);
+      expect(await status(m, id)).toMatchObject({ status: 'failed', error: { message: 'edit timed out' } });
+    } finally { await m.close(); }
+  });
+
+  it('a young pending revision is left alone and keeps the GPU holders loaded', async () => {
+    const m = await makeDeps();
+    try {
+      const id = await pendingRevision(m, 5);
+      const r = await runJanitor(m.deps);
+      expect((await status(m, id)).status).toBe('pending');
+      expect(r.freed).toBe(false);
+      expect(m.calls.free + m.calls.unload).toBe(0);
+    } finally { await m.close(); }
   });
 });
 

@@ -16,6 +16,19 @@ const sceneWords = (spec: VideoSpec, i: number) => {
   return spec.captions.words.filter((w) => w.startFrame >= s.startFrame && w.startFrame < s.startFrame + s.durationInFrames);
 };
 
+describe('compileProject: beats out of range', () => {
+  it('setField / regenerate on a beat the variant lacks drop as invalid; in-range ones do not', () => {
+    const n = compileVariant().scenes.length;
+    const ops: EditOp[] = [
+      { op: 'setField', beat: n, path: 'vo', value: 'x' },
+      { op: 'regenerate', assetTag: `plate:${n}` },
+      { op: 'setField', beat: n - 1, path: 'vo', value: 'x' },
+      { op: 'regenerate', assetTag: 'voice:0' },
+    ];
+    expect(compile(...ops).dropped).toEqual([drop(ops[0]!, 'invalid'), drop(ops[1]!, 'invalid')]);
+  });
+});
+
 describe('compileProject: base', () => {
   it('with no ops reproduces the pre-C2 buildSpec, upgraded', () => {
     const old = VideoSpecV1.parse(JSON.parse(readFileSync(new URL('./golden/compile-base.json', import.meta.url), 'utf8')));

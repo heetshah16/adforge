@@ -4,7 +4,7 @@ import { NonRetriableError } from 'inngest';
 import { loadPrompt } from '@adforge/core/llm/prompts';
 import { ProviderError, type LLMProvider, type LLMRequest } from '@adforge/core/providers/types';
 import { labelTextViolations } from '@adforge/core/understand/schemas';
-import { assets, libraryAssets, orgs, products, projects, providerCalls } from '@adforge/db/schema';
+import { assets, libraryAssets, orgs, products, projects, providerCalls, recipes } from '@adforge/db/schema';
 import { ingestProduct, updateDescriptor, type IngestStep } from '../src/ingest';
 import { saveAsset } from '../src/record';
 import { buildConfigSnapshot } from '../src/snapshot';
@@ -120,6 +120,9 @@ describe('product.ingest', () => {
     expect(cs.map((c) => c.kind).sort()).toEqual(['cutout', 'llm', 'ocr']);
     expect(cs.every((c) => c.orgId === m.scope.orgId && c.status === 'done' && c.idempotencyKey.startsWith(`ingest:${m.scope.orgId}:${productId}:`))).toBe(true);
     expect(cs.find((c) => c.kind === 'llm')!.model).toBe('claude-sonnet-5-5');
+    const rc = await m.deps.db.select().from(recipes);
+    expect(rc).toHaveLength(1); // M6
+    expect(rc[0]).toMatchObject({ kind: 'cutout', orgId: m.scope.orgId, outputKey: (row!.meta as { cutoutKey: string }).cutoutKey });
   });
 
   it('3 photos → 3 rows named by azimuth bucket only (visibleFaces order is irrelevant), the anchor at bestPhotoIndex', async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import type { EditOp } from '@adforge/core/project';
-import { orgs, projects, providerCalls, variantRevisions, variants } from '@adforge/db/schema';
+import { libraryAssets, orgs, projects, providerCalls, variantRevisions, variants } from '@adforge/db/schema';
 import { editVariant, exportRevision } from '../src/edit';
 import { generateAds } from '../src/orchestrate';
 import { makeDeps, type FakeControls, memoStep, newJob } from './fakes';
@@ -143,6 +143,56 @@ describe('variant.edit executor', () => {
     const out = await load(m, r.id);
     expect(out.status).toBe('failed');
     expect(out.error).toMatchObject({ message: expect.stringContaining('structural') });
+  });
+});
+
+describe('variant.edit chains and voice bibles', () => {
+  /** A pending child of any revision (the route copies the parent's beats). */
+  async function childOf(m: M, g: G, parent: typeof variantRevisions.$inferSelect, ops: EditOp[]) {
+    const [r] = await m.deps.db.insert(variantRevisions).values({ orgId: g.variant.orgId, variantId: g.variant.id, parentId: parent.id, ops, beats: parent.beats, status: 'pending', locked: false }).returning();
+    return r!;
+  }
+  type S = { audio: { voice: { key: string }[] } };
+
+  it('rev0 -> rev1 (VO edit) -> rev2 (free op): rev2 makes no TTS call and keeps rev1 voice; an emotion edit on rev1 re-synthesizes rev1 text', async () => {
+    const m = await makeDeps(); close = m.close;
+    const g = await generated(m);
+    await run(m, (await child(m, g, [UNLOCK, { op: 'setField', beat: 1, path: 'vo', value: LONG }])).id);
+    const rev1 = (await m.deps.db.select().from(variantRevisions).where(and(eq(variantRevisions.parentId, g.rev0.id))))[0]!;
+    expect(rev1.status).toBe('ready');
+    const v1 = (rev1.spec as S).audio.voice[1]!.key;
+    expect(v1).not.toBe((g.rev0.spec as S).audio.voice[1]!.key);
+
+    const rev2 = await childOf(m, g, rev1, [{ op: 'move', layerId: 's1.headline', x: 0.1, y: 0.3 }]);
+    const before = snap(m);
+    await run(m, rev2.id);
+    expect([m.calls.tts - before.tts, m.calls.align - before.align, m.calls.image - before.image]).toEqual([0, 0, 0]);
+    const out2 = await load(m, rev2.id);
+    expect(out2.status).toBe('ready');
+    expect((out2.spec as S).audio.voice[1]!.key).toBe(v1);
+
+    const rev2b = await childOf(m, g, rev1, [{ op: 'setField', beat: 1, path: 'emotion', value: '0.9' }]);
+    const b2 = snap(m);
+    await run(m, rev2b.id);
+    expect(m.calls.tts - b2.tts).toBe(1);
+    expect(m.ttsReqs.at(-1)).toMatchObject({ text: LONG, emotion: 0.9 }); // rev1's VO text, not the original line
+    expect((await load(m, rev2b.id)).status).toBe('ready');
+  });
+
+  it('a job with a library voice bible: an unchanged line rebuilds generateAds recipe exactly (cache hit), with the bible on the request', async () => {
+    const m = await makeDeps(); close = m.close;
+    await m.deps.db.insert(libraryAssets).values({ ...m.op, tag: '@voice_sattvik_en', version: 1, kind: 'voice', descriptor: 'd', meta: { engine: 'qwen', speaker: 'Ryan', baseInstruct: 'Warm and unhurried.' } });
+    const g = await generated(m);
+    expect(m.ttsReqs.length).toBeGreaterThan(0);
+    expect(m.ttsReqs.every((r) => r.voiceBible?.speaker === 'Ryan')).toBe(true);
+    const scene = (g.variant.direction as { scenes: { emotion: number }[] }).scenes[1]!;
+    const r = await child(m, g, [UNLOCK, { op: 'setField', beat: 1, path: 'emotion', value: String(scene.emotion) }]);
+    const before = snap(m);
+    await run(m, r.id);
+    expect([m.calls.tts - before.tts, m.calls.align - before.align]).toEqual([0, 0]);
+    const out = await load(m, r.id);
+    expect(out.status).toBe('ready');
+    expect((out.spec as S).audio.voice[1]!.key).toBe((g.rev0.spec as S).audio.voice[1]!.key);
   });
 });
 
