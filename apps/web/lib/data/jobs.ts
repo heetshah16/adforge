@@ -73,7 +73,10 @@ export async function currentRevision(db: Db, variantId: string) {
  */
 export async function approveVariant(udb: UserDb, jobId: string, n: number): Promise<'ok' | 'not_found' | 'conflict' | 'unlocked' | 'unexported'> {
   // A variant with revisions can only be approved at a locked current revision; legacy variants (none) approve as before.
-  const [target] = await udb.select({ id: variants.id }).from(variants).where(and(eq(variants.jobId, jobId), eq(variants.variantNo, n)));
+  // Lock every variant row of the job, in id order, before checking: the UPDATE below touches them all, so a consistent order can't deadlock
+  // two concurrent approves, and a revision POST (FOR SHARE on its variant) can't slip a new pending child between this check and the approve.
+  const rows = await udb.select({ id: variants.id, variantNo: variants.variantNo }).from(variants).where(eq(variants.jobId, jobId)).orderBy(variants.id).for('update');
+  const target = rows.find((r) => r.variantNo === n);
   const cur = target ? await currentRevision(udb, target.id) : undefined;
   if (cur?.locked === false) return 'unlocked';
   // An edited revision (has a parent) delivers its export; revision 0 delivers variants.renderAssetId as before.

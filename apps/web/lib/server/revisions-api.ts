@@ -55,7 +55,7 @@ export async function createRevisionHandler(ctx: RevisionsCtx, req: Request, var
   const { parentId, ops } = parsed.data;
 
   const out = await ctx.run(user.userId, async (udb): Promise<Response | { id: string }> => {
-    const [v] = await udb.select({ orgId: variants.orgId, status: variants.status, projectBase: variants.projectBase, input: jobs.inputSpec }).from(variants).innerJoin(jobs, eq(jobs.id, variants.jobId)).where(eq(variants.id, variantId));
+    const [v] = await udb.select({ orgId: variants.orgId, status: variants.status, projectBase: variants.projectBase, input: jobs.inputSpec }).from(variants).innerJoin(jobs, eq(jobs.id, variants.jobId)).where(eq(variants.id, variantId)).for('share', { of: variants });
     if (!v) return notFound();
     const chain = await udb.select({ id: variantRevisions.id, parentId: variantRevisions.parentId, ops: variantRevisions.ops, status: variantRevisions.status, locked: variantRevisions.locked })
       .from(variantRevisions).where(eq(variantRevisions.variantId, variantId));

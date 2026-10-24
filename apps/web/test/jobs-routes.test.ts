@@ -59,7 +59,7 @@ describe('job routes (pglite, fake session)', () => {
     const t = await makeTenant(h.db, ['completed']);
     const [v] = await h.db.select().from(variants).where(eq(variants.jobId, t.jobId));
     const row = { orgId: t.orgId, variantId: v!.id, ops: [], beats: [], spec: null, status: 'ready' as const, locked: true };
-    const [r0] = await h.db.insert(variantRevisions).values(row).returning();
+    const [r0] = await h.db.insert(variantRevisions).values({ ...row, createdAt: new Date(Date.now() - 60_000) }).returning(); // backdated: PGlite's ms clock can tie
     await h.db.insert(variantRevisions).values({ ...row, parentId: r0!.id });
     const res = await approveHandler(ctxFor(t), appr(), t.jobId, '1');
     expect(res.status).toBe(409);

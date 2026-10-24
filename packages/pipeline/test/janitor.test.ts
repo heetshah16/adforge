@@ -46,10 +46,19 @@ describe('runJanitor: edits', () => {
   }
   const status = async (m: Awaited<ReturnType<typeof makeDeps>>, id: string) => (await m.deps.db.select().from(variantRevisions).where(eq(variantRevisions.id, id)))[0]!;
 
+  it('a revision still queued within the start + finish window is not failed', async () => {
+    const m = await makeDeps();
+    try {
+      const id = await pendingRevision(m, 200);
+      await runJanitor(m.deps);
+      expect((await status(m, id)).status).toBe('pending');
+    } finally { await m.close(); }
+  });
+
   it('fails a revision pending past the edit timeout', async () => {
     const m = await makeDeps();
     try {
-      const id = await pendingRevision(m, 121);
+      const id = await pendingRevision(m, 241);
       await runJanitor(m.deps);
       expect(await status(m, id)).toMatchObject({ status: 'failed', error: { message: 'edit timed out' } });
     } finally { await m.close(); }

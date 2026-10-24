@@ -21,6 +21,7 @@ export function VariantPreview({ revisionId, spec, assetUrls, label }: { revisio
     const el = host.current as PreviewHost | null;
     if (!el) return;
     const { spec: s, assetUrls: urls } = latest.current;
+    el.removeAttribute('data-ready'); // before any early return: a failed revision must never look ready to the e2e
     let html: string;
     try {
       html = previewHtml(s, (k) => assetUrlOf(urls, k));
@@ -29,7 +30,6 @@ export function VariantPreview({ revisionId, spec, assetUrls, label }: { revisio
       return;
     }
     setError(null);
-    el.removeAttribute('data-ready');
     let cancelled = false;
     let player: Player | undefined;
     let ready = false;

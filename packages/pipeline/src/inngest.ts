@@ -4,7 +4,7 @@ import { editVariant, exportRevision, failRevision } from './edit';
 import { HEAVY } from './heavy';
 import { ingestProduct } from './ingest';
 import { failJob } from './progress';
-import { EDIT_FINISH_MIN, runJanitor } from './janitor';
+import { EDIT_FINISH_MIN, EDIT_START_MIN, runJanitor } from './janitor';
 import { generateAds } from './orchestrate';
 import { orgForEvent } from './record';
 import type { PipelineDeps, StepLike } from './types';
@@ -56,7 +56,7 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
 
   // The org comes from the revision row, never the event; every step callback re-enters it. Idempotent per revision: a revision that is no longer pending is skipped.
   const edit = inngest.createFunction(
-    { id: 'variant-edit', triggers: [{ event: EVENTS.variantEdit }], retries: 2, concurrency: [{ limit: 2 }], timeouts: { finish: `${EDIT_FINISH_MIN}m` },
+    { id: 'variant-edit', triggers: [{ event: EVENTS.variantEdit }], retries: 2, concurrency: [{ limit: 2 }], timeouts: { start: `${EDIT_START_MIN}m`, finish: `${EDIT_FINISH_MIN}m` },
       onFailure: async ({ event, error }) => {
         const revisionId = (event.data.event.data as { revisionId?: string } | undefined)?.revisionId;
         if (revisionId) await failRevision(deps.db, revisionId, error.message);

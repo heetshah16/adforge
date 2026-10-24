@@ -33,3 +33,7 @@
 - A failed export is visible only in `provider_calls` until the editor UI (C7) surfaces it.
 - The real job-page preview mount in a browser is untested until the C7/B4 Playwright e2e; the e2e script compares a standalone player page with the export.
 - The frame-identity test compares two renders on the same machine, so Chrome or FFmpeg upgrades do not break it.
+- Approve locks every variant row of the job in id order before checking, and a revision POST takes a share lock on its variant, so an edit can't slip in between the lock check and the approve, and concurrent approves can't deadlock.
+- The janitor fails an edit only after variant-edit's start plus finish timeouts (4 h from creation), so a queued edit is never failed while it can still run; a late completion after that is a no-op (every write is guarded by `status = 'pending'`).
+- "Current revision" orders by `created_at` then id. Parent and child can't tie in Postgres (a child is posted after its parent commits); two concurrent sibling edits can tie and one is picked deterministically. If that ever matters, add a monotonic `seq` identity column in a new migration and order by it.
+- A revision whose stored spec can't be read shows no preview and is treated like a legacy variant in the UI, so the page may offer an approve the API refuses (409).
