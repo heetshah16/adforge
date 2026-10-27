@@ -1,7 +1,11 @@
+import { sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { openDb } from '../src/client';
-import { pgOptions, STATEMENT_TIMEOUT_MS } from '../src/client';
-import { withUser } from '../src/with-user';
+import { openDb, pgOptions } from '../src/client';
+import { STATEMENT_TIMEOUT_MS, withUser } from '../src/with-user';
+
+function rows<T>(r: unknown): T[] {
+  return (Array.isArray(r) ? r : (r as { rows: T[] }).rows) as T[];
+}
 
 describe('pgOptions', () => {
   it('is pooler-safe: no prepared statements, and no startup params (Supavisor :6543 ignores them)', () => {
@@ -15,9 +19,9 @@ describe('withUser statement timeout', () => {
   it('sets a transaction-local statement_timeout', async () => {
     const { db, close } = await openDb();
     try {
-      const rows = await withUser(db, '00000000-0000-0000-0000-000000000001', (u) => u.execute<{ statement_timeout: string }>('show statement_timeout' as never));
-      const v = ((rows as unknown as { rows?: unknown[] }).rows ?? (rows as unknown as unknown[]))[0] as { statement_timeout: string };
-      expect(v.statement_timeout).toBe(`${STATEMENT_TIMEOUT_MS / 1000}s`);
+      const [v] = await withUser(db, '00000000-0000-0000-0000-000000000001', async (u) =>
+        rows<{ t: string }>(await u.execute(sql`select current_setting('statement_timeout') as t`)));
+      expect(v!.t).toBe(`${STATEMENT_TIMEOUT_MS / 1000}s`);
     } finally {
       await close();
     }

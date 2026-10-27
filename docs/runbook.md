@@ -109,7 +109,7 @@ Create `cors-dev.json` from the JSON block below (it is not in the repo), then s
 ```
 
 **Prod bucket CORS**
-Not set yet. Set it in B4 when the site domain exists, with the same rule and origins = the site URL.
+Not set yet. See Deploy (Vercel) > R2 bucket CORS.
 
 **Prod bucket lock**
 - Rule `retain-30d`, all prefixes. Objects cannot be deleted or overwritten for 30 days.
@@ -154,12 +154,17 @@ Project settings: link the GitHub repo, **Root Directory** `apps/web`. **Do not 
 - `DATABASE_URL`: the Supabase **transaction pooler** string (`...pooler.supabase.com:6543`, user `postgres.<ref>`). Prepared statements are off; the 15 s statement timeout is applied per transaction in `withUser` (the pooler ignores session and startup settings).
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `ADFORGE_PUBLIC_URL`, `ADFORGE_ADMIN_EMAILS`.
 - `ADFORGE_PROVIDER_STORAGE=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `ADFORGE_MEDIA_TTL_SEC` (optional `R2_TIMEOUT_MS`).
-- `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`. Preview/branch deployments also need `INNGEST_ENV` and that environment's own signing key.
+- `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`. Preview/branch deployments share the same event and signing key; the SDK detects the branch from `VERCEL_GIT_COMMIT_REF`, and `INNGEST_ENV` overrides that, so leave `INNGEST_ENV` UNSET on previews (each branch gets its own Inngest branch env; see https://www.inngest.com/docs/platform/environments).
+
+**Preview vs production values**
+- Preview deployments use the DEV environment: dev Supabase via its transaction pooler URL, `R2_BUCKET=adforge-dev` (NEVER `adforge-prod`: it has a 30-day lock), `ADFORGE_PROVIDER_STORAGE=r2`, `ADFORGE_SITE_URL` = the stable branch alias (https), Inngest branch env (`INNGEST_ENV` unset).
+- Previews build with `NODE_ENV=production`, so they boot as prod: every prod-required var above must be present.
+- Production values are set at B6 (prod Supabase project, `adforge-prod` bucket, Inngest prod env).
 
 **Inngest**
 - The web serves app `adforge-web` at `/api/inngest` (signed; anonymous PUT sync is disabled). Sync with the Inngest Vercel integration (every deploy) or from the Inngest UI.
 - Vercel Deployment Protection must let Inngest reach `/api/inngest`: disable it for that project, or enable "Protection Bypass for Automation" and put the secret in the integration's "Deployment protection key"; redeploy previews to resync.
 
 **R2 bucket CORS for the site origins**
-Same rule as the dev bucket (see Media (R2)), with `origins` = the prod site URL and each preview origin:
+Same rule as the dev bucket (see Media (R2)), with `origins` = the prod site URL and the preview origins. Preview origin = the stable branch alias `<project>-git-<branch>-<scope>.vercel.app` (or a custom preview domain), not per-deployment hostnames:
 `npx wrangler@4 r2 bucket cors set adforge-prod --file cors-prod.json --force`

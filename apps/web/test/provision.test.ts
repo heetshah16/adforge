@@ -153,3 +153,23 @@ describe('isEmailUniqueViolation', () => {
 
 suite('pglite', () => openDb());
 suite('postgres', () => openPostgres(process.env.ADFORGE_TEST_DATABASE_URL!), true);
+
+describe('provision statement timeout', () => {
+  it('sets a transaction-local statement_timeout before any work', async () => {
+    const h = await openDb();
+    try {
+      const seen: string[] = [];
+      const spy = {
+        transaction: (fn: (tx: unknown) => Promise<unknown>) =>
+          h.db.transaction((tx) =>
+            fn(new Proxy(tx, { get: (t, k) => (k === 'execute' ? (q: unknown) => (seen.push(JSON.stringify(q)), t.execute(q as never)) : Reflect.get(t, k)) })),
+          ),
+      } as unknown as Db;
+      await provisionWith(spy, { userId: randomUUID(), email: `t-${randomUUID()}@example.test` }, DEV);
+      expect(seen[0]).toContain('statement_timeout');
+      expect(seen[0]).toContain('15000');
+    } finally {
+      await h.close();
+    }
+  });
+});

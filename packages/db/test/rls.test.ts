@@ -345,16 +345,16 @@ describe.each(backends)('RLS on %s', (_name, open) => {
   });
 
   it('withUser leaks nothing past its transaction, even when fn throws', async () => {
-    const [owner] = rows<{ u: string }>(await db.execute(sql`select current_user as u`));
+    const [owner] = rows<{ u: string; t: string }>(await db.execute(sql`select current_user as u, current_setting('statement_timeout') as t`));
     const inside = await withUser(db, a.user, async (u) =>
       rows<{ u: string; uid: string }>(await u.execute(sql`select current_user as u, auth.uid() as uid`))[0]);
     expect(inside).toEqual({ u: 'authenticated', uid: a.user });
     await expect(withUser(db, a.user, async () => { throw new Error('boom'); })).rejects.toThrow('boom');
-    const [after] = rows<{ u: string; claims: string | null; sub: string | null }>(await db.execute(sql`
-      select current_user as u, nullif(current_setting('request.jwt.claims', true), '') as claims,
+    const [after] = rows<{ u: string; t: string; claims: string | null; sub: string | null }>(await db.execute(sql`
+      select current_user as u, current_setting('statement_timeout') as t, nullif(current_setting('request.jwt.claims', true), '') as claims,
         nullif(current_setting('request.jwt.claim.sub', true), '') as sub
     `));
-    expect(after).toEqual({ u: owner!.u, claims: null, sub: null });
+    expect(after).toEqual({ u: owner!.u, t: owner!.t, claims: null, sub: null });
   });
 
   it('withUser refuses to run inside a transaction: SET LOCAL would outlive the savepoint', async () => {

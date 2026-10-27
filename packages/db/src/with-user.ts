@@ -1,6 +1,9 @@
 import { is, sql } from 'drizzle-orm';
 import { PgTransaction } from 'drizzle-orm/pg-core';
-import { STATEMENT_TIMEOUT_MS, type Db } from './client';
+import type { Db } from './client';
+
+/** Per-statement cap for request-path transactions (set transaction-locally). */
+export const STATEMENT_TIMEOUT_MS = 15_000;
 
 /** A handle whose queries run as `authenticated` under RLS, as `userId`. Only withUser makes one. */
 export type UserDb = Db & { readonly __rls: unique symbol };

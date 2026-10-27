@@ -105,9 +105,6 @@ export async function openDb(dataDir?: string): Promise<{ db: Db; close(): Promi
   }
 }
 
-/** Per-statement cap for request-path transactions (withUser sets it with SET LOCAL). */
-export const STATEMENT_TIMEOUT_MS = 15_000;
-
 /**
  * postgres-js options. `prepare: false` for Supabase's transaction pooler (:6543). No `connection: { statement_timeout }`:
  * that is a startup parameter and session state, which Supavisor transaction mode does not honour (docs/providers/vercel.md).
