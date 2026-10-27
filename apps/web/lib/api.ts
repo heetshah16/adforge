@@ -25,6 +25,8 @@ const JobViewSchema = z.object({
     brief: z.unknown().nullable(), error: z.unknown().nullable(), costUsd: z.number(), createdAt: z.string(), completedAt: z.string().nullable(),
   }),
   variants: z.array(Variant),
+  /** Queue position/ETA from queueStatusOwner; null once the job leaves queued/running. Tolerates absence for older payloads. */
+  queue: z.object({ position: z.number().int().positive(), etaRange: z.union([z.tuple([z.number(), z.number()]), z.literal('paused')]) }).nullable().optional(),
 });
 export type JobView = z.infer<typeof JobViewSchema>;
 

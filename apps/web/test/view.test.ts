@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { JobView } from '../lib/api';
-import { STAGES, briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, stageRows, validateUpload, variantCards } from '../lib/view';
+import { STAGES, briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, queueBadgeText, stageRows, validateUpload, variantCards } from '../lib/view';
 
 const file = (name: string, type: string, mb: number) => ({ name, type, size: mb * 1024 * 1024 });
 const ok = { name: 'Serum', price: '₹899', description: 'Niacinamide.', language: 'en', files: [1, 2, 3].map((i) => file(`${i}.png`, 'image/png', 1)) };
@@ -142,5 +142,24 @@ describe('variantCards preview', () => {
     expect(v(null).preview).toBeNull();
     expect(v(rev('pending', null)).preview).toBeNull();
     expect(v(rev('ready', { fake: 1 })).preview).toMatchObject({ id: 'r1', spec: { fake: 1 }, locked: true });
+  });
+});
+
+describe('queueBadgeText', () => {
+  it('queued: position and minute range; running: minutes left', () => {
+    expect(queueBadgeText({ position: 2, etaRange: [720, 1200] }, 'queued')).toBe('In queue: #2 · about 12–20 min');
+    expect(queueBadgeText({ position: 1, etaRange: [360, 540] }, 'running')).toBe('Running · about 6–9 min left');
+  });
+  it('paused whenever the GPU is offline, whatever the status', () => {
+    expect(queueBadgeText({ position: 3, etaRange: 'paused' }, 'queued')).toBe('GPU offline, queue paused');
+    expect(queueBadgeText({ position: 1, etaRange: 'paused' }, 'running')).toBe('GPU offline, queue paused');
+  });
+  it('null without a queue, and on terminal statuses', () => {
+    expect(queueBadgeText(null, 'queued')).toBeNull();
+    expect(queueBadgeText({ position: 1, etaRange: [60, 60] }, 'completed')).toBeNull();
+    expect(queueBadgeText({ position: 1, etaRange: [60, 60] }, 'failed')).toBeNull();
+  });
+  it('rounds seconds to minutes, at least 1', () => {
+    expect(queueBadgeText({ position: 1, etaRange: [30, 59] }, 'queued')).toBe('In queue: #1 · about 1–1 min');
   });
 });

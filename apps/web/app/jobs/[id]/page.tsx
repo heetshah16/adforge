@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMediaUrl } from '@/lib/use-media-url';
 import { approveVariant, getJob, type JobView } from '@/lib/api';
 import { VariantPreview } from './preview';
-import { briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, stageRows, variantCards } from '@/lib/view';
+import { briefSummary, failMessage, isTerminal, jobWarnings, nextPollDelay, queueBadgeText, stageRows, variantCards } from '@/lib/view';
 
 function VariantVideo({ src, label }: { src: string; label: string }) {
   const m = useMediaUrl(src);
@@ -63,11 +63,13 @@ export default function JobPage() {
   if (!view) return <p>{offline ? 'Server unreachable, retrying…' : 'Loading…'}</p>;
   const brief = briefSummary(view.job.brief);
   const done = isTerminal(view.job.status);
+  const badge = queueBadgeText(view.queue, view.job.status);
 
   return (
     <>
       {offline && <div className="banner" role="status">Server unreachable, retrying — showing the last known state.</div>}
       <h1>Job <span className="muted">{view.job.status}</span></h1>
+      {badge && <p role="status">{badge}</p>}
       {brief && (
         <section>
           <h2>Strategist read</h2>

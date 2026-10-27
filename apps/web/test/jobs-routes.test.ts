@@ -37,6 +37,7 @@ describe('job routes (pglite, fake session)', () => {
     r2: false,
     storage,
     nudge: async () => { nudges++; await nudge(); },
+    queue: async () => null,
   });
   beforeAll(async () => {
     h = await openDb();
@@ -147,6 +148,7 @@ describe('job create: key ownership (prod store)', () => {
     auth: async () => ({ userId: t.userId, email: 'x@y.z', isAdmin: false, orgId: t.orgId }),
     run: (userId, fn) => withUser(h.db, userId, fn),
     storage: { id: 'r2', urlFor: (k: string) => `http://pub/media/${k}`, head: async (k: string) => (present.has(k) ? { bytes: 9, mime: 'image/png' } : null) } as never,
+    queue: async () => null,
     nudge: async () => {},
   });
   const counts = async (t: Tenant) => [(await h.db.select().from(assets).where(eq(assets.orgId, t.orgId))).length, (await h.db.select().from(jobs).where(eq(jobs.orgId, t.orgId))).length];
@@ -202,7 +204,7 @@ describe('job create: key ownership (prod store)', () => {
 });
 
 describe('route-level guards and retry', () => {
-  const base = { r2: false, siteUrl: SITE, auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, nudge: async () => {} };
+  const base = { r2: false, siteUrl: SITE, auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, nudge: async () => {}, queue: async () => null };
   it('declared Content-Length over 16 KB -> 413 before parsing', async () => {
     const ctx: JobsCtx = { ...base, run: async () => { throw new Error('must not touch the db'); } };
     const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body: 'x', headers: { origin: SITE, 'content-length': String(17 * 1024) } }));
@@ -246,5 +248,48 @@ describe('requireApiUserWith', () => {
     expect(((await refuse('not-invited')) as Response).status).toBe(403);
     expect(((await refuse('conflict')) as Response).status).toBe(409);
     expect(await requireApiUserWith({ supabase: claims, provision: async () => ({ isAdmin: false, orgId: 'org1' }) })).toEqual({ userId: ok.sub, email: 'a@b.test', isAdmin: false, orgId: 'org1' });
+  });
+});
+
+describe('job view queue (pglite, fake session)', () => {
+  let h: Awaited<ReturnType<typeof openDb>>;
+  let a: Tenant;
+  let b: Tenant;
+  const storage = new LocalDiskStorage(join(mkdtempSync(join(tmpdir(), 'adforge-web-q-')), 'media'), 'http://pub');
+  const ctxFor = (t: Tenant, queue: JobsCtx['queue']): JobsCtx => ({
+    siteUrl: SITE,
+    auth: async () => ({ userId: t.userId, email: 'x@y.z', isAdmin: false, orgId: t.orgId }),
+    run: (userId, fn) => withUser(h.db, userId, fn),
+    r2: false,
+    storage,
+    nudge: async () => {},
+    queue,
+  });
+  beforeAll(async () => {
+    h = await openDb();
+    await seedVocabulary(h.db);
+    a = await makeTenant(h.db);
+    b = await makeTenant(h.db);
+  });
+  afterAll(async () => { await dropTenants(h.db, [a, b]); await h.close(); });
+
+  it('Review Focus 5: GET includes queue and contains no other job id or org id', async () => {
+    const seen: string[] = [];
+    const res = await getJobHandler(ctxFor(a, async (id) => { seen.push(id); return { position: 2, etaRange: [720, 1200] }; }), a.jobId);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { job: { id: string }; queue: unknown };
+    expect(body.queue).toEqual({ position: 2, etaRange: [720, 1200] });
+    expect(seen).toEqual([a.jobId]);
+    const dumped = JSON.stringify(body);
+    expect(dumped).toContain(a.jobId);
+    expect(dumped).not.toContain(b.jobId);
+    expect(dumped).not.toContain(b.orgId);
+    expect(dumped).not.toContain(a.orgId);
+  });
+
+  it('GET returns queue null when the owner call says the job is not queued or running', async () => {
+    const res = await getJobHandler(ctxFor(a, async () => null), a.jobId);
+    expect(res.status).toBe(200);
+    expect((await res.json() as { queue: unknown }).queue).toBeNull();
   });
 });

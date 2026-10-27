@@ -5,6 +5,7 @@ import { MAX_PHOTO, PHOTO_TYPES, parseJobRequest } from '@adforge/pipeline/job-i
 import { saveAsset } from '@adforge/pipeline/record';
 import type { UserDb } from '@adforge/db/with-user';
 import type { StorageProvider } from '@adforge/core/providers/types';
+import type { QueueStatus } from '@adforge/pipeline/queue';
 import { approveVariant, createJobRow, ensureDefaultProject, getJobView } from '../data/jobs';
 import { isSiteOrigin } from './origin';
 import { readTextCapped } from './read-capped';
@@ -20,6 +21,8 @@ export type JobsCtx = {
   storage: StorageProvider & { head(key: string): Promise<{ bytes: number; mime: string } | null> };
   /** Wakes the dispatcher. There is deliberately no job.requested sender here: the dispatcher is its only sender. */
   nudge(): Promise<void>;
+  /** Owner-side queue position/ETA (queue-owner.ts in prod; a stub in tests). Called only after the RLS read below confirms the job. */
+  queue(jobId: string): Promise<QueueStatus>;
 };
 
 /** Upper bound the nudge may add to a submit; past it (or on any error) the dispatcher's minute cron picks the job up. */
@@ -82,7 +85,9 @@ export async function getJobHandler(ctx: JobsCtx, id: string): Promise<Response>
   if (user instanceof Response) return user;
   if (!z.uuid().safeParse(id).success) return notFound();
   const view = await ctx.run(user.userId, (udb) => getJobView(udb, id, (k) => ctx.storage.urlFor(k)));
-  return view ? json(view) : notFound();
+  if (!view) return notFound();
+  // After the RLS read confirmed the job is theirs: the owner call returns only position/etaRange, never other jobs' ids.
+  return json({ ...view, queue: await ctx.queue(view.job.id) });
 }
 
 export async function approveHandler(ctx: JobsCtx, req: Request, id: string, nRaw: string): Promise<Response> {
