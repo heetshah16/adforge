@@ -6,7 +6,9 @@ import { failJob } from '../src/progress';
 import { freeIdleGpu, runJanitor } from '../src/janitor';
 import { makeDeps } from './fakes';
 
-const heartbeat = (db: Db, ageSec: number) => db.insert(workers).values({ instanceId: 'w', status: 'online', lastSeen: sql`now() - ${ageSec}::int * interval '1 second'` });
+/** A heartbeat ageSec old from a worker online (continuously) for onlineMin minutes. */
+const heartbeat = (db: Db, ageSec: number, onlineMin = 180) =>
+  db.insert(workers).values({ instanceId: 'w', status: 'online', lastSeen: sql`now() - ${ageSec}::int * interval '1 second'`, onlineSince: sql`now() - ${onlineMin}::int * interval '1 minute'` });
 
 describe('runJanitor', () => {
   async function staleRunning(m: Awaited<ReturnType<typeof makeDeps>>) {
@@ -40,6 +42,34 @@ describe('runJanitor', () => {
       expect((await runJanitor(m.deps.db)).stalled).toEqual([]);
       const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
       expect(j!.status).toBe('running');
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('I3: a worker that reconnected 5 min ago gives the silent job a fresh staleAfterMin window; online for 3 h -> failed', async () => {
+    const m = await makeDeps();
+    try {
+      await heartbeat(m.deps.db, 5, 5);
+      const id = await staleRunning(m);
+      expect((await runJanitor(m.deps.db)).stalled).toEqual([]);
+      expect((await m.deps.db.select().from(jobs).where(eq(jobs.id, id)))[0]!.status).toBe('running');
+      await m.deps.db.update(workers).set({ onlineSince: sql`now() - interval '3 hours'` });
+      expect((await runJanitor(m.deps.db)).stalled).toEqual([id]);
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('a malformed progress[-1].at does not abort the sweep: that row falls back to created_at, the others are still swept', async () => {
+    const m = await makeDeps();
+    try {
+      await heartbeat(m.deps.db, 5);
+      const [bad] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', createdAt: new Date(Date.now() - 3 * 60 * 60_000), progress: [{ stage: 'voice', status: 'running', at: 'not a date' }] }).returning();
+      const [young] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: 'garbage' }] }).returning();
+      const id = await staleRunning(m);
+      expect((await runJanitor(m.deps.db)).stalled.sort()).toEqual([bad!.id, id].sort());
+      expect((await m.deps.db.select().from(jobs).where(eq(jobs.id, young!.id)))[0]!.status).toBe('running');
     } finally {
       await m.close();
     }

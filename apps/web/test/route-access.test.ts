@@ -12,8 +12,9 @@ describe('routeAccess (deny by default)', () => {
 describe('proxy matcher', () => {
   // Next compiles the matcher source to an anchored regex; mirror that.
   const re = new RegExp(`^${config.matcher[0]}$`);
-  it.each(['/', '/jobs/x', '/signin', '/api/jobs', '/favicon.ico/x', '/faviconXico', '/favicon.icox'])('%s runs the proxy', (p) => expect(re.test(p)).toBe(true));
-  it.each(['/favicon.ico', '/_next/static/a.js', '/auth/confirm'])('%s skips the proxy', (p) => expect(re.test(p)).toBe(false));
+  it.each(['/', '/jobs/x', '/signin', '/api/jobs', '/favicon.ico/x', '/faviconXico', '/favicon.icox', '/api/inngestx', '/api/inngest/x', '/api/inngest-x'])('%s runs the proxy', (p) => expect(re.test(p)).toBe(true));
+  // /api/inngest: Inngest's calls carry no session, so no Supabase refresh round trip per call.
+  it.each(['/favicon.ico', '/_next/static/a.js', '/auth/confirm', '/api/inngest'])('%s skips the proxy', (p) => expect(re.test(p)).toBe(false));
 });
 
 describe('/media', () => {

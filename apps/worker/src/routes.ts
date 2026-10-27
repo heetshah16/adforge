@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, variants } from '@adforge/db/schema';
@@ -42,7 +42,7 @@ export function makeRoutes(ctx: {
       // sends job.requested with the dispatcher's event id. adforge-web's dispatcher then never sees it as undispatched.
       const [job] = await deps.db.insert(jobs).values({
         ...operator,
-        dispatchedAt: new Date(),
+        dispatchedAt: sql`now()`,
         inputSpec: { product: { name: f.name, price: f.price, description: f.description, ...(f.brand ? { brand: f.brand } : {}) }, language: f.language, broll: f.broll, photoKeys },
       }).returning();
       try {

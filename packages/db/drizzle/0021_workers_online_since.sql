@@ -1,0 +1,1 @@
+ALTER TABLE "workers" ADD COLUMN "online_since" timestamp with time zone;

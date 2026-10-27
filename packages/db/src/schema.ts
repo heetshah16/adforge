@@ -269,6 +269,8 @@ export const workers = pgTable('workers', {
   gpu: text(),
   vramFreeMb: integer(),
   services: jsonb().$type<Record<string, boolean>>().notNull().default({}),
+  /** Start of the current continuous online stretch (B4): reset by a heartbeat after a stale gap or an offline row. The janitor counts staleness from it. */
+  onlineSince: timestamp({ withTimezone: true }),
 }, (t) => [check('workers_status_check', sql`${t.status} in ('online','offline')`)]);
 
 /** Slugs, not foreign keys — a retired registry row can never orphan a historical variant. */

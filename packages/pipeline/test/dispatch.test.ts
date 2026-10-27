@@ -90,21 +90,29 @@ describe('runDispatcher', () => {
     expect(r.sent.map((e) => e.data.jobId).sort()).toEqual([...ids].sort());
   });
 
-  it('a send failure resets dispatched_at for the unsent jobs and rethrows; the next run sends them', async () => {
+  it('I1: a send that throws mid-batch rolls the whole claim back (no job left claimed); the next run sends all', async () => {
     const { db, op } = await pglite();
     await beat(db, 5);
     const [a, b, c] = await queue(db, op, [3, 2, 1]);
     const r = recorder(2);
     await expect(runDispatcher(db, r.send)).rejects.toThrow('inngest down');
-    expect(r.sent.map((e) => e.data.jobId)).toEqual([a]);
-    expect((await row(db, a!)).dispatchedAt).toBeInstanceOf(Date);
-    expect((await row(db, b!)).dispatchedAt).toBeNull();
-    expect((await row(db, c!)).dispatchedAt).toBeNull();
+    expect(r.sent.map((e) => e.data.jobId)).toEqual([a]); // a landed before the rollback
+    for (const id of [a!, b!, c!]) expect((await row(db, id)).dispatchedAt).toBeNull();
     await runDispatcher(db, r.send);
-    expect(r.sent.map((e) => e.data.jobId)).toEqual([a, b, c]);
+    // a is re-sent with the same id job:<a>; Inngest's event-id dedupe drops the second copy.
+    expect(r.sent.map((e) => e.id)).toEqual([a, a, b, c].map((id) => `job:${id}`));
+    for (const id of [a!, b!, c!]) expect((await row(db, id)).dispatchedAt).toBeInstanceOf(Date);
   });
 
-  it('Review Focus 4: offline, a job queued 25 h ago is failed with "GPU offline for 24 h", exactly once over two runs; a younger one waits', async () => {
+  it('I1: a hung send times out, so it cannot hold the claim; nothing stays claimed', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 5);
+    const [a] = await queue(db, op, [1]);
+    await expect(runDispatcher(db, () => new Promise(() => {}), { sendTimeoutMs: 50 })).rejects.toThrow(/timed out/);
+    expect((await row(db, a!)).dispatchedAt).toBeNull();
+  });
+
+  it('Review Focus 4: offline, a job queued 25 h ago is failed (failJob shape), exactly once over two runs; a younger one waits', async () => {
     const { db, op } = await pglite();
     await beat(db, 600); // stale
     const [old, young] = await queue(db, op, [25 * 60, 23 * 60]);
@@ -114,10 +122,22 @@ describe('runDispatcher', () => {
     const second = await runDispatcher(db, r.send);
     expect(first.failed).toEqual([old]);
     expect(second.failed).toEqual([]);
-    expect(await row(db, old!)).toMatchObject({ status: 'failed', error: { message: 'GPU offline for 24 h' }, dispatchedAt: null });
+    expect(await row(db, old!)).toMatchObject({ status: 'failed', error: { stage: 'dispatch', reason: 'GPU offline for 24 h' }, dispatchedAt: null });
+    expect((await row(db, old!)).progress).toEqual([expect.objectContaining({ stage: 'dispatch', status: 'failed', detail: 'GPU offline for 24 h' })]);
     expect((await row(db, old!)).completedAt).toEqual(failedAt);
     expect(await row(db, young!)).toMatchObject({ status: 'queued', dispatchedAt: null });
     expect(r.sent).toEqual([]);
+  });
+
+  it('I2: offline, a job DISPATCHED but still queued past 24 h is failed too (it would otherwise wait forever)', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 600);
+    const [old] = await queue(db, op, [25 * 60]);
+    await db.update(jobs).set({ dispatchedAt: sql`now() - interval '24 hours'` }).where(eq(jobs.id, old!));
+    await db.insert(jobs).values({ ...op, inputSpec: {}, status: 'running', createdAt: sql`now() - interval '30 hours'` });
+    const r = await runDispatcher(db, recorder().send);
+    expect(r.failed).toEqual([old]); // a running job is the janitor's, not the offline bound's
+    expect((await row(db, old!)).status).toBe('failed');
   });
 
   it('Review Focus 4: online, the same 25 h old job is dispatched instead', async () => {
@@ -152,9 +172,9 @@ describe('createLightFunctions (the adforge-web app)', () => {
 
 // Real row locks need real connections (PGlite has one). Runs against the dev database when ADFORGE_TEST_DATABASE_URL is set.
 describe.skipIf(!process.env.ADFORGE_TEST_DATABASE_URL)('Review Focus 2 on Postgres', () => {
-  it.each([1, 2, 3])('two concurrent dispatchers send each job exactly once (round %i)', async () => {
+  it.each([1, 2, 3])('dispatcher B, run while A holds its claim open, claims none of A\'s jobs; A then sends each once (round %i)', async () => {
     const h = await openPostgres(process.env.ADFORGE_TEST_DATABASE_URL!, { migrate: false });
-    const instanceId = `test-${randomUUID()}`;
+    const instanceId = `test-${randomUUID()}`; // unique and deleted below: never leave a fresh 'online' row on the shared DB
     let ours: string[] = [];
     const sent: JobEvent[] = [];
     try {
@@ -162,14 +182,27 @@ describe.skipIf(!process.env.ADFORGE_TEST_DATABASE_URL)('Review Focus 2 on Postg
       await beat(h.db, 0, instanceId);
       // Older than anything real, so these are the ones claimed first.
       ours = await queue(h.db, op, [30 * 365 * 24 * 60 + 3, 30 * 365 * 24 * 60 + 2, 30 * 365 * 24 * 60 + 1]);
-      const send = async (e: JobEvent) => { await new Promise((r) => setTimeout(r, 20)); sent.push(e); };
-      await Promise.all([runDispatcher(h.db, send), runDispatcher(h.db, send)]);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      let holding!: () => void;
+      const aHolds = new Promise<void>((r) => { holding = r; });
+      // A blocks inside its first send: its claim transaction is open and its rows are locked.
+      const a = runDispatcher(h.db, async (e) => { sent.push(e); holding(); await gate; }, { sendTimeoutMs: 30_000 });
+      await aHolds;
+      // B on another pooled connection. Its first send throws, rolling B back, so B commits nothing on the shared DB.
+      // B claims oldest-unlocked first, so if any of ours were claimable its first id would be one of them.
+      const seenB: string[] = [];
+      await runDispatcher(h.db, async (e) => { seenB.push(e.data.jobId); throw new Error('rollback B'); })
+        .catch((e: Error) => { if (e.message !== 'rollback B') throw e; });
+      expect(seenB.filter((id) => ours.includes(id))).toEqual([]);
+      release();
+      await a;
       const counts = new Map<string, number>();
       for (const e of sent) counts.set(e.data.jobId, (counts.get(e.data.jobId) ?? 0) + 1);
       for (const id of ours) expect(counts.get(id), id).toBe(1);
       expect([...counts.values()].every((n) => n === 1)).toBe(true);
     } finally {
-      // ponytail: a shared dev DB may hold real queued jobs; the fake send never reached Inngest, so un-claim any we took.
+      // ponytail: a shared dev DB may hold real queued jobs; A's fake send never reached Inngest, so un-claim any it took.
       const foreign = sent.map((e) => e.data.jobId).filter((id) => !ours.includes(id));
       if (foreign.length) await h.db.update(jobs).set({ dispatchedAt: null }).where(inArray(jobs.id, foreign));
       if (ours.length) await h.db.delete(jobs).where(inArray(jobs.id, ours));

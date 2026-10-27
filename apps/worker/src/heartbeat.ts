@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { eq, sql } from 'drizzle-orm';
 import { workers } from '@adforge/db/schema';
+import { freshOnline } from '@adforge/pipeline/dispatch';
 import type { Db } from '@adforge/db/client';
 import type { Env } from '@adforge/core/config/env';
 
@@ -70,7 +71,9 @@ export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; 
       ]);
       const services = Object.fromEntries(SERVICES.map((k) => [k, probed[k] === true]));
       const set = { lastSeen: sql`now()`, status, gpu: g.gpu, vramFreeMb: g.vramFreeMb, services };
-      await o.db.insert(workers).values({ instanceId: o.instanceId, ...set }).onConflictDoUpdate({ target: workers.instanceId, set });
+      // online_since: kept while the existing row is online and fresh (SET reads the old row), else a new stretch starts now.
+      const onlineSince = sql`case when ${freshOnline} then ${workers.onlineSince} else now() end`;
+      await o.db.insert(workers).values({ instanceId: o.instanceId, ...set, onlineSince: sql`now()` }).onConflictDoUpdate({ target: workers.instanceId, set: { ...set, onlineSince } });
     } catch (e) {
       log('heartbeat write failed', e);
     }

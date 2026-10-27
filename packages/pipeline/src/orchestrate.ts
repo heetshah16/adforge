@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { direct } from '@adforge/core/llm/direct';
 import { strategize } from '@adforge/core/llm/strategize';
 import type { DirectorVariant, StrategistOutput } from '@adforge/core/llm/schemas';
@@ -18,7 +18,7 @@ import type { JobInput, PipelineDeps, PlateVisionResult, StepLike } from './type
 import { toWire } from './wire';
 
 class Retry extends Error {}
-type Out = { status: 'completed' | 'failed'; warnings: string[] };
+type Out = { status: 'completed' | 'failed' | 'skipped'; warnings: string[] };
 
 export async function generateAds(jobId: string, step: StepLike, deps: PipelineDeps): Promise<Out> {
   const { db } = deps;
@@ -31,12 +31,15 @@ export async function generateAds(jobId: string, step: StepLike, deps: PipelineD
     return { status: 'failed', warnings: [] };
   };
 
-  const input = await step.run('load', async () => {
-    const [j] = await db.select().from(jobs).where(eq(jobs.id, jobId));
-    if (!j) throw new Error(`job ${jobId} not found`);
-    await setJobStatus(db, jobId, { status: 'running' });
-    return j.inputSpec as JobInput;
+  // Only a queued (or, on a retry, running) job may run. A job already failed (the offline bound, the janitor) or completed
+  // is never resurrected: the run is a no-op, with no fail step and no GPU work.
+  const loaded = await step.run('load', async () => {
+    const [j] = await db.update(jobs).set({ status: 'running' })
+      .where(and(eq(jobs.id, jobId), inArray(jobs.status, ['queued', 'running']))).returning({ inputSpec: jobs.inputSpec });
+    return j ? { input: j.inputSpec as JobInput } : null;
   });
+  if (!loaded) return { status: 'skipped', warnings: [] };
+  const { input } = loaded;
 
   // Browsers upload straight to storage, so every photo is re-validated and re-encoded here before first use.
   const norm = await step.run('normalize', async () => {

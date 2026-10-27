@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '@adforge/db/client';
+import { sql } from 'drizzle-orm';
 import { workers } from '@adforge/db/schema';
 import { lastSeenOnline, startHeartbeat, type Probes } from '../src/heartbeat';
 
@@ -21,6 +22,25 @@ describe('startHeartbeat', () => {
     const second = await row();
     expect(second.lastSeen.getTime()).toBeGreaterThan(first.lastSeen.getTime());
     expect(await h.db.select().from(workers)).toHaveLength(1);
+    await hb.stop();
+  });
+
+  it('I3: online_since is set on the first write, kept while the row stays fresh and online, reset after a stale gap or an offline row', async () => {
+    const hb = startHeartbeat({ db: h.db, instanceId: 'gpu-1', probes: ok, intervalMs: 30_000, log: () => {} });
+    const beat = async () => { await vi.advanceTimersByTimeAsync(30_000); await vi.advanceTimersByTimeAsync(0); };
+    // SQL clock (Date is faked here): is online_since within the last minute?
+    const recent = async () => ((await h.db.select({ r: sql<boolean>`${workers.onlineSince} > now() - interval '1 minute'` }).from(workers))[0]!.r);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await recent()).toBe(true);
+    await h.db.update(workers).set({ onlineSince: sql`now() - interval '3 hours'` });
+    await beat();
+    expect(await recent()).toBe(false); // continuous: kept
+    await h.db.update(workers).set({ lastSeen: sql`now() - interval '10 minutes'` });
+    await beat();
+    expect(await recent()).toBe(true); // a stale gap (machine slept): reset
+    await h.db.update(workers).set({ onlineSince: sql`now() - interval '3 hours'`, status: 'offline' });
+    await beat();
+    expect(await recent()).toBe(true); // after a clean stop: reset
     await hb.stop();
   });
 

@@ -28,5 +28,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/|favicon\\.ico$|auth/).*)'],
+  // api/inngest: Inngest's signed calls carry no session, so they skip the Supabase refresh (the route still classifies as 'api').
+  matcher: ['/((?!_next/|favicon\\.ico$|auth/|api/inngest$).*)'],
 };
