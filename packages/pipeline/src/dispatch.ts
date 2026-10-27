@@ -60,6 +60,8 @@ export async function runDispatcher(
     return { online: false, sent: [], failed: failed.map((r) => r.id) };
   }
   const sent = await db.transaction(async (tx) => {
+    // Server-side bound for a frozen (not killed) process: the JS send timeout only runs while the process does. Transaction-scoped, so pooler-safe.
+    await tx.execute(sql`set local idle_in_transaction_session_timeout = '60s'`);
     const oldest = tx.select({ id: jobs.id }).from(jobs)
       .where(and(eq(jobs.status, 'queued'), isNull(jobs.dispatchedAt)))
       .orderBy(jobs.createdAt).limit(CLAIM_LIMIT).for('update', { skipLocked: true });

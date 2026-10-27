@@ -72,7 +72,8 @@ export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; 
       const services = Object.fromEntries(SERVICES.map((k) => [k, probed[k] === true]));
       const set = { lastSeen: sql`now()`, status, gpu: g.gpu, vramFreeMb: g.vramFreeMb, services };
       // online_since: kept while the existing row is online and fresh (SET reads the old row), else a new stretch starts now.
-      const onlineSince = sql`case when ${freshOnline} then ${workers.onlineSince} else now() end`;
+      // coalesce: a row already fresh+online when 0021 landed (or after a quick restart under the same id) has no value yet.
+      const onlineSince = sql`case when ${freshOnline} then coalesce(${workers.onlineSince}, now()) else now() end`;
       await o.db.insert(workers).values({ instanceId: o.instanceId, ...set, onlineSince: sql`now()` }).onConflictDoUpdate({ target: workers.instanceId, set: { ...set, onlineSince } });
     } catch (e) {
       log('heartbeat write failed', e);
