@@ -127,8 +127,8 @@ try {
     auth: async () => ({ userId: operator.userId, orgId: operator.orgId, email: 'e2e@adforge.invalid', isAdmin: false }),
     run: (uid, fn) => withUser(db, uid, fn),
     siteUrl: ORIGIN,
-    send: async (revisionId) => { await inngest.send({ name: EVENTS.variantEdit, data: { revisionId }, id: revisionId }); },
-    sendExport: async (revisionId) => { await inngest.send({ name: EVENTS.variantExport, data: { revisionId } }); },
+    send: async (revisionId) => { await inngest.send({ name: EVENTS.variantEdit, data: { revisionId, priority: 'interactive' }, id: revisionId }); },
+    sendExport: async (revisionId) => { await inngest.send({ name: EVENTS.variantExport, data: { revisionId, priority: 'interactive' } }); },
     fail: async (revisionId, reason) => { await db.update(variantRevisions).set({ status: 'failed', error: { message: reason } }).where(eq(variantRevisions.id, revisionId)); },
   };
   const post = (path: string, body?: unknown) => new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });

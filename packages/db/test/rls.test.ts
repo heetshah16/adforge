@@ -267,6 +267,15 @@ describe.each(backends)('RLS on %s', (_name, open) => {
       insert into jobs (id, org_id, project_id, user_id, input_spec)
       values (${randomUUID()}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb)`)))).toBe('no error');
     expect(await affected(withUser(db, a.user, (u) => u.execute(sql`update jobs set dispatched_at = now() where id = ${a.jobs} returning id`)))).toBe('denied');
+    // 0020 queue-jump close: the dispatcher claims oldest created_at first, so a member cannot backdate (or future-date) a job, or plant a non-queued one.
+    const plant = (status: string, createdAt: ReturnType<typeof sql>) => withUser(db, a.user, (u) => u.execute(sql`
+      insert into jobs (id, org_id, project_id, user_id, input_spec, status, created_at)
+      values (${randomUUID()}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb, ${status}, ${createdAt})`));
+    expect(await errorCode(plant('queued', sql`now() - interval '1 hour'`))).toBe('42501');
+    expect(await errorCode(plant('queued', sql`now() + interval '1 hour'`))).toBe('42501');
+    for (const s of ['running', 'completed', 'failed']) expect(await errorCode(plant(s, sql`now()`)), s).toBe('42501');
+    expect(await errorCode(plant('queued', sql`now()`))).toBe('no error'); // positive control: explicit, current, queued
+
     expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select * from workers`)))).toBe('denied');
     expect(await errorCode(withUser(db, a.user, (u) => u.execute(sql`insert into workers (instance_id, last_seen, status) values ('x', now(), 'online')`)))).toBe('42501');
   });

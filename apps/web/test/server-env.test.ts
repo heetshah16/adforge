@@ -28,7 +28,7 @@ describe('parseServerEnv', () => {
 });
 
 describe('storage profile', () => {
-  const PROD = { ...OK, ADFORGE_ENV: 'prod', ADFORGE_SITE_URL: 'https://app.example.com', INNGEST_EVENT_KEY: 'ek' };
+  const PROD = { ...OK, ADFORGE_ENV: 'prod', ADFORGE_SITE_URL: 'https://app.example.com', INNGEST_EVENT_KEY: 'ek', INNGEST_SIGNING_KEY: 'sk' };
   it('prod must use r2', () => {
     expect(() => parseServerEnv({ ...PROD, ADFORGE_PROVIDER_STORAGE: 'local' })).toThrow(/ADFORGE_PROVIDER_STORAGE/);
   });
@@ -57,7 +57,7 @@ describe('storage profile', () => {
 describe('ADFORGE_ENV / ADFORGE_SITE_URL', () => {
   it('unset env: production NODE_ENV fails closed to prod (and then needs a site url)', () => {
     expect(() => parseServerEnv({ ...OK, NODE_ENV: 'production' })).toThrow(/ADFORGE_SITE_URL/);
-    expect(parseServerEnv({ ...OK, NODE_ENV: 'production', ADFORGE_SITE_URL: 'https://app.example.com', INNGEST_EVENT_KEY: 'ek', ...R2P }).ADFORGE_ENV).toBe('prod');
+    expect(parseServerEnv({ ...OK, NODE_ENV: 'production', ADFORGE_SITE_URL: 'https://app.example.com', INNGEST_EVENT_KEY: 'ek', INNGEST_SIGNING_KEY: 'sk', ...R2P }).ADFORGE_ENV).toBe('prod');
   });
   it('unset env: non-production NODE_ENV is dev, site url defaults to localhost:3000', () => {
     for (const NODE_ENV of [undefined, 'development', 'test']) {
@@ -66,10 +66,11 @@ describe('ADFORGE_ENV / ADFORGE_SITE_URL', () => {
       expect(e.ADFORGE_SITE_URL).toBe('http://localhost:3000');
     }
   });
-  it('prod requires INNGEST_EVENT_KEY; dev does not', () => {
+  it('prod requires INNGEST_EVENT_KEY and INNGEST_SIGNING_KEY; dev does not', () => {
     const prod = { ...OK, ...R2P, ADFORGE_ENV: 'prod', ADFORGE_SITE_URL: 'https://app.example.com' };
     expect(() => parseServerEnv(prod)).toThrow(/INNGEST_EVENT_KEY/);
-    expect(parseServerEnv({ ...prod, INNGEST_EVENT_KEY: 'ek' }).INNGEST_EVENT_KEY).toBe('ek');
+    expect(() => parseServerEnv({ ...prod, INNGEST_EVENT_KEY: 'ek' })).toThrow(/INNGEST_SIGNING_KEY/); // serve() at /api/inngest verifies with it
+    expect(parseServerEnv({ ...prod, INNGEST_EVENT_KEY: 'ek', INNGEST_SIGNING_KEY: 'sk' }).INNGEST_EVENT_KEY).toBe('ek');
     expect(parseServerEnv({ ...OK, ADFORGE_ENV: 'dev' }).ADFORGE_ENV).toBe('dev');
   });
   it('explicit ADFORGE_ENV wins', () => {

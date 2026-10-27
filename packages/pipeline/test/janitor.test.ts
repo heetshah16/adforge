@@ -1,35 +1,79 @@
 import { describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
-import { jobs, variantRevisions, variants } from '@adforge/db/schema';
+import { eq, sql } from 'drizzle-orm';
+import { jobs, variantRevisions, variants, workers } from '@adforge/db/schema';
+import type { Db } from '@adforge/db/client';
 import { failJob } from '../src/progress';
-import { runJanitor } from '../src/janitor';
+import { freeIdleGpu, runJanitor } from '../src/janitor';
 import { makeDeps } from './fakes';
 
+const heartbeat = (db: Db, ageSec: number) => db.insert(workers).values({ instanceId: 'w', status: 'online', lastSeen: sql`now() - ${ageSec}::int * interval '1 second'` });
+
 describe('runJanitor', () => {
-  it('frees GPU holders when idle and fails jobs that went silent', async () => {
+  async function staleRunning(m: Awaited<ReturnType<typeof makeDeps>>) {
+    const old = new Date(Date.now() - 2 * 60 * 60_000 - 60_000).toISOString();
+    const [stale] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: old }] }).returning();
+    return stale!.id;
+  }
+
+  it('online: fails a running job that went silent past staleAfterMin, once', async () => {
     const m = await makeDeps();
     try {
-      const old = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
-      const [stale] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: old }] }).returning();
-      const r = await runJanitor(m.deps);
-      expect(r.stalled).toEqual([stale!.id]);
-      const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, stale!.id));
+      await heartbeat(m.deps.db, 5);
+      const id = await staleRunning(m);
+      const r = await runJanitor(m.deps.db);
+      expect(r.stalled).toEqual([id]);
+      const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
       expect(j!.status).toBe('failed');
       expect(JSON.stringify(j!.error)).toContain('stalled');
-      expect(r.freed).toBe(true); // nothing running any more
-      expect(m.calls.free).toBe(1);
-      expect(m.calls.unload).toBe(1);
+      expect((await runJanitor(m.deps.db)).stalled).toEqual([]);
     } finally {
       await m.close();
     }
   });
 
-  it('leaves a job with recent progress alone and does not free the GPU under it', async () => {
+  it('Review Focus 1: offline (no or stale heartbeat), a silent running job is left alone (paused)', async () => {
     const m = await makeDeps();
     try {
+      const id = await staleRunning(m);
+      expect((await runJanitor(m.deps.db)).stalled).toEqual([]); // no worker row at all
+      await heartbeat(m.deps.db, 180);
+      expect((await runJanitor(m.deps.db)).stalled).toEqual([]);
+      const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+      expect(j!.status).toBe('running');
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('online: leaves a job with recent progress alone', async () => {
+    const m = await makeDeps();
+    try {
+      await heartbeat(m.deps.db, 5);
       await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: new Date().toISOString() }] });
-      const r = await runJanitor(m.deps);
-      expect(r).toEqual({ freed: false, stalled: [] });
+      expect(await runJanitor(m.deps.db)).toEqual({ stalled: [] });
+    } finally {
+      await m.close();
+    }
+  });
+});
+
+describe('freeIdleGpu (the adforge-gpu gpu-idle cron)', () => {
+  it('frees ComfyUI and voice when nothing is running or pending', async () => {
+    const m = await makeDeps();
+    try {
+      await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'failed' });
+      expect(await freeIdleGpu(m.deps)).toBe(true);
+      expect([m.calls.free, m.calls.unload]).toEqual([1, 1]);
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('keeps the GPU holders loaded under a running job', async () => {
+    const m = await makeDeps();
+    try {
+      await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running' });
+      expect(await freeIdleGpu(m.deps)).toBe(false);
       expect(m.calls.free + m.calls.unload).toBe(0);
     } finally {
       await m.close();
@@ -50,7 +94,7 @@ describe('runJanitor: edits', () => {
     const m = await makeDeps();
     try {
       const id = await pendingRevision(m, 200);
-      await runJanitor(m.deps);
+      await runJanitor(m.deps.db);
       expect((await status(m, id)).status).toBe('pending');
     } finally { await m.close(); }
   });
@@ -59,7 +103,7 @@ describe('runJanitor: edits', () => {
     const m = await makeDeps();
     try {
       const id = await pendingRevision(m, 241);
-      await runJanitor(m.deps);
+      await runJanitor(m.deps.db);
       expect(await status(m, id)).toMatchObject({ status: 'failed', error: { message: 'edit timed out' } });
     } finally { await m.close(); }
   });
@@ -68,9 +112,9 @@ describe('runJanitor: edits', () => {
     const m = await makeDeps();
     try {
       const id = await pendingRevision(m, 5);
-      const r = await runJanitor(m.deps);
+      await runJanitor(m.deps.db);
       expect((await status(m, id)).status).toBe('pending');
-      expect(r.freed).toBe(false);
+      expect(await freeIdleGpu(m.deps)).toBe(false);
       expect(m.calls.free + m.calls.unload).toBe(0);
     } finally { await m.close(); }
   });

@@ -18,9 +18,12 @@ export type JobsCtx = {
   /** Same meaning as UploadsCtx.r2: org-prefixed keys when true. */
   r2: boolean;
   storage: StorageProvider & { head(key: string): Promise<{ bytes: number; mime: string } | null> };
-  send(jobId: string): Promise<void>;
-  fail(jobId: string, reason: string, stage: string): Promise<void>;
+  /** Wakes the dispatcher. There is deliberately no job.requested sender here: the dispatcher is its only sender. */
+  nudge(): Promise<void>;
 };
+
+/** Upper bound the nudge may add to a submit; past it (or on any error) the dispatcher's minute cron picks the job up. */
+export const NUDGE_TIMEOUT_MS = 2_000;
 
 /** The job request is JSON fields plus up to five storage keys. */
 const MAX_JSON = 16 * 1024;
@@ -64,13 +67,13 @@ export async function createJobHandler(ctx: JobsCtx, req: Request): Promise<Resp
       inputSpec: { product: { name: f.name, price: f.price, description: f.description, ...(f.brand ? { brand: f.brand } : {}) }, language: f.language, broll: f.broll, photoKeys: refs.map((r) => r.id) },
     });
   });
-  // After commit, so the worker can see the row.
-  try {
-    await ctx.send(jobId);
-  } catch (e) {
-    await ctx.fail(jobId, e instanceof Error ? e.message : String(e), 'enqueue');
-    return json({ error: 'could not queue the job' }, 503);
-  }
+  // After commit, so the dispatcher can see the row. Bounded and best-effort: the job is already queued either way.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    ctx.nudge().catch((e) => console.warn(`dispatch nudge failed (the cron covers it): ${e instanceof Error ? e.message : String(e)}`)),
+    new Promise<void>((r) => { timer = setTimeout(r, NUDGE_TIMEOUT_MS); }),
+  ]);
+  clearTimeout(timer);
   return json({ jobId }, 202);
 }
 

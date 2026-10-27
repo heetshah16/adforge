@@ -34,7 +34,8 @@ export const PipelineConfig = z.object({
     durationSec: z.number().positive(),
     pollDeadlineMs: PosInt,
   }),
-  jobs: z.object({ staleAfterMin: PosInt }),
+  // offlineMaxHours: a queued job never dispatched (no live worker) is failed after this. heartbeatFreshSec: a worker heartbeat younger than this is live.
+  jobs: z.object({ staleAfterMin: PosInt, offlineMaxHours: PosInt, heartbeatFreshSec: PosInt }),
   shortlist: z.object({ formats: PosInt, hooks: PosInt, reserveExperimentalSlot: z.boolean() }),
   diversity: z.object({
     minHookFamilies: PosInt,
@@ -69,7 +70,7 @@ export const DEFAULT_PIPELINE: PipelineConfig = {
   },
   plate: { width: 768, height: 1344 },
   broll: { enabled: true, maxPerVariant: 1, durationSec: 5, pollDeadlineMs: 480_000 },
-  jobs: { staleAfterMin: 120 },
+  jobs: { staleAfterMin: 120, offlineMaxHours: 24, heartbeatFreshSec: 120 },
   shortlist: { formats: 8, hooks: 10, reserveExperimentalSlot: true },
   diversity: { minHookFamilies: 3, minFormatFamilies: 2, repairPasses: 1 },
   captions: { mode: 'proportional' },

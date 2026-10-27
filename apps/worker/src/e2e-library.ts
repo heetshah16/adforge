@@ -33,7 +33,7 @@ try {
   console.log(`product ${product!.id} "${name}", upload asset ${assetId}`);
 
   // 2. ingest through Inngest dev
-  await inngest.send({ name: EVENTS.productIngest, data: { productId: product!.id, photoAssetIds: [assetId] } });
+  await inngest.send({ name: EVENTS.productIngest, data: { productId: product!.id, photoAssetIds: [assetId], priority: 'interactive' } });
   console.log('adforge/product.ingest sent — Inngest UI: http://127.0.0.1:8288');
   const deadline = Date.now() + 25 * 60_000;
   let rows: (typeof libraryAssets.$inferSelect)[] = [];

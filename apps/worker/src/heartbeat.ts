@@ -92,8 +92,5 @@ export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; 
   };
 }
 
-/** Newest heartbeat from a worker that is still 'online'; null if none. A clean stop (status offline) therefore never counts. */
-export async function lastSeenOnline(db: Db): Promise<Date | null> {
-  const [r] = await db.select({ t: sql<string | null>`max(${workers.lastSeen}) filter (where ${workers.status} = 'online')` }).from(workers);
-  return r?.t ? new Date(r.t) : null;
-}
+// Moved to the light dispatch module (the web reads it too); re-exported for the worker's callers.
+export { lastSeenOnline } from '@adforge/pipeline/dispatch';

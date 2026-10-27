@@ -26,12 +26,14 @@ const ServerEnv = z
   R2_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   ADFORGE_MEDIA_TTL_SEC: z.coerce.number().int().min(60).max(3600).default(900),
   INNGEST_EVENT_KEY: z.string().min(1).optional(),
+  INNGEST_SIGNING_KEY: z.string().min(1).optional(),
   INNGEST_DEV: z.string().min(1).optional(),
   })
   .transform((e, ctx) => {
     const ADFORGE_ENV = e.ADFORGE_ENV ?? (e.NODE_ENV === 'production' ? 'prod' : 'dev');
     if (ADFORGE_ENV === 'prod') {
-      const missing = (['ADFORGE_SITE_URL', 'INNGEST_EVENT_KEY'] as const).filter((k) => !e[k]);
+      // INNGEST_SIGNING_KEY: serve() at /api/inngest verifies every call from Inngest with it (read by the SDK from process.env).
+      const missing = (['ADFORGE_SITE_URL', 'INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'] as const).filter((k) => !e[k]);
       for (const k of missing) ctx.addIssue({ code: 'custom', path: [k], message: 'required when ADFORGE_ENV=prod' });
       if (missing.length) return z.NEVER;
     }
