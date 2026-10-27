@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   doublePrecision,
   foreignKey,
   index,
@@ -251,11 +252,24 @@ export const jobs = pgTable('jobs', {
   error: jsonb(),
   createdAt: createdAt(),
   completedAt: timestamp({ withTimezone: true }),
+  /** Set by the dispatcher when it sends job.requested (B4). Not user-writable. */
+  dispatchedAt: timestamp({ withTimezone: true }),
 }, (t) => [
   unique().on(t.id, t.orgId),
   index().on(t.orgId),
+  index('jobs_undispatched_idx').on(t.status, t.createdAt).where(sql`${t.dispatchedAt} is null`),
   foreignKey({ columns: [t.projectId, t.orgId], foreignColumns: [projects.id, projects.orgId] }),
 ]);
+
+/** GPU worker heartbeat (B4). No org_id, no user grants: owner connection only. */
+export const workers = pgTable('workers', {
+  instanceId: text().primaryKey(),
+  lastSeen: timestamp({ withTimezone: true }).notNull(),
+  status: text().notNull(),
+  gpu: text(),
+  vramFreeMb: integer(),
+  services: jsonb().$type<Record<string, boolean>>().notNull().default({}),
+}, (t) => [check('workers_status_check', sql`${t.status} in ('online','offline')`)]);
 
 /** Slugs, not foreign keys — a retired registry row can never orphan a historical variant. */
 export const variants = pgTable(

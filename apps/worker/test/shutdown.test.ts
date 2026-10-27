@@ -64,4 +64,29 @@ describe('makeShutdown', () => {
     await s.shutdown('SIGINT');
     expect(s.exits).toEqual([1]);
   });
+
+  it('prod order is heartbeat -> connect -> db, and a 3 s connect close stays inside the 10 s bound', async () => {
+    const order: string[] = [];
+    const exits: number[] = [];
+    const shutdown = makeShutdown({
+      heartbeat: { stop: async () => { order.push('heartbeat'); } },
+      connect: { close: async () => { order.push('connect:start'); await new Promise((r) => setTimeout(r, 3_000)); order.push('connect:done'); } },
+      close: async () => { order.push('db'); },
+      exit: (c) => { exits.push(c); }, log: () => {},
+    });
+    const p = shutdown('SIGTERM');
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(order).toEqual(['heartbeat', 'connect:start']);
+    await vi.advanceTimersByTimeAsync(1);
+    await p;
+    expect(order).toEqual(['heartbeat', 'connect:start', 'connect:done', 'db']);
+    expect(exits).toEqual([0]);
+  });
+
+  it('a hung connect close still hits the 10 s hard exit', async () => {
+    const exits: number[] = [];
+    void makeShutdown({ connect: { close: () => new Promise(() => {}) }, close: async () => {}, exit: (c) => { exits.push(c); }, log: () => {} })('SIGTERM');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(exits).toEqual([1]);
+  });
 });

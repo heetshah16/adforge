@@ -6,6 +6,8 @@ import { createFunctions, inngest } from '@adforge/pipeline';
 import { buildDeps } from './deps';
 import { makeHandler } from './handler';
 import { makeRoutes } from './routes';
+import { makeProbes } from './heartbeat';
+import { startRuntime } from './runtime';
 import { makeShutdown } from './shutdown';
 
 try {
@@ -17,16 +19,21 @@ const env = parseEnv(process.env);
 for (const w of dataDirWarnings(env.ADFORGE_DATA_DIR)) console.warn(`WARN ${w}`);
 
 const { deps, storage, operator, close } = await buildDeps(env);
-const inngestHandler = serve({ client: inngest, functions: createFunctions(deps) });
-const routes = makeRoutes({ deps, storage, operator, sendEvent: async (name, data, id) => { await inngest.send({ name, data: data as Record<string, unknown>, ...(id ? { id } : {}) }); } });
+const functions = createFunctions(deps);
 const base = `http://127.0.0.1:${env.ADFORGE_WORKER_PORT}`;
+const makeServer = () => {
+  const inngestHandler = serve({ client: inngest, functions });
+  const routes = makeRoutes({ deps, storage, operator, sendEvent: async (name, data, id) => { await inngest.send({ name, data: data as Record<string, unknown>, ...(id ? { id } : {}) }); } });
+  return createServer(makeHandler({ routes, inngestHandler, env }));
+};
 
-const server = createServer(makeHandler({ routes, inngestHandler, env }));
+const { heartbeat, connect, server } = await startRuntime({
+  env, db: deps.db, functions, makeServer, probes: makeProbes(env),
+  onListening: () => console.log(`worker on ${base}`),
+});
+if (connect) console.log(`worker connected to Inngest as ${env.ADFORGE_WORKER_ID} (no inbound port)`);
 
-server.requestTimeout = 120_000; // bounds request *receipt* (slow uploads), not handler run time
-server.listen(env.ADFORGE_WORKER_PORT, '127.0.0.1', () => console.log(`worker on ${base}`));
-
-const shutdown = makeShutdown({ server, close, exit: (c) => process.exit(c) });
+const shutdown = makeShutdown({ server, connect, heartbeat, close, exit: (c) => process.exit(c) });
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 // Windows: console window closed / Ctrl-Break.

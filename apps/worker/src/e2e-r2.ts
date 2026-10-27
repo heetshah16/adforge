@@ -24,7 +24,7 @@ import { mintUploadHandler, type UploadsCtx } from '../../web/lib/server/uploads
 
 /**
  * B3 end to end against the REAL dev R2 bucket (adforge-dev, hardcoded) and the dev Supabase DB. No GPU, LLM or Inngest.
- * Run: ADFORGE_ENV=prod ADFORGE_PROVIDER_STORAGE=r2 DATABASE_URL=... R2_*=... pnpm e2e:r2   (FFmpeg on PATH)
+ * Run: ADFORGE_ENV=prod ADFORGE_WORKER_ID=dev-e2e ADFORGE_PROVIDER_STORAGE=r2 DATABASE_URL=... R2_*=... pnpm e2e:r2   (FFmpeg on PATH)
  * Never prints secrets or signed URLs: hostnames and statuses only.
  */
 try { process.loadEnvFile(join(REPO_ROOT, '.env')); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }

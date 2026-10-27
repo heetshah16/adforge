@@ -13,7 +13,7 @@ import { withUser } from '../src/with-user';
 const url = process.env.ADFORGE_TEST_DATABASE_URL;
 
 /** Tables without org_id. Each is covered by its own policy; adding a table means adding it here or giving it org_id. */
-const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes'];
+const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes', 'workers'];
 /** Every org_id table, in creation order (parents first). The coverage test fails if the schema gains one not listed. */
 const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls', 'library_assets', 'recipes', 'variant_revisions'] as const;
 /** Primary-key column where it is not `id`. */
@@ -44,6 +44,7 @@ const PRIVILEGES: Record<string, string[]> = {
   archetypes: ['SELECT'],
   formats: ['SELECT'],
   hook_archetypes: ['SELECT'],
+  workers: [],
 };
 
 /** PGlite returns { rows }, postgres-js returns the row array directly. */
@@ -254,6 +255,17 @@ describe.each(backends)('RLS on %s', (_name, open) => {
       }
     });
   }
+
+  it('B4: members cannot write jobs.dispatched_at and cannot touch workers', async () => {
+    const id = randomUUID();
+    const withDispatch = withUser(db, a.user, (u) => u.execute(sql`
+      insert into jobs (id, org_id, project_id, user_id, input_spec, dispatched_at)
+      values (${id}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb, now())`));
+    expect(await errorCode(withDispatch)).toBe('42501');
+    expect(await affected(withUser(db, a.user, (u) => u.execute(sql`update jobs set dispatched_at = now() where id = ${a.jobs} returning id`)))).toBe('denied');
+    expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select * from workers`)))).toBe('denied');
+    expect(await errorCode(withUser(db, a.user, (u) => u.execute(sql`insert into workers (instance_id, last_seen, status) values ('x', now(), 'online')`)))).toBe('42501');
+  });
 
   it('variant_revisions: members cannot plant ready/locked/spec rows, lock only a ready row, and never unlock', async () => {
     const child = (cols: string, vals: ReturnType<typeof sql>) => withUser(db, a.user, (u) => u.execute(sql`

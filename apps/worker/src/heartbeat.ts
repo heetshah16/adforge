@@ -1,0 +1,84 @@
+import { execFile } from 'node:child_process';
+import { eq } from 'drizzle-orm';
+import { workers } from '@adforge/db/schema';
+import type { Db } from '@adforge/db/client';
+import type { Env } from '@adforge/core/config/env';
+
+export interface Probes {
+  gpu(): Promise<{ gpu: string | null; vramFreeMb: number | null }>;
+  services(): Promise<Record<string, boolean>>;
+}
+
+const PROBE_MS = 2_000;
+
+/** nvidia-smi, 2 s cap. Never throws: no GPU or no driver is just nulls. */
+function nvidiaSmi(): Promise<{ gpu: string | null; vramFreeMb: number | null }> {
+  return new Promise((done) => {
+    try {
+      execFile('nvidia-smi', ['--query-gpu=name,memory.free', '--format=csv,noheader,nounits'], { timeout: PROBE_MS, windowsHide: true }, (err, out) => {
+        if (err) return done({ gpu: null, vramFreeMb: null });
+        const [name, free] = out.split('\n')[0]!.split(',').map((x) => x.trim());
+        const n = Number(free);
+        done({ gpu: name || null, vramFreeMb: Number.isFinite(n) ? Math.round(n) : null });
+      });
+    } catch {
+      done({ gpu: null, vramFreeMb: null });
+    }
+  });
+}
+
+async function up(url: string): Promise<boolean> {
+  try {
+    return (await fetch(url, { signal: AbortSignal.timeout(PROBE_MS) })).ok;
+  } catch {
+    return false;
+  }
+}
+
+/** ComfyUI has no /health; /system_stats is its cheapest GET. */
+export function makeProbes(env: Pick<Env, 'COMFYUI_URL' | 'ADFORGE_VOICE_URL' | 'ADFORGE_QWEN_TTS_URL' | 'ADFORGE_VISION_URL'>): Probes {
+  return {
+    gpu: nvidiaSmi,
+    services: async () => {
+      const [comfyui, voice, qwen, vision] = await Promise.all([
+        up(`${env.COMFYUI_URL}/system_stats`), up(`${env.ADFORGE_VOICE_URL}/health`), up(`${env.ADFORGE_QWEN_TTS_URL}/health`), up(`${env.ADFORGE_VISION_URL}/health`),
+      ]);
+      return { comfyui, voice, qwen, vision };
+    },
+  };
+}
+
+const SERVICES = ['comfyui', 'voice', 'qwen', 'vision'];
+
+/** Upserts a `workers` row now and every intervalMs. A failed probe or write is logged-and-swallowed: the heartbeat must never take the worker down. */
+export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; intervalMs?: number; log?(m: string, e?: unknown): void }): { stop(): Promise<void> } {
+  const log = o.log ?? ((m, e) => console.error(m, e ?? ''));
+  let stopped = false;
+  const write = async (status: 'online' | 'offline'): Promise<void> => {
+    try {
+      if (status === 'offline') {
+        await o.db.update(workers).set({ lastSeen: new Date(), status }).where(eq(workers.instanceId, o.instanceId));
+        return;
+      }
+      const g = await o.probes.gpu().catch(() => ({ gpu: null, vramFreeMb: null }));
+      const probed = await o.probes.services().catch(() => ({} as Record<string, boolean>));
+      const services = Object.fromEntries(SERVICES.map((k) => [k, probed[k] === true]));
+      const set = { lastSeen: new Date(), status, gpu: g.gpu, vramFreeMb: g.vramFreeMb, services };
+      await o.db.insert(workers).values({ instanceId: o.instanceId, ...set }).onConflictDoUpdate({ target: workers.instanceId, set });
+    } catch (e) {
+      log('heartbeat write failed', e);
+    }
+  };
+  let inflight: Promise<void> = write('online');
+  const timer = setInterval(() => { if (!stopped) inflight = write('online'); }, o.intervalMs ?? 30_000);
+  timer.unref();
+  return {
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      await inflight;
+      await write('offline'); // best effort, once
+    },
+  };
+}
