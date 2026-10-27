@@ -292,4 +292,29 @@ describe('job view queue (pglite, fake session)', () => {
     expect(res.status).toBe(200);
     expect((await res.json() as { queue: unknown }).queue).toBeNull();
   });
+
+  it('a queue failure does not take down the job view: 200 with queue null, job id logged', async () => {
+    const logged: unknown[][] = [];
+    const orig = console.error;
+    console.error = ((...a: unknown[]) => { logged.push(a); }) as typeof console.error;
+    try {
+      const res = await getJobHandler(ctxFor(a, async () => { throw new Error('owner db down'); }), a.jobId);
+      expect(res.status).toBe(200);
+      expect((await res.json() as { queue: unknown }).queue).toBeNull();
+      expect(logged).toHaveLength(1);
+      expect(String(logged[0]?.[0])).toContain(a.jobId);
+      expect(String(logged[0]?.[0])).not.toContain(a.orgId);
+    } finally {
+      console.error = orig;
+    }
+  });
+
+  it('a foreign or unknown job id is 404 and never calls the queue function', async () => {
+    let calls = 0;
+    const q: JobsCtx['queue'] = async () => { calls++; return null; };
+    expect((await getJobHandler(ctxFor(a, q), b.jobId)).status).toBe(404);
+    expect((await getJobHandler(ctxFor(a, q), randomUUID())).status).toBe(404);
+    expect(calls).toBe(0);
+  });
+
 });

@@ -69,7 +69,7 @@ export default function JobPage() {
     <>
       {offline && <div className="banner" role="status">Server unreachable, retrying — showing the last known state.</div>}
       <h1>Job <span className="muted">{view.job.status}</span></h1>
-      {badge && <p role="status">{badge}</p>}
+      {badge && <p aria-live="off">{badge}</p>}
       {brief && (
         <section>
           <h2>Strategist read</h2>

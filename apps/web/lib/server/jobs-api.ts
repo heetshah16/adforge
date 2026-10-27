@@ -87,7 +87,14 @@ export async function getJobHandler(ctx: JobsCtx, id: string): Promise<Response>
   const view = await ctx.run(user.userId, (udb) => getJobView(udb, id, (k) => ctx.storage.urlFor(k)));
   if (!view) return notFound();
   // After the RLS read confirmed the job is theirs: the owner call returns only position/etaRange, never other jobs' ids.
-  return json({ ...view, queue: await ctx.queue(view.job.id) });
+  // A queue failure must not take down the job view: degrade to queue null.
+  let queue: QueueStatus = null;
+  try {
+    queue = await ctx.queue(view.job.id);
+  } catch {
+    console.error(`queueStatus failed for job ${view.job.id}`);
+  }
+  return json({ ...view, queue });
 }
 
 export async function approveHandler(ctx: JobsCtx, req: Request, id: string, nRaw: string): Promise<Response> {

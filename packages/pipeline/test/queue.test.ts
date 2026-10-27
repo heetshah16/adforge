@@ -56,6 +56,36 @@ async function queued(db: Db, scope: Scope, opts: { ageSec?: number; language?: 
   return j!.id;
 }
 
+/** A running job created `ageSec` ago (default: just now), dispatched `dispatchedAgeSec` ago (default: never — null). */
+async function running(db: Db, scope: Scope, opts: { ageSec?: number; dispatchedAgeSec?: number; inputSpec?: Record<string, unknown> } = {}) {
+  const [j] = await db.insert(jobs).values({
+    ...scope,
+    status: 'running',
+    inputSpec: opts.inputSpec ?? { language: 'en', broll: false },
+    ...(opts.ageSec !== undefined ? { createdAt: sql`now() - ${opts.ageSec}::int * interval '1 second'` } : {}),
+    ...(opts.dispatchedAgeSec !== undefined ? { dispatchedAt: sql`now() - ${opts.dispatchedAgeSec}::int * interval '1 second'` } : {}),
+  }).returning({ id: jobs.id });
+  return j!.id;
+}
+
+/**
+ * C1: postgres-js (drizzle-orm/postgres-js) rejects JS Date params with ERR_INVALID_ARG_TYPE;
+ * PGlite tolerates them, so without this wrapper the suite would pass while prod 500s.
+ * Wraps the session so any prepared query carrying a Date param throws.
+ */
+function rejectDateParams(db: Db): void {
+  const session = (db as unknown as {
+    session: { prepareQuery: (query: { params?: unknown[] }, ...rest: never[]) => unknown };
+  }).session;
+  const orig = session.prepareQuery.bind(session);
+  session.prepareQuery = ((query: { params?: unknown[] }, ...rest: never[]) => {
+    for (const p of query?.params ?? []) {
+      if (p instanceof Date) throw new Error('queueStatus interpolated a JS Date into SQL — keep timestamps in SQL');
+    }
+    return orig(query, ...rest);
+  }) as typeof session.prepareQuery;
+}
+
 describe('queueStatus', () => {
   it('null for a completed job, a failed job, and an unknown id', async () => {
     const { db, op } = await pglite();
@@ -128,17 +158,116 @@ describe('queueStatus', () => {
     expect(await queueStatus(db, target)).toEqual({ position: 2, etaRange: [600, 600] });
   });
 
-  it('a running job gets remaining = max(0, p50 − elapsed since dispatched_at), on the SQL clock', async () => {
+  it('C1: never interpolates a JS Date into SQL (postgres-js rejects Date params)', async () => {
     const { db, op } = await pglite();
     await beat(db, 5);
     await completed(db, op, { durationSec: 600 });
-    const [run] = await db.insert(jobs).values({
-      ...op, status: 'running', inputSpec: { language: 'en', broll: false },
-      dispatchedAt: sql`now() - 100::int * interval '1 second'`,
-    }).returning({ id: jobs.id });
-    expect(await queueStatus(db, run!.id)).toEqual({ position: 1, etaRange: [500, 500] });
-    await db.update(jobs).set({ dispatchedAt: sql`now() - 1000::int * interval '1 second'` }).where(eq(jobs.id, run!.id));
-    expect(await queueStatus(db, run!.id)).toEqual({ position: 1, etaRange: [0, 0] });
+    await completed(db, op, { durationSec: 1200 }); // p50 = 900, p90 = 1140
+    await running(db, op, { ageSec: 300, dispatchedAgeSec: 100 }); // ahead: ~100 s elapsed
+    await queued(db, op, { ageSec: 200 }); // ahead
+    const target = await queued(db, op);
+    rejectDateParams(db);
+    // queuedAhead = 1, one running job ahead with ~800 s / ~1040 s left
+    expect(await queueStatus(db, target)).toEqual({ position: 3, etaRange: [1700, 2180] });
+  });
+
+  it('a queued job ETA includes the running jobs ahead: queuedAhead x p + SUM max(0, p - elapsed)', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 5);
+    await completed(db, op, { durationSec: 600 });
+    await completed(db, op, { durationSec: 1200 }); // p50 = 900, p90 = 1140
+    await running(db, op, { ageSec: 300, dispatchedAgeSec: 100 }); // ahead: ~100 s elapsed
+    await queued(db, op, { ageSec: 200 }); // ahead
+    const target = await queued(db, op);
+    // 1 x 900 + (900 - ~100) = ~1700; 1 x 1140 + (1140 - ~100) = ~2180
+    expect(await queueStatus(db, target)).toEqual({ position: 3, etaRange: [1700, 2180] });
+  });
+
+  it('a running job reports its own remaining range [max(0, p50 - e), max(0, p90 - e)] and ignores jobs ahead', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 5);
+    await completed(db, op, { durationSec: 600 });
+    await completed(db, op, { durationSec: 1200 }); // p50 = 900, p90 = 1140
+    await queued(db, op, { ageSec: 300 }); // ahead: moves position, not a running job's ETA
+    await running(db, op, { ageSec: 200, dispatchedAgeSec: 100 }); // ahead, ~100 s elapsed: ignored
+    const run = await running(db, op, { dispatchedAgeSec: 100 });
+    expect(await queueStatus(db, run)).toEqual({ position: 3, etaRange: [800, 1040] });
+    await db.update(jobs).set({ dispatchedAt: sql`now() - 1000::int * interval '1 second'` }).where(eq(jobs.id, run));
+    expect(await queueStatus(db, run)).toEqual({ position: 3, etaRange: [0, 140] });
+  });
+
+  it('a running job with null dispatched_at counts elapsed as 0 (full p50/p90)', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 5);
+    await completed(db, op, { durationSec: 600 });
+    await completed(db, op, { durationSec: 1200 }); // p50 = 900, p90 = 1140
+    const run = await running(db, op); // dispatchedAt stays null
+    expect(await queueStatus(db, run)).toEqual({ position: 1, etaRange: [900, 1140] });
+  });
+
+  it('inputSpec without language/broll groups with its own kind and ignores fully-specified jobs', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 5);
+    await completed(db, op, { durationSec: 600 }); // (en, false): must not leak into the (null, null) group
+    await completed(db, op, { language: 'en', broll: true, durationSec: 3600 }); // other group
+    await db.insert(jobs).values({
+      ...op, status: 'completed', inputSpec: {},
+      createdAt: sql`now() - 1800::int * interval '1 second'`,
+      dispatchedAt: sql`now() - 1800::int * interval '1 second'`,
+      completedAt: sql`now() - 1200::int * interval '1 second'`, // duration 600
+    });
+    await db.insert(jobs).values({
+      ...op, status: 'completed', inputSpec: {},
+      createdAt: sql`now() - 2400::int * interval '1 second'`,
+      dispatchedAt: sql`now() - 2400::int * interval '1 second'`,
+      completedAt: sql`now() - 1200::int * interval '1 second'`, // duration 1200
+    });
+    await queued(db, op, { ageSec: 300 }); // ahead: global position, but its group does not matter here
+    const [t] = await db.insert(jobs).values({ ...op, status: 'queued', inputSpec: {} }).returning({ id: jobs.id });
+    // (null, null) group: p50 = 900, p90 = 1140
+    expect(await queueStatus(db, t!.id)).toEqual({ position: 2, etaRange: [900, 1140] });
+  });
+
+  it('inputSpec with only language falls back to the (language, null) group', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 5);
+    await completed(db, op, { durationSec: 600 }); // (en, false): must not leak into the (en, null) group
+    await db.insert(jobs).values({
+      ...op, status: 'completed', inputSpec: { language: 'en' },
+      createdAt: sql`now() - 1800::int * interval '1 second'`,
+      dispatchedAt: sql`now() - 1800::int * interval '1 second'`,
+      completedAt: sql`now() - 1300::int * interval '1 second'`, // duration 500
+    });
+    await queued(db, op, { ageSec: 300 }); // ahead
+    const [t] = await db.insert(jobs).values({ ...op, status: 'queued', inputSpec: { language: 'en' } }).returning({ id: jobs.id });
+    // (en, null) group: only the 500 s completion; position counts the queued job ahead
+    expect(await queueStatus(db, t!.id)).toEqual({ position: 2, etaRange: [500, 500] });
+  });
+
+  it('excludes non-positive durations from the percentiles', async () => {
+    const { db, op } = await pglite();
+    await beat(db, 5);
+    await completed(db, op, { durationSec: 600 });
+    await db.insert(jobs).values({ // zero duration: completed_at = dispatched_at
+      ...op, status: 'completed', inputSpec: { language: 'en', broll: false },
+      createdAt: sql`now() - 3600::int * interval '1 second'`,
+      dispatchedAt: sql`now() - 3600::int * interval '1 second'`,
+      completedAt: sql`now() - 3600::int * interval '1 second'`,
+    });
+    await db.insert(jobs).values({ // negative duration: completed_at < dispatched_at
+      ...op, status: 'completed', inputSpec: { language: 'en', broll: false },
+      createdAt: sql`now() - 3700::int * interval '1 second'`,
+      dispatchedAt: sql`now() - 3600::int * interval '1 second'`,
+      completedAt: sql`now() - 3700::int * interval '1 second'`,
+    });
+    await db.insert(jobs).values({ // undispatched zero: completed_at = created_at, dispatched_at null
+      ...op, status: 'completed', inputSpec: { language: 'en', broll: false },
+      createdAt: sql`now() - 3600::int * interval '1 second'`,
+      completedAt: sql`now() - 3600::int * interval '1 second'`,
+    });
+    await queued(db, op, { ageSec: 300 }); // ahead
+    const target = await queued(db, op);
+    expect(await queueStatus(db, target)).toEqual({ position: 2, etaRange: [600, 600] });
   });
 
   it('paused when the heartbeat is stale, and when there is no worker at all', async () => {
