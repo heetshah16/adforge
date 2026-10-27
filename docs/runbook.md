@@ -8,7 +8,8 @@ The GPU machine runs one supervisor (`scripts/supervisor.ps1`). It starts ComfyU
 
 **Start by hand:** `powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1` (or `scripts\stack.ps1` for visible windows in dev).
 **Stop:** Ctrl-C in the supervisor window, or create `<ADFORGE_DATA_DIR>\supervisor.stop`. Either kills every child tree (`taskkill /T /F`).
-**One service only:** run its launcher (`scriptsoice.ps1` etc.) on its own; do not run it while the supervisor is up (port clash).
+**Stopping cleanly:** only the stop file or Ctrl-C is clean. Killing the supervisor process itself (`Stop-ScheduledTask`, logoff, `taskkill`) orphans its children (there is no Job Object); stop the leftovers by hand before starting again.
+**Do not start a service by hand** (`scripts\voice.ps1` etc.) while the supervisor or its task is running: port clash.
 
 ## Supervisor install and uninstall
 
@@ -21,16 +22,16 @@ Run these yourself. Nothing else registers the task.
 ## Logs
 
 All under `<ADFORGE_DATA_DIR>\logs` (keep this outside OneDrive).
-- `supervisor-YYYYMMDD.log`: JSON lines, events `started`, `exited`, `exited-final`, `gave-up`, `stopped`, `start-failed`.
-- `worker-YYYYMMDD.log`: JSON lines (`ts`, `level`, `msg`, fields), also on the worker's stdout. A new file each day; the newest 14 are kept. Keys containing `key`, `secret`, `token`, `password` or `database_url` are logged as `[redacted]`.
+- `supervisor-YYYYMMDD.log`: JSON lines (date is local time), events `started`, `exited`, `exited-final`, `gave-up`, `stopped`, `start-failed`.
+- `worker-YYYYMMDD.log`: JSON lines (`ts`, `level`, `msg`, fields), also on the worker's stdout. A new file each day (the date is UTC); the newest 14 are kept. Keys containing `key`, `secret`, `token`, `password` or `database_url` are logged as `[redacted]`.
 - `<service>.out.log` and `<service>.err.log`: raw stdout and stderr of each child, overwritten each time that service restarts.
 
 ## GPU offline
 
 The web UI shows "GPU offline, queue paused" when the worker's heartbeat is stale (over 2 minutes). Queued jobs wait; running jobs are not failed while offline; a job queued longer than 24 h is failed.
 1. Is the supervisor running? `Get-ScheduledTask 'AdForge supervisor'`, and a `powershell` process running `supervisor.ps1`.
-2. Last lines of `supervisor-YYYYMMDD.log`: a `gave-up` for the worker means it crashed 5 times in 10 minutes. Read `worker.err.log` and the worker log, fix the cause, then restart the supervisor.
-3. Worker up but still offline: check its log for the heartbeat error (database URL, network) and that `ADFORGE_ENV=prod` and the Inngest keys are set in `.env`.
+2. Last lines of `supervisor-YYYYMMDD.log`: a `gave-up` for the worker means it crashed 5 times in 10 minutes. Read `worker.err.log` and `worker-YYYYMMDD.log` (heartbeat, shutdown and request errors are logged there as `level: error`), fix the cause, then restart the supervisor.
+3. Worker up but still offline: check `worker-YYYYMMDD.log` for a `heartbeat write failed` entry (database URL, network) and that `ADFORGE_ENV=prod` and the Inngest keys are set in `.env`.
 4. The machine slept or rebooted: log on again (the task starts at logon) and wait one heartbeat interval.
 
 ## Alerts

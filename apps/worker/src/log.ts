@@ -6,7 +6,9 @@ const KEEP = 14;
 
 function redact(v: unknown, depth = 0): unknown {
   if (v instanceof Error) return { name: v.name, message: v.message, stack: v.stack };
-  if (depth > 5 || v === null || typeof v !== 'object') return v;
+  if (typeof v === 'bigint') return v.toString();
+  if (v === null || typeof v !== 'object') return v;
+  if (depth > 5) return '[truncated]';
   if (Array.isArray(v)) return v.map((x) => redact(x, depth + 1));
   return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SECRET.test(k) ? '[redacted]' : redact(x, depth + 1)]));
 }
@@ -19,7 +21,13 @@ export function createLogger(o: { dir: string; now?: () => Date; stdout?: (line:
   let day = '';
   const emit = (level: string, msg: string, fields: Record<string, unknown> = {}) => {
     const t = now();
-    const line = JSON.stringify({ ts: t.toISOString(), level, msg, ...(redact(fields) as object) });
+    let line: string;
+    try {
+      line = JSON.stringify({ ts: t.toISOString(), level, msg, ...(redact(fields) as object) });
+    } catch {
+      // circular or otherwise unserializable fields must not crash the worker
+      line = JSON.stringify({ ts: t.toISOString(), level, msg, fieldsError: 'unserializable fields dropped' });
+    }
     stdout(line);
     try {
       const today = t.toISOString().slice(0, 10).replaceAll('-', '');
@@ -38,3 +46,6 @@ export function createLogger(o: { dir: string; now?: () => Date; stdout?: (line:
     error: (msg: string, fields?: Record<string, unknown>) => emit('error', msg, fields),
   };
 }
+
+/** Adapts the logger to the `(msg, err?)` sink the heartbeat, shutdown and handler take. */
+export const errorSink = (l: ReturnType<typeof createLogger>) => (msg: string, e?: unknown) => l.error(msg, e === undefined ? {} : { error: e });

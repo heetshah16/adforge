@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,13 +14,21 @@ const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catc
 const PS = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'];
 
 let supervisors: ReturnType<typeof spawn>[] = [];
-afterEach(() => { for (const s of supervisors) if (s.pid) spawnSync('taskkill', ['/T', '/F', '/PID', String(s.pid)]); supervisors = []; });
+let dirs: string[] = [];
+afterEach(() => {
+  for (const s of supervisors) if (s.pid) spawnSync('taskkill', ['/T', '/F', '/PID', String(s.pid)]);
+  supervisors = [];
+  for (const d of dirs) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  dirs = [];
+});
 
 function boot(svc: Record<string, unknown>, exitCode?: number) {
   const dir = mkdtempSync(join(tmpdir(), 'adforge-sup-'));
+  dirs.push(dir);
   const child = join(dir, 'child.cjs');
   writeFileSync(child, `const fs=require('fs');const [sig,exit]=process.argv.slice(2);
 if(exit){process.exit(Number(exit));}
+if(process.env.GRAND){const g=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(sig+'.grand',String(g.pid));}
 setInterval(()=>{if(fs.existsSync(sig))process.exit(0);},200);`);
   const stop = join(dir, 'stop');
   const cfg = join(dir, 'cfg.json');
@@ -35,7 +43,7 @@ setInterval(()=>{if(fs.existsSync(sig))process.exit(0);},200);`);
     return f ? readFileSync(join(logs, f), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Rec) : [];
   };
   const until = async (pred: () => boolean, ms: number) => { const t = Date.now(); while (Date.now() - t < ms) { if (pred()) return true; await sleep(250); } return false; };
-  return { stop, recs, until, sup, started: () => recs().filter((r) => r.event === 'started') };
+  return { dir, stop, recs, until, sup, started: () => recs().filter((r) => r.event === 'started') };
 }
 
 d('supervisor.ps1', () => {
@@ -61,6 +69,22 @@ d('supervisor.ps1', () => {
     expect(h.started()).toHaveLength(1);
   }, 30_000);
 
+  it('start-failed is retried within the restart bound, then gives up', async () => {
+    const h = boot({ command: 'no-such-command-adforge', maxRestarts: 2 });
+    expect(await h.until(() => h.recs().some((r) => r.event === 'gave-up'), 30_000)).toBe(true);
+    expect(h.recs().filter((r) => r.event === 'start-failed')).toHaveLength(3);
+  }, 45_000);
+
+  it('stopping the supervisor kills the whole child tree', async () => {
+    const h = boot({ env: { GRAND: '1' } });
+    expect(await h.until(() => h.started().length === 1 && existsSync(join(h.dir, 'sig.grand')), 20_000)).toBe(true);
+    const pid = h.started()[0]!.pid!;
+    const grand = Number(readFileSync(join(h.dir, 'sig.grand'), 'utf8'));
+    expect(alive(grand)).toBe(true);
+    writeFileSync(h.stop, '');
+    expect(await h.until(() => !alive(pid) && !alive(grand), 15_000)).toBe(true);
+  }, 50_000);
+
   it('stopping the supervisor leaves no child alive', async () => {
     const h = boot({});
     expect(await h.until(() => h.started().length === 1, 20_000)).toBe(true);
@@ -69,6 +93,21 @@ d('supervisor.ps1', () => {
     expect(await h.until(() => !alive(pid), 15_000)).toBe(true);
     expect(await h.until(() => h.sup.exitCode !== null, 15_000)).toBe(true);
   }, 50_000);
+});
+
+d('supervisor.config.json', () => {
+  it('every service has the full policy shape', () => {
+    const { services } = JSON.parse(readFileSync(join(SCRIPTS, 'supervisor.config.json'), 'utf8')) as { services: Record<string, unknown>[] };
+    expect(services.map((s) => s.name)).toEqual(['comfyui', 'voice', 'voice-qwen', 'vision', 'worker']);
+    for (const s of services) {
+      expect(typeof s.name).toBe('string');
+      expect(typeof s.cwd).toBe('string');
+      expect(typeof s.command).toBe('string');
+      expect(Array.isArray(s.args)).toBe(true);
+      expect(s.restartOn === 'any' || (Array.isArray(s.restartOn) && s.restartOn.every((c) => Number.isInteger(c)))).toBe(true);
+      for (const k of ['maxRestarts', 'windowMin', 'backoffSec']) expect(Number.isInteger(s[k]) && (s[k] as number) > 0).toBe(true);
+    }
+  });
 });
 
 d('install-supervisor.ps1', () => {

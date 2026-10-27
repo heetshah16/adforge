@@ -35,11 +35,11 @@ $cfg = Get-Content $Config -Raw | ConvertFrom-Json
 $state = @{}
 foreach ($s in $cfg.services) { $state[$s.name] = @{ svc = $s; proc = $null; restarts = New-Object System.Collections.Generic.List[datetime]; next = Get-Date; done = $false } }
 
-function Start-Service($st) {
+function Start-Svc($st) {
   $s = $st.svc
   $cwd = Abs $s.cwd
   $exe = (Get-Command $s.command -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-  if (-not $exe) { Log 'start-failed' $s.name @{ reason = "command not found: $($s.command)" }; $st.done = $true; return }
+  if (-not $exe) { Log 'start-failed' $s.name @{ reason = "command not found: $($s.command)" }; return $false }
   $saved = @{}
   if ($s.env) { foreach ($p in $s.env.PSObject.Properties) { $saved[$p.Name] = [Environment]::GetEnvironmentVariable($p.Name); [Environment]::SetEnvironmentVariable($p.Name, [string]$p.Value) } }
   try {
@@ -50,12 +50,26 @@ function Start-Service($st) {
     $null = $p.Handle   # cache the handle so ExitCode is readable after exit
     $st.proc = $p
     Log 'started' $s.name @{ pid = $p.Id }
+    return $true
   } catch {
     Log 'start-failed' $s.name @{ reason = $_.Exception.Message }
-    $st.done = $true
+    return $false
   } finally {
     foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
   }
+}
+
+# Counts a restart against maxRestarts/windowMin and schedules it after backoffSec, or gives up. Used for exits and failed starts.
+function Retry($st, $now, $code) {
+  $s = $st.svc
+  [void]$st.restarts.RemoveAll({ param($t) ($now - $t).TotalMinutes -gt $s.windowMin })
+  if ($st.restarts.Count -ge $s.maxRestarts) {
+    Log 'gave-up' $s.name @{ code = $code; maxRestarts = $s.maxRestarts; windowMin = $s.windowMin }
+    $st.done = $true; return
+  }
+  $st.restarts.Add($now)
+  $st.next = $now.AddSeconds($s.backoffSec)
+  Log 'exited' $s.name @{ code = $code; restarts = $st.restarts.Count }
 }
 
 try {
@@ -64,20 +78,13 @@ try {
     foreach ($st in $state.Values) {
       if ($st.done) { continue }
       $s = $st.svc
-      if ($null -eq $st.proc) { if ($now -ge $st.next) { Start-Service $st }; continue }
+      if ($null -eq $st.proc) { if ($now -ge $st.next -and -not (Start-Svc $st)) { Retry $st $now $null }; continue }
       if (-not $st.proc.HasExited) { continue }
       $code = $st.proc.ExitCode
       $st.proc = $null
       $again = ($s.restartOn -is [string] -and $s.restartOn -eq 'any') -or (@($s.restartOn) -contains $code)
       if (-not $again) { Log 'exited-final' $s.name @{ code = $code }; $st.done = $true; continue }
-      [void]$st.restarts.RemoveAll({ param($t) ($now - $t).TotalMinutes -gt $s.windowMin })
-      if ($st.restarts.Count -ge $s.maxRestarts) {
-        Log 'gave-up' $s.name @{ code = $code; maxRestarts = $s.maxRestarts; windowMin = $s.windowMin }
-        $st.done = $true; continue
-      }
-      $st.restarts.Add($now)
-      $st.next = $now.AddSeconds($s.backoffSec)
-      Log 'exited' $s.name @{ code = $code; restarts = $st.restarts.Count }
+      Retry $st $now $code
     }
     Start-Sleep -Milliseconds 500
   }

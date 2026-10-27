@@ -41,4 +41,18 @@ describe('worker logger', () => {
     for (const s of ['sk-AAA', 'postgres://', 'sec-BBB', 'tok-CCC', 'pw-DDD']) expect(text).not.toContain(s);
     expect(JSON.parse(lines[0]!)).toMatchObject({ ok: 'fine', apiKey: '[redacted]', nested: { Password: '[redacted]' } });
   });
+
+  it('truncates past the depth limit and survives circular and BigInt values', () => {
+    const { lines, logger } = setup(() => new Date('2026-10-27T10:00:00Z'));
+    const deep = { a: { b: { c: { d: { e: { f: { secretish: 'x', g: 1 } } } } } } };
+    logger.info('deep', deep);
+    expect(lines[0]).toContain('[truncated]');
+    expect(lines[0]).not.toContain('secretish');
+    const circ: Record<string, unknown> = {};
+    circ.self = circ;
+    expect(() => logger.info('circ', { circ, big: 10n })).not.toThrow();
+    expect(() => logger.info('circ2', circ)).not.toThrow();
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[1]!)).toMatchObject({ msg: 'circ' });
+  });
 });

@@ -17,14 +17,15 @@ export async function startRuntime(o: {
   makeServer(): ListenableServer;
   connectFn?: ConnectFns['connectFn'];
   onListening?(): void;
+  log?(msg: string, e?: unknown): void;
 }) {
   const instanceId = o.env.ADFORGE_WORKER_ID ?? 'dev-local';
   if (o.env.ADFORGE_ENV === 'prod') {
     // Heartbeat only after connect resolves: a failed connect must not leave a fresh 'online' row.
     const connect = await startConnect({ functions: o.functions, instanceId, connectFn: o.connectFn });
-    return { heartbeat: startHeartbeat({ db: o.db, instanceId, probes: o.probes }), connect, server: undefined };
+    return { heartbeat: startHeartbeat({ db: o.db, instanceId, probes: o.probes, log: o.log }), connect, server: undefined };
   }
-  const heartbeat = startHeartbeat({ db: o.db, instanceId, probes: o.probes });
+  const heartbeat = startHeartbeat({ db: o.db, instanceId, probes: o.probes, log: o.log });
   const server = o.makeServer();
   server.requestTimeout = 120_000; // bounds request *receipt* (slow uploads), not handler run time
   server.listen(o.env.ADFORGE_WORKER_PORT, '127.0.0.1', () => o.onListening?.());

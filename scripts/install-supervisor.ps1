@@ -8,10 +8,12 @@ $cfg = (Resolve-Path "$PSScriptRoot\supervisor.config.json").Path
 $arg = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$sup`" -Config `"$cfg`""
 
 if ($Uninstall) {
-  Write-Host "Would remove scheduled task '$name' if present."
+  $exists = [bool](Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue)
+  if (-not $exists) { Write-Host "Scheduled task '$name' is not registered; nothing to remove."; return }
+  if ($WhatIfPreference) { Write-Host "What if: would remove scheduled task '$name'." }
   if ($PSCmdlet.ShouldProcess($name, 'Unregister scheduled task')) {
-    Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "Removed '$name'."
+    Unregister-ScheduledTask -TaskName $name -Confirm:$false
+    Write-Host "Removed scheduled task '$name'."
   }
   return
 }
