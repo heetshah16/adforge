@@ -2,7 +2,7 @@
 
 **Fetched:** 2026-10-16 (inngest.com/docs: reference/typescript/functions/create, guides/concurrency). **Verified against installed types 2026-10-17.** **Pinned:** `inngest` 4.21.1, `inngest-cli` 1.45.1 (dev server).
 
-- **Client:** `new Inngest({ id: 'adforge', isDev: true })`. In v4, `baseUrl` / `fetch` / signing keys live on the client, not on `serve`.
+- **Client:** `new Inngest({ id: 'adforge-gpu', isDev: ADFORGE_ENV === 'dev' })` (packages/pipeline `makeInngest`; a boolean `isDev` overrides `INNGEST_DEV`, so it must follow the env). In v4, `baseUrl` / `fetch` / signing keys live on the client, not on `serve`.
 - **Function:** `inngest.createFunction({ id, triggers: [{ event: 'x' } | { cron: '*/5 * * * *' }], concurrency, retries, timeouts }, async ({ event, step, runId, attempt, logger }) => …)`. Triggers live in the options object in v4. A function with no triggers (invoke-only) omits `triggers`. The docs do not describe invoke-only functions explicitly; treat that as unverified until Task 2 exercises it.
 - **Concurrency** counts **executing steps**, not runs. `key` is a CEL expression, so `'"heavy"'` is a constant. With `scope: 'env'`, **different functions sharing the same key share one limit**. Configure every sharing function with the same scope, key and limit. `step.sleep` / `step.sleepUntil` / `step.invoke` / `step.waitForEvent` hold no slot while waiting. A function may have at most 2 concurrency constraints.
 - **Steps:**

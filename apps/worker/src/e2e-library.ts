@@ -1,3 +1,4 @@
+import './load-env';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
@@ -14,7 +15,6 @@ import { buildDeps } from './deps';
  * (needs worker, Inngest dev, ComfyUI and vision up) -> prints the library row; then one freshly generated plate goes through
  * luma + depth + analyzePlate directly (the same building blocks generateAds uses; cheaper than a full job).
  */
-try { process.loadEnvFile(join(REPO_ROOT, '.env')); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
 const env = parseEnv(process.env);
 const { deps, storage, operator, close } = await buildDeps(env);
 const { db } = deps;

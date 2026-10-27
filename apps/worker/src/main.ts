@@ -1,21 +1,17 @@
+import './load-env';
 import { createServer } from 'node:http';
-import { join } from 'node:path';
 import { serve } from 'inngest/node';
-import { REPO_ROOT, dataDirWarnings, parseEnv } from '@adforge/core/config/env';
+import { dataDirWarnings, parseEnv } from '@adforge/core/config/env';
 import { createFunctions, inngest } from '@adforge/pipeline';
 import { buildDeps } from './deps';
 import { makeHandler } from './handler';
 import { makeRoutes } from './routes';
 import { makeProbes } from './heartbeat';
-import { startRuntime } from './runtime';
+import { assertInngestMode, startRuntime } from './runtime';
 import { makeShutdown } from './shutdown';
 
-try {
-  process.loadEnvFile(join(REPO_ROOT, '.env'));
-} catch (e) {
-  if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-}
 const env = parseEnv(process.env);
+assertInngestMode(env.ADFORGE_ENV, inngest.mode);
 for (const w of dataDirWarnings(env.ADFORGE_DATA_DIR)) console.warn(`WARN ${w}`);
 
 const { deps, storage, operator, close } = await buildDeps(env);

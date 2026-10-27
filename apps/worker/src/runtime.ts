@@ -30,3 +30,9 @@ export async function startRuntime(o: {
   server.listen(o.env.ADFORGE_WORKER_PORT, '127.0.0.1', () => o.onListening?.());
   return { heartbeat, connect: undefined, server };
 }
+
+/** The Inngest client is built at import time from process.env; refuse to boot if it disagrees with the parsed env (e.g. ADFORGE_ENV=prod reached only a later-loaded .env). */
+export function assertInngestMode(adforgeEnv: 'dev' | 'prod', mode: string): void {
+  const want = adforgeEnv === 'prod' ? 'cloud' : 'dev';
+  if (mode !== want) throw new Error(`Inngest client is in ${mode} mode but ADFORGE_ENV=${adforgeEnv} needs ${want}: ADFORGE_ENV must be set before @adforge/pipeline is imported`);
+}

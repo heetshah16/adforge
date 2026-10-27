@@ -1,3 +1,4 @@
+import './load-env';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -31,7 +32,6 @@ import { previewFrame, previewHtml } from '../../web/lib/preview';
  * Needs: voice (Whisper) + voice-qwen, Inngest dev, the worker (`pnpm --filter @adforge/worker start`), FFmpeg on PATH, apps/web/public/hf populated (run `pnpm --filter @adforge/web hf-assets`). No ComfyUI.
  * Prints statuses, counts, keys and diffs only.
  */
-try { process.loadEnvFile(join(REPO_ROOT, '.env')); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
 const env = parseEnv(process.env);
 const { deps, storage, operator, close } = await buildDeps(env);
 const { db } = deps;

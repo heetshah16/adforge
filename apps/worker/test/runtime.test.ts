@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { openDb } from '@adforge/db/client';
 import { workers } from '@adforge/db/schema';
 import type { Probes } from '../src/heartbeat';
-import { startRuntime, type ListenableServer } from '../src/runtime';
+import { assertInngestMode, startRuntime, type ListenableServer } from '../src/runtime';
 
 const ok: Probes = { gpu: async () => ({ gpu: 'RTX 4090', vramFreeMb: 20000 }), services: async () => ({ comfyui: true, voice: true, qwen: true, vision: true }) };
 const withDb = async (f: (h: Awaited<ReturnType<typeof openDb>>) => Promise<void>) => { const h = await openDb(); try { await f(h); } finally { await h.close(); } };
@@ -35,4 +35,13 @@ describe('startRuntime', () => {
     expect(connectFn).not.toHaveBeenCalled();
     await r.heartbeat.stop();
   }));
+});
+
+describe('assertInngestMode', () => {
+  it('accepts matching pairs and refuses a mismatch', () => {
+    expect(() => assertInngestMode('prod', 'cloud')).not.toThrow();
+    expect(() => assertInngestMode('dev', 'dev')).not.toThrow();
+    expect(() => assertInngestMode('prod', 'dev')).toThrow(/ADFORGE_ENV=prod needs cloud/);
+    expect(() => assertInngestMode('dev', 'cloud')).toThrow(/needs dev/);
+  });
 });
