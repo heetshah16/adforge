@@ -1,0 +1,155 @@
+import './load-env';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import sharp from 'sharp';
+import { REPO_ROOT } from '@adforge/core/config/env';
+import { PIPELINE } from '@adforge/core/config/pipeline';
+
+/**
+ * B4 hosted queue, end to end against a deployed Vercel preview + Inngest Cloud + dev Supabase/R2. GPU-FREE: ComfyUI, voice, voice-qwen and vision
+ * are never started, so both jobs are EXPECTED to fail at preflight (that is a PASS condition).
+ * Run: E2E_PREVIEW_URL=https://<branch-alias> E2E_SESSION_COOKIE='<Cookie header value>' pnpm e2e:hosted-queue
+ * plus the worker's prod-profile env in .env (ADFORGE_ENV=prod, DATABASE_URL, R2_*, INNGEST_SIGNING_KEY, INNGEST_EVENT_KEY, ADFORGE_WORKER_ID=gpu-dev-1).
+ * Prints statuses, positions, ETAs, stages and job ids only. Never secrets, cookies or signed URLs.
+ */
+const REQUIRED = ['E2E_PREVIEW_URL', 'E2E_SESSION_COOKIE', 'ADFORGE_ENV', 'DATABASE_URL', 'INNGEST_SIGNING_KEY', 'INNGEST_EVENT_KEY', 'ADFORGE_WORKER_ID', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'];
+const missing = REQUIRED.filter((k) => !process.env[k]);
+if (missing.length) { console.error(`Missing env: ${missing.join(', ')}`); process.exit(2); }
+if (process.env.ADFORGE_ENV !== 'prod') { console.error('ADFORGE_ENV must be prod'); process.exit(2); }
+if (process.platform !== 'win32') { console.error('This check uses taskkill/Get-NetTCPConnection: Windows only'); process.exit(2); }
+const BASE = process.env.E2E_PREVIEW_URL!.replace(/\/+$/, '');
+if (!BASE.startsWith('https://')) { console.error('E2E_PREVIEW_URL must be https'); process.exit(2); }
+const COOKIE = process.env.E2E_SESSION_COOKIE!;
+
+const checks: [string, boolean][] = [];
+const check = (name: string, ok: boolean, note = '') => { checks.push([name, ok]); console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${note ? ` - ${note}` : ''}`); };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+type Queue = { position: number; etaRange: [number, number] | 'paused' } | null;
+type View = { job: { id: string; status: string; progress: { stage: string; status: string }[] }; queue?: Queue };
+const TERMINAL = new Set(['completed', 'failed']);
+
+const api = (path: string, init: RequestInit = {}) => fetch(`${BASE}${path}`, {
+  ...init, signal: AbortSignal.timeout(15_000),
+  headers: { cookie: COOKIE, origin: BASE, ...(init.body ? { 'content-type': 'application/json' } : {}), ...init.headers },
+});
+
+async function submitJob(label: string): Promise<string> {
+  // Unique per run: a random 4x4 patch changes the pixels, so the sha and key are new.
+  const base = readFileSync(join(REPO_ROOT, 'fixtures', 'eval-products', 'krishna-hing-ras', '1-tins.jpg'));
+  const [r, g, b] = randomBytes(3);
+  const patch = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: r!, g: g!, b: b! } } }).png().toBuffer();
+  const photo = await sharp(base).composite([{ input: patch, left: 0, top: 0 }]).jpeg({ quality: 92 }).toBuffer();
+  const mintRes = await api('/api/uploads', { method: 'POST', body: JSON.stringify({ mime: 'image/jpeg', bytes: photo.length, sha256: createHash('sha256').update(photo).digest('hex') }) });
+  const m = (await mintRes.json().catch(() => ({}))) as { key?: string; url?: string; headers?: Record<string, string>; exists?: boolean };
+  if (!mintRes.ok || !m.key) throw new Error(`${label}: mint failed (HTTP ${mintRes.status})`);
+  if (!m.exists) {
+    if (!m.url) throw new Error(`${label}: mint returned no upload url`);
+    const put = await fetch(m.url, { method: 'PUT', headers: { ...m.headers, origin: BASE }, body: photo, signal: AbortSignal.timeout(120_000) });
+    if (!put.ok && put.status !== 412) throw new Error(`${label}: R2 PUT failed (HTTP ${put.status})`);
+  }
+  const res = await api('/api/jobs', { method: 'POST', body: JSON.stringify({ name: `e2e hosted queue ${label}`, price: '199', description: 'B4 hosted-queue e2e job; expected to fail at preflight.', language: 'en', broll: false, photoKeys: [m.key] }) });
+  const body = (await res.json().catch(() => ({}))) as { jobId?: string };
+  if (res.status !== 202 || !body.jobId) throw new Error(`${label}: create job failed (HTTP ${res.status})`);
+  return body.jobId;
+}
+
+async function view(id: string): Promise<View> {
+  const res = await api(`/api/jobs/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`job ${id}: HTTP ${res.status}`);
+  return (await res.json()) as View;
+}
+const failedStage = (v: View) => v.job.progress.find((p) => p.status === 'failed')?.stage ?? 'none';
+
+/** Polls until fn returns a value or the deadline passes. Transient errors count as "not yet". */
+async function until<T>(ms: number, everyMs: number, fn: () => Promise<T | undefined>): Promise<T | undefined> {
+  for (const end = Date.now() + ms; Date.now() < end; await sleep(everyMs)) {
+    const v = await fn().catch(() => undefined);
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
+// --- worker child process (hidden; output discarded so nothing secret can reach this console) ---
+let worker: ChildProcess | undefined;
+function startWorker() {
+  worker = spawn('pnpm', ['--filter', '@adforge/worker', 'start'], { cwd: REPO_ROOT, shell: true, windowsHide: true, stdio: 'ignore', env: process.env });
+}
+function stopWorker() {
+  if (worker?.pid) { try { execFileSync('taskkill', ['/PID', String(worker.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* already gone */ } }
+  worker = undefined;
+}
+/** LISTEN sockets (addr:port) owned by the worker's process tree; `exposed` = the non-loopback ones. */
+function treeListeners(rootPid: number): { all: string[]; exposed: string[] } {
+  const ps = [
+    `$ids=@(${rootPid});$more=$true`,
+    'while($more){$more=$false;Get-CimInstance Win32_Process|Where-Object{$ids -contains $_.ParentProcessId -and $ids -notcontains $_.ProcessId}|ForEach-Object{$ids+=$_.ProcessId;$more=$true}}',
+    'Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue|Where-Object{$ids -contains $_.OwningProcess}|ForEach-Object{"$($_.LocalAddress):$($_.LocalPort)"}',
+  ].join('\n');
+  const out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps]).toString().split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  return { all: out, exposed: out.filter((a) => !/^(127\.0\.0\.1|::1):/.test(a)) };
+}
+
+const freshSec = PIPELINE.jobs.heartbeatFreshSec;
+const ids: string[] = [];
+try {
+  // 1. worker up; give it time to connect and heartbeat before submitting.
+  startWorker();
+  console.log('  worker started; allowing 30s to connect');
+  await sleep(30_000);
+
+  // 2. two jobs through the preview
+  for (const l of ['a', 'b']) ids.push(await submitJob(l));
+  check('two jobs created through the preview', ids.length === 2, ids.join(', '));
+
+  // 3. positions 1 and 2 with a numeric etaRange (polled fast: preflight failure is quick once a job dispatches)
+  const seen = await until(90_000, 1_000, async () => {
+    const vs = await Promise.all(ids.map(view));
+    return vs.every((v) => v.queue && typeof v.queue.etaRange !== 'string') ? vs : undefined;
+  });
+  const pos = seen?.map((v) => v.queue?.position).sort();
+  check('queue shows positions 1 and 2 with a numeric ETA while the worker is up', !!seen && pos![0] === 1 && pos![1] === 2,
+    seen ? `positions ${pos!.join('/')} eta ${seen.map((v) => JSON.stringify(v.queue!.etaRange)).join(' ')}` : 'never observed (jobs may have finished too fast)');
+
+  // 6 (checked while the worker still runs). No inbound port.
+  const l = treeListeners(worker!.pid!);
+  check('worker process tree has no non-loopback listener', l.exposed.length === 0, `${l.all.length} listener(s) total${l.exposed.length ? `, exposed: ${l.exposed.join(' ')}` : ''}`);
+  check('worker process tree opens no listener at all (prod)', l.all.length === 0, l.all.join(' '));
+
+  // 4. stop the worker; wait past heartbeatFreshSec; jobs still waiting must show 'paused'
+  stopWorker();
+  console.log(`  worker stopped; waiting up to 4 min for 'paused' (heartbeatFreshSec=${freshSec})`);
+  await sleep((freshSec + 30) * 1000);
+  const paused = await until(Math.max(0, 240_000 - (freshSec + 30) * 1000), 10_000, async () => {
+    const vs = await Promise.all(ids.map(view));
+    const live = vs.filter((v) => !TERMINAL.has(v.job.status));
+    return live.length && live.every((v) => v.queue?.etaRange === 'paused') ? vs : undefined;
+  });
+  const now = paused ?? await Promise.all(ids.map(view));
+  console.log(`  statuses after stop: ${now.map((v) => `${v.job.status}/${v.queue ? (v.queue.etaRange === 'paused' ? 'paused' : 'eta') : 'no-queue'}`).join(' ')}`);
+  check("etaRange is 'paused' and the jobs are still queued or running", !!paused && now.every((v) => !TERMINAL.has(v.job.status)));
+
+  // 5. restart; both reach a terminal state (failed at preflight is expected: no ComfyUI)
+  startWorker();
+  const done = await until(360_000, 5_000, async () => {
+    const vs = await Promise.all(ids.map(view));
+    return vs.every((v) => TERMINAL.has(v.job.status)) ? vs : undefined;
+  });
+  check('after restart both jobs dispatch and reach a terminal state within 6 min', !!done, done ? done.map((v) => `${v.job.id}: ${v.job.status} at stage ${failedStage(v)}`).join('; ') : 'timed out');
+  if (done) check('jobs failed at preflight (no ComfyUI; expected)', done.every((v) => v.job.status === 'failed' && failedStage(v) === 'preflight'), done.map((v) => `${v.job.status}/${failedStage(v)}`).join(' '));
+} catch (e) {
+  check('run completed', false, e instanceof Error ? e.message : String(e));
+} finally {
+  stopWorker();
+}
+await sleep(1500);
+let leftover = -1;
+try {
+  leftover = Number(execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+    "(Get-CimInstance Win32_Process|Where-Object{$_.CommandLine -like '*worker*src*main.ts*' -and $_.ProcessId -ne $PID}|Measure-Object).Count"]).toString().trim());
+} catch { /* count unknown -> fails below */ }
+check('no worker process left running', leftover === 0, `${leftover} found`);
+console.log(`\n${checks.every((c) => c[1]) ? 'PASS' : 'FAIL'}`);
+process.exit(checks.length && checks.every((c) => c[1]) ? 0 : 1);

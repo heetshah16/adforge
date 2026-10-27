@@ -10,7 +10,8 @@
     "e2e": "tsx src/e2e.ts",
     "e2e:library": "tsx src/e2e-library.ts",
     "e2e:r2": "tsx src/e2e-r2.ts",
-    "e2e:edit": "tsx src/e2e-edit.ts"
+    "e2e:edit": "tsx src/e2e-edit.ts",
+    "e2e:hosted-queue": "tsx src/e2e-hosted-queue.ts"
   },
   "dependencies": {
     "@adforge/core": "workspace:*",
