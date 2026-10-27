@@ -3,13 +3,41 @@
 Operational procedures. Sections marked TBD are filled in by the milestone named.
 
 ## Start and stop
-TBD in B4
+
+The GPU machine runs one supervisor (`scripts/supervisor.ps1`). It starts ComfyUI, voice, voice-qwen, vision and the worker hidden, and restarts each per `scripts/supervisor.config.json`: `restartOn` (`any`, or a list of exit codes; the three Python services restart only on watchdog exit 3), at most `maxRestarts` restarts in `windowMin` minutes, `backoffSec` apart. Past the limit it logs `gave-up` and leaves that service down. The Inngest dev server is not part of it (dev only; prod uses Inngest Cloud).
+
+**Start by hand:** `powershell -ExecutionPolicy Bypass -File scripts\supervisor.ps1` (or `scripts\stack.ps1` for visible windows in dev).
+**Stop:** Ctrl-C in the supervisor window, or create `<ADFORGE_DATA_DIR>\supervisor.stop`. Either kills every child tree (`taskkill /T /F`).
+**One service only:** run its launcher (`scriptsoice.ps1` etc.) on its own; do not run it while the supervisor is up (port clash).
+
+## Supervisor install and uninstall
+
+Run these yourself. Nothing else registers the task.
+- Install: `powershell -ExecutionPolicy Bypass -File scripts\install-supervisor.ps1`. It registers the logon task "AdForge supervisor" for your user (restarted up to 3 times, 1 minute apart, if it fails; no time limit). Add `-WhatIf` to see the command line without registering.
+- Start it now: `Start-ScheduledTask -TaskName 'AdForge supervisor'`.
+- Uninstall: `powershell -ExecutionPolicy Bypass -File scripts\install-supervisor.ps1 -Uninstall`.
+- The task runs only while you are logged on. Keep the machine from sleeping while the queue should drain.
+
+## Logs
+
+All under `<ADFORGE_DATA_DIR>\logs` (keep this outside OneDrive).
+- `supervisor-YYYYMMDD.log`: JSON lines, events `started`, `exited`, `exited-final`, `gave-up`, `stopped`, `start-failed`.
+- `worker-YYYYMMDD.log`: JSON lines (`ts`, `level`, `msg`, fields), also on the worker's stdout. A new file each day; the newest 14 are kept. Keys containing `key`, `secret`, `token`, `password` or `database_url` are logged as `[redacted]`.
+- `<service>.out.log` and `<service>.err.log`: raw stdout and stderr of each child, overwritten each time that service restarts.
+
+## GPU offline
+
+The web UI shows "GPU offline, queue paused" when the worker's heartbeat is stale (over 2 minutes). Queued jobs wait; running jobs are not failed while offline; a job queued longer than 24 h is failed.
+1. Is the supervisor running? `Get-ScheduledTask 'AdForge supervisor'`, and a `powershell` process running `supervisor.ps1`.
+2. Last lines of `supervisor-YYYYMMDD.log`: a `gave-up` for the worker means it crashed 5 times in 10 minutes. Read `worker.err.log` and the worker log, fix the cause, then restart the supervisor.
+3. Worker up but still offline: check its log for the heartbeat error (database URL, network) and that `ADFORGE_ENV=prod` and the Inngest keys are set in `.env`.
+4. The machine slept or rebooted: log on again (the task starts at logon) and wait one heartbeat interval.
 
 ## Alerts
 TBD in B5
 
 ## Kill switch
-TBD in B5
+TBD in B5 (placeholder: the supervisor stop file above stops the whole local stack, not just new submissions).
 
 ## Quota
 TBD in B5

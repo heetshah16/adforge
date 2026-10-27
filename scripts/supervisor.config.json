@@ -1,0 +1,9 @@
+{
+  "services": [
+    { "name": "comfyui", "cwd": ".", "command": "powershell", "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/comfyui.ps1"], "restartOn": "any", "maxRestarts": 5, "windowMin": 10, "backoffSec": 2 },
+    { "name": "voice", "cwd": "services/voice", "command": "uv", "args": ["run", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8190", "--timeout-keep-alive", "5"], "restartOn": [3], "maxRestarts": 5, "windowMin": 10, "backoffSec": 2 },
+    { "name": "voice-qwen", "cwd": "services/voice-qwen", "command": "uv", "args": ["run", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8191", "--timeout-keep-alive", "5"], "env": { "UV_LINK_MODE": "copy" }, "restartOn": [3], "maxRestarts": 5, "windowMin": 10, "backoffSec": 2 },
+    { "name": "vision", "cwd": "services/vision", "command": "uv", "args": ["run", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8192", "--timeout-keep-alive", "5"], "env": { "UV_LINK_MODE": "copy", "PYTHONUTF8": "1" }, "restartOn": [3], "maxRestarts": 5, "windowMin": 10, "backoffSec": 2 },
+    { "name": "worker", "cwd": ".", "command": "pnpm", "args": ["--filter", "@adforge/worker", "start"], "restartOn": "any", "maxRestarts": 5, "windowMin": 10, "backoffSec": 2 }
+  ]
+}

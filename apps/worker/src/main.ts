@@ -8,11 +8,13 @@ import { makeHandler } from './handler';
 import { makeRoutes } from './routes';
 import { makeProbes } from './heartbeat';
 import { assertInngestMode, startRuntime } from './runtime';
+import { createLogger } from './log';
 import { makeShutdown } from './shutdown';
 
 const env = parseEnv(process.env);
 assertInngestMode(env.ADFORGE_ENV, inngest.mode);
-for (const w of dataDirWarnings(env.ADFORGE_DATA_DIR)) console.warn(`WARN ${w}`);
+const logger = createLogger({ dir: env.ADFORGE_DATA_DIR });
+for (const w of dataDirWarnings(env.ADFORGE_DATA_DIR)) logger.warn(w);
 
 const { deps, storage, operator, close } = await buildDeps(env);
 const functions = createFunctions(deps);
@@ -25,9 +27,9 @@ const makeServer = () => {
 
 const { heartbeat, connect, server } = await startRuntime({
   env, db: deps.db, functions, makeServer, probes: makeProbes(env),
-  onListening: () => console.log(`worker on ${base}`),
+  onListening: () => logger.info('worker listening', { url: base }),
 });
-if (connect) console.log(`worker connected to Inngest as ${env.ADFORGE_WORKER_ID} (no inbound port)`);
+if (connect) logger.info('worker connected to Inngest (no inbound port)', { workerId: env.ADFORGE_WORKER_ID });
 
 const shutdown = makeShutdown({ server, connect, heartbeat, close, exit: (c) => process.exit(c) });
 process.on('SIGINT', () => void shutdown('SIGINT'));
