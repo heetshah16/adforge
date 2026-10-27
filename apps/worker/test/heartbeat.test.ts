@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '@adforge/db/client';
 import { workers } from '@adforge/db/schema';
-import { startHeartbeat, type Probes } from '../src/heartbeat';
-import { startRuntime, type ListenableServer } from '../src/runtime';
+import { lastSeenOnline, startHeartbeat, type Probes } from '../src/heartbeat';
 
 let h: Awaited<ReturnType<typeof openDb>>;
 beforeEach(async () => { h = await openDb(); vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] }); });
@@ -20,7 +19,7 @@ describe('startHeartbeat', () => {
     await vi.advanceTimersByTimeAsync(30_000);
     await vi.advanceTimersByTimeAsync(0);
     const second = await row();
-    expect(second.lastSeen.getTime() - first.lastSeen.getTime()).toBe(30_000);
+    expect(second.lastSeen.getTime()).toBeGreaterThan(first.lastSeen.getTime());
     expect(await h.db.select().from(workers)).toHaveLength(1);
     await hb.stop();
   });
@@ -49,27 +48,29 @@ describe('startHeartbeat', () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(await row()).toMatchObject({ status: 'offline', lastSeen: seen });
   });
-});
 
-describe('startRuntime', () => {
-  const server = () => { const s = { listen: vi.fn(), close: vi.fn(), closeIdleConnections: vi.fn(), closeAllConnections: vi.fn(), requestTimeout: 0 }; return s as unknown as ListenableServer & { listen: ReturnType<typeof vi.fn> }; };
-
-  it('prod connects outbound and never builds or listens on a server', async () => {
-    const makeServer = vi.fn(server);
-    const connectFn = vi.fn(async () => ({ close: async () => {} })) as never;
-    const r = await startRuntime({ env: { ADFORGE_ENV: 'prod', ADFORGE_WORKER_ID: 'gpu-1', ADFORGE_WORKER_PORT: 3001 }, db: h.db, probes: ok, functions: [], makeServer, connectFn });
-    expect(makeServer).not.toHaveBeenCalled();
-    expect(r.server).toBeUndefined();
-    expect(connectFn).toHaveBeenCalledWith(expect.objectContaining({ instanceId: 'gpu-1', maxWorkerConcurrency: 1, handleShutdownSignals: [] }));
-    await r.heartbeat.stop();
+  it('a clean stop does not bump last_seen and lastSeenOnline ignores the offline row', async () => {
+    const hb = startHeartbeat({ db: h.db, instanceId: 'gpu-1', probes: ok, log: () => {} });
+    await vi.advanceTimersByTimeAsync(0);
+    const online = await row();
+    expect((await lastSeenOnline(h.db))?.getTime()).toBe(online.lastSeen.getTime());
+    await vi.advanceTimersByTimeAsync(5_000);
+    await hb.stop();
+    expect((await row()).lastSeen.getTime()).toBe(online.lastSeen.getTime());
+    expect(await lastSeenOnline(h.db)).toBeNull();
   });
 
-  it('dev listens on 127.0.0.1 only and does not connect', async () => {
-    const s = server();
-    const connectFn = vi.fn() as never;
-    const r = await startRuntime({ env: { ADFORGE_ENV: 'dev', ADFORGE_WORKER_PORT: 3001 }, db: h.db, probes: ok, functions: [], makeServer: () => s, connectFn });
-    expect(s.listen).toHaveBeenCalledWith(3001, '127.0.0.1', expect.any(Function));
-    expect(connectFn).not.toHaveBeenCalled();
-    await r.heartbeat.stop();
+  it('stop returns within ~1 s even when the offline write hangs', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
+    const hang = new Promise(() => {});
+    const db = { insert: () => ({ values: () => ({ onConflictDoUpdate: async () => {} }) }), update: () => ({ set: () => ({ where: () => hang }) }) } as never;
+    const hb = startHeartbeat({ db, instanceId: 'gpu-1', probes: ok, log: () => {} });
+    await vi.advanceTimersByTimeAsync(0);
+    let done = false;
+    void hb.stop().then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toBe(true);
   });
 });

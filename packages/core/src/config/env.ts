@@ -25,6 +25,8 @@ export const Env = z
   .object({
     ADFORGE_ENV: z.enum(['dev', 'prod']).default('dev'),
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }).optional(),
+    INNGEST_SIGNING_KEY: z.string().min(1).optional(),
+    INNGEST_EVENT_KEY: z.string().min(1).optional(),
 
     ADFORGE_DATA_DIR: z
       .string()
@@ -69,6 +71,9 @@ export const Env = z
   .superRefine((env, ctx) => {
     if (env.ADFORGE_ENV === 'prod' && !env.DATABASE_URL) {
       ctx.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'DATABASE_URL is required when ADFORGE_ENV=prod' });
+    }
+    for (const k of ['INNGEST_SIGNING_KEY', 'INNGEST_EVENT_KEY'] as const) {
+      if (env.ADFORGE_ENV === 'prod' && !env[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when ADFORGE_ENV=prod` });
     }
     if (env.ADFORGE_ENV === 'prod' && !env.ADFORGE_WORKER_ID) {
       ctx.addIssue({ code: 'custom', path: ['ADFORGE_WORKER_ID'], message: 'ADFORGE_WORKER_ID is required when ADFORGE_ENV=prod' });

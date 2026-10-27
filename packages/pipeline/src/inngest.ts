@@ -9,7 +9,9 @@ import { generateAds } from './orchestrate';
 import { orgForEvent } from './record';
 import type { PipelineDeps, StepLike } from './types';
 
-export const inngest = new Inngest({ id: 'adforge', isDev: true });
+/** `isDev` follows ADFORGE_ENV: a boolean overrides INNGEST_DEV, so a hard-coded true would make prod connect dial the dev server. Keys come from INNGEST_SIGNING_KEY / INNGEST_EVENT_KEY (the SDK reads them; prod parseEnv requires them). App id `adforge-gpu`: the web is the separate `adforge-web` app (Task 2). */
+export const makeInngest = (adforgeEnv: string | undefined) => new Inngest({ id: 'adforge-gpu', isDev: (adforgeEnv ?? 'dev') === 'dev' });
+export const inngest = makeInngest(process.env.ADFORGE_ENV);
 export const EVENTS = { jobRequested: 'adforge/job.requested', productIngest: 'adforge/product.ingest', variantEdit: 'adforge/variant.edit', variantExport: 'adforge/variant.export' } as const;
 
 /** One GPU/CPU-heavy step at a time across ALL heavy functions (env scope + constant key = shared lane). */

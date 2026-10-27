@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { workers } from '@adforge/db/schema';
 import type { Db } from '@adforge/db/client';
 import type { Env } from '@adforge/core/config/env';
@@ -29,7 +29,9 @@ function nvidiaSmi(): Promise<{ gpu: string | null; vramFreeMb: number | null }>
 
 async function up(url: string): Promise<boolean> {
   try {
-    return (await fetch(url, { signal: AbortSignal.timeout(PROBE_MS) })).ok;
+    const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_MS) });
+    void res.body?.cancel().catch(() => {}); // free the socket; only the status matters
+    return res.ok;
   } catch {
     return false;
   }
@@ -48,6 +50,7 @@ export function makeProbes(env: Pick<Env, 'COMFYUI_URL' | 'ADFORGE_VOICE_URL' | 
   };
 }
 
+const OFFLINE_WRITE_MS = 1_000;
 const SERVICES = ['comfyui', 'voice', 'qwen', 'vision'];
 
 /** Upserts a `workers` row now and every intervalMs. A failed probe or write is logged-and-swallowed: the heartbeat must never take the worker down. */
@@ -57,13 +60,16 @@ export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; 
   const write = async (status: 'online' | 'offline'): Promise<void> => {
     try {
       if (status === 'offline') {
-        await o.db.update(workers).set({ lastSeen: new Date(), status }).where(eq(workers.instanceId, o.instanceId));
+        // Status only: last_seen stays the last real heartbeat, so a clean stop never looks fresher than a crash.
+        await o.db.update(workers).set({ status }).where(eq(workers.instanceId, o.instanceId));
         return;
       }
-      const g = await o.probes.gpu().catch(() => ({ gpu: null, vramFreeMb: null }));
-      const probed = await o.probes.services().catch(() => ({} as Record<string, boolean>));
+      const [g, probed] = await Promise.all([
+        o.probes.gpu().catch(() => ({ gpu: null, vramFreeMb: null })),
+        o.probes.services().catch(() => ({} as Record<string, boolean>)),
+      ]);
       const services = Object.fromEntries(SERVICES.map((k) => [k, probed[k] === true]));
-      const set = { lastSeen: new Date(), status, gpu: g.gpu, vramFreeMb: g.vramFreeMb, services };
+      const set = { lastSeen: sql`now()`, status, gpu: g.gpu, vramFreeMb: g.vramFreeMb, services };
       await o.db.insert(workers).values({ instanceId: o.instanceId, ...set }).onConflictDoUpdate({ target: workers.instanceId, set });
     } catch (e) {
       log('heartbeat write failed', e);
@@ -78,7 +84,16 @@ export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; 
       stopped = true;
       clearInterval(timer);
       await inflight;
-      await write('offline'); // best effort, once
+      // Best effort, once, and bounded so a hung DB cannot eat the shutdown budget.
+      let t: ReturnType<typeof setTimeout>;
+      await Promise.race([write('offline'), new Promise<void>((r) => { t = setTimeout(r, OFFLINE_WRITE_MS); })]);
+      clearTimeout(t!);
     },
   };
+}
+
+/** Newest heartbeat from a worker that is still 'online'; null if none. A clean stop (status offline) therefore never counts. */
+export async function lastSeenOnline(db: Db): Promise<Date | null> {
+  const [r] = await db.select({ t: sql<string | null>`max(${workers.lastSeen}) filter (where ${workers.status} = 'online')` }).from(workers);
+  return r?.t ? new Date(r.t) : null;
 }

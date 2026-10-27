@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HEAVY_CONCURRENCY, createFunctions, inngest } from '../src/inngest';
+import { HEAVY_CONCURRENCY, createFunctions, inngest, makeInngest } from '../src/inngest';
 import { makeDeps } from './fakes';
 
 describe('createFunctions', () => {
@@ -9,7 +9,7 @@ describe('createFunctions', () => {
       const fns = createFunctions(m.deps);
       // v4: id() is the bare opts.id; id(prefix) is the app-prefixed id Inngest routes invokes by.
       const ids = fns.map((f) => f.id(inngest.id));
-      expect(ids.sort()).toEqual(['adforge-generate-ads', 'adforge-heavy-broll', 'adforge-heavy-plates', 'adforge-heavy-plateVision', 'adforge-heavy-render', 'adforge-heavy-voice', 'adforge-heavy-voiceLines', 'adforge-heavy-plateLines', 'adforge-variant-edit', 'adforge-variant-export', 'adforge-janitor', 'adforge-product-ingest'].sort());
+      expect(ids.sort()).toEqual(['adforge-gpu-generate-ads', 'adforge-gpu-heavy-broll', 'adforge-gpu-heavy-plates', 'adforge-gpu-heavy-plateVision', 'adforge-gpu-heavy-render', 'adforge-gpu-heavy-voice', 'adforge-gpu-heavy-voiceLines', 'adforge-gpu-heavy-plateLines', 'adforge-gpu-variant-edit', 'adforge-gpu-variant-export', 'adforge-gpu-janitor', 'adforge-gpu-product-ingest'].sort());
       expect(HEAVY_CONCURRENCY).toEqual([{ scope: 'env', key: '"heavy"', limit: 1 }]);
       const heavy = fns.filter((f) => f.id().startsWith('heavy-'));
       expect(heavy).toHaveLength(7);
@@ -21,5 +21,14 @@ describe('createFunctions', () => {
     } finally {
       await m.close();
     }
+  });
+});
+
+describe('makeInngest', () => {
+  it('is the adforge-gpu app; prod is cloud mode, dev is dev mode', () => {
+    expect(makeInngest('prod').mode).toBe('cloud');
+    expect(makeInngest('dev').mode).toBe('dev');
+    expect(makeInngest(undefined).mode).toBe('dev');
+    expect(makeInngest('prod').id).toBe('adforge-gpu');
   });
 });

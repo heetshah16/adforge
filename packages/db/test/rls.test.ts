@@ -262,6 +262,10 @@ describe.each(backends)('RLS on %s', (_name, open) => {
       insert into jobs (id, org_id, project_id, user_id, input_spec, dispatched_at)
       values (${id}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb, now())`));
     expect(await errorCode(withDispatch)).toBe('42501');
+    // Positive control: the same insert without dispatched_at succeeds, so the denial above is the dispatch claim and nothing else.
+    expect(await errorCode(withUser(db, a.user, (u) => u.execute(sql`
+      insert into jobs (id, org_id, project_id, user_id, input_spec)
+      values (${randomUUID()}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb)`)))).toBe('no error');
     expect(await affected(withUser(db, a.user, (u) => u.execute(sql`update jobs set dispatched_at = now() where id = ${a.jobs} returning id`)))).toBe('denied');
     expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select * from workers`)))).toBe('denied');
     expect(await errorCode(withUser(db, a.user, (u) => u.execute(sql`insert into workers (instance_id, last_seen, status) values ('x', now(), 'online')`)))).toBe('42501');

@@ -13,3 +13,6 @@
 - **Dev server:** supported with `INNGEST_DEV=1`; no keys needed. (We do not exercise it in tests.)
 - **Prod env:** `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY`.
 - **Bundling:** keep `inngest` and `inngest/*` external.
+- **One app id, one registering endpoint.** An app id is synced as a whole by whichever endpoint registers it (serve or connect), so serve and connect under one id would overwrite each other's function list. Hence two apps: `adforge-web` (Vercel `serve()`) and `adforge-gpu` (this worker, connect). Event names are shared across apps.
+- **Dev vs cloud mode:** a boolean `isDev` on the client overrides `INNGEST_DEV`, so the client sets `isDev` from `ADFORGE_ENV`.
+- **Preview/branch environments:** need `INNGEST_ENV` set to the branch environment name plus that environment's own signing key (and event key).
