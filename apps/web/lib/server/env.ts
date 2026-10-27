@@ -36,6 +36,10 @@ const ServerEnv = z
       const missing = (['ADFORGE_SITE_URL', 'INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'] as const).filter((k) => !e[k]);
       for (const k of missing) ctx.addIssue({ code: 'custom', path: [k], message: 'required when ADFORGE_ENV=prod' });
       if (missing.length) return z.NEVER;
+      if (!e.ADFORGE_SITE_URL!.startsWith('https://')) {
+        ctx.addIssue({ code: 'custom', path: ['ADFORGE_SITE_URL'], message: 'must be https when ADFORGE_ENV=prod' });
+        return z.NEVER;
+      }
     }
     if (ADFORGE_ENV === 'prod' && e.ADFORGE_PROVIDER_STORAGE !== 'r2') {
       ctx.addIssue({ code: 'custom', path: ['ADFORGE_PROVIDER_STORAGE'], message: 'must be r2 when ADFORGE_ENV=prod' });

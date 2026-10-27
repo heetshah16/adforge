@@ -1,6 +1,6 @@
 import { is, sql } from 'drizzle-orm';
 import { PgTransaction } from 'drizzle-orm/pg-core';
-import type { Db } from './client';
+import { STATEMENT_TIMEOUT_MS, type Db } from './client';
 
 /** A handle whose queries run as `authenticated` under RLS, as `userId`. Only withUser makes one. */
 export type UserDb = Db & { readonly __rls: unique symbol };
@@ -21,6 +21,8 @@ export function withUser<T>(
   if (is(db, PgTransaction)) return Promise.reject(new Error('withUser must not be nested in a transaction'));
   return db.transaction(async (tx) => {
     await tx.execute(sql`set local role authenticated`);
+    // Transaction-scoped: the only statement_timeout the transaction pooler (:6543) honours.
+    await tx.execute(sql`select set_config('statement_timeout', ${String(STATEMENT_TIMEOUT_MS)}, true)`);
     // auth.uid() reads claim.sub first, so it is set too: a stale session-level value must not win.
     await tx.execute(sql`select set_config('request.jwt.claim.sub', ${userId}, true),
       set_config('request.jwt.claims', ${JSON.stringify({ sub: userId, role: 'authenticated' })}, true)`);

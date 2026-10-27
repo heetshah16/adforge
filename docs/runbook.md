@@ -144,3 +144,22 @@ In `.env` for the worker; in `apps/web/.env.local` / Vercel env for the web app.
 - FFmpeg on PATH.
 
 A re-PUT of an existing key into the locked prod bucket is refused (412/403), which is why `R2Storage.put` HEADs first and skips the PUT when the object exists.
+
+## Deploy (Vercel)
+
+Project settings: link the GitHub repo, **Root Directory** `apps/web`. **Do not override the Build Command**: the default runs the package `build` script, which copies the HyperFrames assets before `next build` (pnpm skips `pre*` scripts). Sources and DB notes: `docs/providers/vercel.md`.
+
+**Env vars (names only; set with `vercel env add`, Production + Preview as noted)**
+- `ADFORGE_ENV=prod` (production), `ADFORGE_SITE_URL` (must be `https://`; prod fails to boot otherwise).
+- `DATABASE_URL`: the Supabase **transaction pooler** string (`...pooler.supabase.com:6543`, user `postgres.<ref>`). Prepared statements are off; the 15 s statement timeout is applied per transaction in `withUser` (the pooler ignores session and startup settings).
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `ADFORGE_PUBLIC_URL`, `ADFORGE_ADMIN_EMAILS`.
+- `ADFORGE_PROVIDER_STORAGE=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `ADFORGE_MEDIA_TTL_SEC` (optional `R2_TIMEOUT_MS`).
+- `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`. Preview/branch deployments also need `INNGEST_ENV` and that environment's own signing key.
+
+**Inngest**
+- The web serves app `adforge-web` at `/api/inngest` (signed; anonymous PUT sync is disabled). Sync with the Inngest Vercel integration (every deploy) or from the Inngest UI.
+- Vercel Deployment Protection must let Inngest reach `/api/inngest`: disable it for that project, or enable "Protection Bypass for Automation" and put the secret in the integration's "Deployment protection key"; redeploy previews to resync.
+
+**R2 bucket CORS for the site origins**
+Same rule as the dev bucket (see Media (R2)), with `origins` = the prod site URL and each preview origin:
+`npx wrangler@4 r2 bucket cors set adforge-prod --file cors-prod.json --force`

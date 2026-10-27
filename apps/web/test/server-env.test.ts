@@ -77,3 +77,13 @@ describe('ADFORGE_ENV / ADFORGE_SITE_URL', () => {
     expect(parseServerEnv({ ...OK, NODE_ENV: 'production', ADFORGE_ENV: 'dev' }).ADFORGE_ENV).toBe('dev');
   });
 });
+
+describe('prod site url', () => {
+  const PROD = { ...OK, ...R2P, ADFORGE_ENV: 'prod', INNGEST_EVENT_KEY: 'ek', INNGEST_SIGNING_KEY: 'sk' };
+  it('prod rejects a non-https ADFORGE_SITE_URL', () => {
+    expect(() => parseServerEnv({ ...PROD, ADFORGE_SITE_URL: 'http://app.example.com' })).toThrow(/ADFORGE_SITE_URL/);
+  });
+  it('prod accepts https', () => {
+    expect(parseServerEnv({ ...PROD, ADFORGE_SITE_URL: 'https://app.example.com' }).ADFORGE_SITE_URL).toBe('https://app.example.com');
+  });
+});
