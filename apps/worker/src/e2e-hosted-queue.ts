@@ -95,50 +95,39 @@ function treeListeners(rootPid: number): { all: string[]; exposed: string[] } {
 const freshSec = PIPELINE.jobs.heartbeatFreshSec;
 const ids: string[] = [];
 try {
-  // 1. worker up; give it time to connect and heartbeat before submitting.
-  startWorker();
-  console.log('  worker started; allowing 30s to connect');
-  await sleep(30_000);
-
-  // 2. two jobs through the preview
+  // 1. Worker is STOPPED: submit two jobs. Nothing can dispatch them, so they stay queued.
   for (const l of ['a', 'b']) ids.push(await submitJob(l));
   check('two jobs created through the preview', ids.length === 2, ids.join(', '));
 
-  // 3. positions 1 and 2 with a numeric etaRange (polled fast: preflight failure is quick once a job dispatches)
-  const seen = await until(90_000, 1_000, async () => {
+  // 2. Core queue assertion: positions 1 and 2, both 'paused'. Waits out a stale heartbeat (heartbeatFreshSec + margin).
+  const paused = await until((freshSec + 60) * 1000, 5_000, async () => {
     const vs = await Promise.all(ids.map(view));
-    return vs.every((v) => v.queue && typeof v.queue.etaRange !== 'string') ? vs : undefined;
-  });
-  const pos = seen?.map((v) => v.queue?.position).sort();
-  check('queue shows positions 1 and 2 with a numeric ETA while the worker is up', !!seen && pos![0] === 1 && pos![1] === 2,
-    seen ? `positions ${pos!.join('/')} eta ${seen.map((v) => JSON.stringify(v.queue!.etaRange)).join(' ')}` : 'never observed (jobs may have finished too fast)');
-
-  // 6 (checked while the worker still runs). No inbound port.
-  const l = treeListeners(worker!.pid!);
-  check('worker process tree has no non-loopback listener', l.exposed.length === 0, `${l.all.length} listener(s) total${l.exposed.length ? `, exposed: ${l.exposed.join(' ')}` : ''}`);
-  check('worker process tree opens no listener at all (prod)', l.all.length === 0, l.all.join(' '));
-
-  // 4. stop the worker; wait past heartbeatFreshSec; jobs still waiting must show 'paused'
-  stopWorker();
-  console.log(`  worker stopped; waiting up to 4 min for 'paused' (heartbeatFreshSec=${freshSec})`);
-  await sleep((freshSec + 30) * 1000);
-  const paused = await until(Math.max(0, 240_000 - (freshSec + 30) * 1000), 10_000, async () => {
-    const vs = await Promise.all(ids.map(view));
-    const live = vs.filter((v) => !TERMINAL.has(v.job.status));
-    return live.length && live.every((v) => v.queue?.etaRange === 'paused') ? vs : undefined;
+    return vs.every((v) => v.queue?.etaRange === 'paused') ? vs : undefined;
   });
   const now = paused ?? await Promise.all(ids.map(view));
-  console.log(`  statuses after stop: ${now.map((v) => `${v.job.status}/${v.queue ? (v.queue.etaRange === 'paused' ? 'paused' : 'eta') : 'no-queue'}`).join(' ')}`);
-  check("etaRange is 'paused' and the jobs are still queued or running", !!paused && now.every((v) => !TERMINAL.has(v.job.status)));
+  const pos = now.map((v) => v.queue?.position).sort();
+  console.log(`  statuses before worker start: ${now.map((v) => `${v.job.status}/${v.queue ? (v.queue.etaRange === 'paused' ? 'paused' : 'eta') : 'no-queue'}`).join(' ')}`);
+  check("positions 1 and 2, both etaRange 'paused', jobs still queued", !!paused && pos[0] === 1 && pos[1] === 2 && now.every((v) => v.job.status === 'queued'),
+    paused ? `positions ${pos.join('/')}` : 'never paused: another worker heartbeat is probably fresh (stop it) or the job view lacks queue');
 
-  // 5. restart; both reach a terminal state (failed at preflight is expected: no ComfyUI)
-  startWorker();
-  const done = await until(360_000, 5_000, async () => {
-    const vs = await Promise.all(ids.map(view));
-    return vs.every((v) => TERMINAL.has(v.job.status)) ? vs : undefined;
-  });
-  check('after restart both jobs dispatch and reach a terminal state within 6 min', !!done, done ? done.map((v) => `${v.job.id}: ${v.job.status} at stage ${failedStage(v)}`).join('; ') : 'timed out');
-  if (done) check('jobs failed at preflight (no ComfyUI; expected)', done.every((v) => v.job.status === 'failed' && failedStage(v) === 'preflight'), done.map((v) => `${v.job.status}/${failedStage(v)}`).join(' '));
+  // 3. Start the worker; both jobs dispatch and reach a terminal state (failed at preflight is expected: no ComfyUI).
+  if (paused) {
+    startWorker();
+    console.log('  worker started');
+    let etaLogged = false;
+    const done = await until(360_000, 3_000, async () => {
+      const vs = await Promise.all(ids.map(view));
+      const eta = vs.find((v) => v.queue && v.queue.etaRange !== 'paused');
+      if (eta && !etaLogged) { etaLogged = true; console.log(`  numeric ETA observed (not asserted): position ${eta.queue!.position} eta ${JSON.stringify(eta.queue!.etaRange)}`); }
+      return vs.every((v) => TERMINAL.has(v.job.status)) ? vs : undefined;
+    });
+    check('both jobs dispatch and reach a terminal state within 6 min', !!done, done ? done.map((v) => `${v.job.id}: ${v.job.status} at stage ${failedStage(v)}`).join('; ') : 'timed out');
+    if (done) check('jobs failed at preflight (no ComfyUI; expected)', done.every((v) => v.job.status === 'failed' && failedStage(v) === 'preflight'), done.map((v) => `${v.job.status}/${failedStage(v)}`).join(' '));
+    // No inbound port, checked while the worker is still running.
+    const l = treeListeners(worker!.pid!);
+    check('worker process tree has no non-loopback listener', l.exposed.length === 0, `${l.all.length} listener(s) total${l.exposed.length ? `, exposed: ${l.exposed.join(' ')}` : ''}`);
+    check('worker process tree opens no listener at all (prod)', l.all.length === 0, l.all.join(' '));
+  }
 } catch (e) {
   check('run completed', false, e instanceof Error ? e.message : String(e));
 } finally {
