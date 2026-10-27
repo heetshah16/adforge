@@ -49,12 +49,11 @@ const AW = 120, AH = 213, BLOCK = 16;
 /**
  * Score = the WORST 16x16 block's mean abs diff (0-255). A global mean dilutes a missing caption or a one-word shift (a few small blocks) into noise,
  * a block max does not; the global mean is printed as the noise floor. LIMIT is provisional and sits between the expected positive floor and the
- * deliberate negatives: codec blocking, sub-pixel text placement and font hinting move a block's mean by roughly 2-6/255, while a caption word that
- * is present in one image and absent in the other (white text on a scrim inside a 16x16 block) moves it by 20+/255. 12 is the midpoint.
- * The controller calibrates it on the first live run. Positives print their scores; each negative must beat LIMIT or the run fails, so a metric
- * that cannot tell a 3-frame shift or a missing caption layer from a match is caught here.
+ * deliberate negatives. Calibrated live on 2026-10-27: positives' worst blocks 9.1-10.4/255 (global mean 3.2-3.7), negatives 33.2 (3-frame shift)
+ * and 49.5 (caption layer missing). 18 leaves ~8 above the positives and ~15 below the closest negative. Each negative must beat LIMIT or the
+ * run fails, so a metric that cannot tell a 3-frame shift or a missing caption layer from a match is caught here.
  */
-const LIMIT = 12;
+const LIMIT = 18;
 
 const callCounts = async (jobId: string) => {
   const rows = await db.select({ kind: providerCalls.kind, n: count() }).from(providerCalls).where(eq(providerCalls.jobId, jobId)).groupBy(providerCalls.kind);
@@ -135,7 +134,8 @@ try {
   const post = (path: string, body?: unknown) => new Request(`${ORIGIN}${path}`, { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const productBox = spec0.scenes[0]!.layers.find((l) => l.layerId === 's0.product')!.box;
   const target = { x: +(productBox.x + 0.1).toFixed(3), y: +(productBox.y - 0.05).toFixed(3) };
-  const NEW_VO = 'Just one pinch wakes up the whole pot tonight.';
+  // Unique per run: a repeated line is (correctly) a recipe-cache hit for this org, which would make the TTS/align delta 0.
+  const NEW_VO = `Just one pinch wakes up the whole pot, batch ${stamp}.`;
   const ops: EditOp[] = [
     { op: 'unlock' },
     { op: 'move', layerId: 's0.product', ...target },
