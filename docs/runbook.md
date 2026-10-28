@@ -28,7 +28,9 @@ All under `<ADFORGE_DATA_DIR>\logs` (keep this outside OneDrive).
 
 ## GPU offline
 
-The web UI shows "GPU offline, queue paused" when the worker's heartbeat is stale (over 2 minutes). Queued jobs wait; running jobs are not failed while offline; a job queued longer than 24 h is failed.
+The web UI shows "GPU offline, queue paused" when the worker's heartbeat is stale (over 2 minutes). The worker heartbeats only while its Inngest connection is ACTIVE, so a dropped connection also reads as offline. Queued jobs wait; a job queued longer than 24 h is failed. The janitor never fails a running job while the worker is offline, but a long outage can still end in-flight jobs: generate-ads' 6 h finish timeout and the heavy steps' timeouts cancel the run server-side (Inngest), and the janitor fails the job after the worker reconnects.
+
+**How the queue moves (online).** The dispatcher (every minute, plus a nudge on submit) keeps at most 2 jobs dispatched at a time (`GENERATE_ADS_CONCURRENCY`, the generate-ads concurrency limit): it counts jobs that are dispatched and still queued or running, and sends only the difference, oldest first. A Postgres advisory lock makes concurrent dispatchers take turns. A job that was dispatched but never started (the event or run was lost) holds a slot until the janitor fails it as "dispatched but never started": while a worker is online, once both its `dispatched_at` and the worker's current online stretch are older than 2 h.
 1. Is the supervisor running? `Get-ScheduledTask 'AdForge supervisor'`, and a `powershell` process running `supervisor.ps1`.
 2. Last lines of `supervisor-YYYYMMDD.log`: a `gave-up` for the worker means it crashed 5 times in 10 minutes. Read `worker.err.log` and `worker-YYYYMMDD.log` (heartbeat, shutdown and request errors are logged there as `level: error`), fix the cause, then restart the supervisor.
 3. Worker up but still offline: check `worker-YYYYMMDD.log` for a `heartbeat write failed` entry (database URL, network) and that `ADFORGE_ENV=prod` and the Inngest keys are set in `.env`.
@@ -149,22 +151,33 @@ A re-PUT of an existing key into the locked prod bucket is refused (412/403), wh
 
 Project settings: link the GitHub repo, **Root Directory** `apps/web`. **Do not override the Build Command**: the default runs the package `build` script, which copies the HyperFrames assets before `next build` (pnpm skips `pre*` scripts). Sources and DB notes: `docs/providers/vercel.md`.
 
-**Env vars (names only; set with `vercel env add`, Production + Preview as noted)**
-- `ADFORGE_ENV=prod` (production), `ADFORGE_SITE_URL` (must be `https://`; prod fails to boot otherwise).
-- `DATABASE_URL`: the Supabase **transaction pooler** string (`...pooler.supabase.com:6543`, user `postgres.<ref>`). Prepared statements are off; the 15 s statement timeout is applied per transaction in `withUser` (the pooler ignores session and startup settings).
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `ADFORGE_PUBLIC_URL`, `ADFORGE_ADMIN_EMAILS`.
-- `ADFORGE_PROVIDER_STORAGE=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `ADFORGE_MEDIA_TTL_SEC` (optional `R2_TIMEOUT_MS`).
-- `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`. Preview/branch deployments share the same event and signing key; the SDK detects the branch from `VERCEL_GIT_COMMIT_REF`, and `INNGEST_ENV` overrides that, so leave `INNGEST_ENV` UNSET on previews (each branch gets its own Inngest branch env; see https://www.inngest.com/docs/platform/environments).
+**Single environment (user decision, 2026-10-28; ADR 0020).** There is no test, staging or preview environment. The hosted queue runs on the Vercel **Production** deployment against the Inngest **production** environment. Until B6, that production deployment uses the dev Supabase project and the `adforge-dev` bucket; the prod Supabase project and `adforge-prod` switch in at B6.
 
-**Preview vs production values**
-- Preview deployments use the DEV environment: dev Supabase via its transaction pooler URL, `R2_BUCKET=adforge-dev` (NEVER `adforge-prod`: it has a 30-day lock), `ADFORGE_PROVIDER_STORAGE=r2`, `ADFORGE_SITE_URL` = the stable branch alias (https), Inngest branch env (`INNGEST_ENV` unset).
-- Previews build with `NODE_ENV=production`, so they boot as prod: every prod-required var above must be present.
-- Production values are set at B6 (prod Supabase project, `adforge-prod` bucket, Inngest prod env).
+**Env vars (names only; set with `vercel env add`, scoped to Production)**
+- `ADFORGE_ENV=prod`, `ADFORGE_SITE_URL` = the production `https://` URL (prod fails to boot otherwise).
+- `DATABASE_URL`: the **dev** Supabase **transaction pooler** string until B6 (`...pooler.supabase.com:6543`, user `postgres.<ref>`). Prepared statements are off; the 15 s statement timeout is applied per transaction in `withUser` (the pooler ignores session and startup settings).
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `ADFORGE_PUBLIC_URL`, `ADFORGE_ADMIN_EMAILS`.
+- `ADFORGE_PROVIDER_STORAGE=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET=adforge-dev` until B6 (never `adforge-prod` before then: it has a 30-day lock), `ADFORGE_MEDIA_TTL_SEC` (optional `R2_TIMEOUT_MS`).
+- `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`: scoped to **Production only**. `INNGEST_ENV` stays **unset** (on the web and the worker), so both use the Inngest production environment.
+
+**Previews**
+- Previews still build, but they are not wired to the queue. Do not add the Inngest keys to Preview. Previews run with `NODE_ENV=production`, so they boot as prod, and prod requires the Inngest keys: without them every server route that reads the env fails ("Invalid web server env"). Treat a preview as a build check only.
+
+**One stack per database**
+While the Vercel deployment is live, it is the only stack on its database:
+- Do not run the local web dev server or the Inngest dev server against the same database.
+- Run the local worker in prod mode (`ADFORGE_ENV=prod`), so it joins the production Inngest environment through `inngest/connect`.
+
+Why: two dispatchers in two Inngest environments over one `jobs` table lose events (one claims a job and sends it to an environment the other's worker never sees). The janitor's 2-hour lost-dispatch rule (GPU offline section) bounds the damage, but the job still fails.
 
 **Inngest**
 - The web serves app `adforge-web` at `/api/inngest` (signed; anonymous PUT sync is disabled). Sync with the Inngest Vercel integration (every deploy) or from the Inngest UI.
-- Vercel Deployment Protection must let Inngest reach `/api/inngest`: disable it for that project, or enable "Protection Bypass for Automation" and put the secret in the integration's "Deployment protection key"; redeploy previews to resync.
+- Vercel Deployment Protection must let Inngest reach `/api/inngest` on the production deployment: disable it for that project, or enable "Protection Bypass for Automation" and put the secret in the integration's "Deployment protection key".
 
-**R2 bucket CORS for the site origins**
-Same rule as the dev bucket (see Media (R2)), with `origins` = the prod site URL and the preview origins. Preview origin = the stable branch alias `<project>-git-<branch>-<scope>.vercel.app` (or a custom preview domain), not per-deployment hostnames:
-`npx wrangler@4 r2 bucket cors set adforge-prod --file cors-prod.json --force`
+**R2 bucket CORS for the site origin**
+Same rule as the dev bucket (see Media (R2)). Until B6, add the production URL (`ADFORGE_SITE_URL`) to the `origins` of `adforge-dev`, alongside `http://localhost:3000`:
+`npx wrangler@4 r2 bucket cors set adforge-dev --file cors-dev.json --force`
+At B6, set the same rule on `adforge-prod` with `origins` = the production URL.
+
+**Hosted-queue e2e**
+`E2E_BASE_URL=https://<production-url> E2E_SESSION_COOKIE='<Cookie header value>' pnpm e2e:hosted-queue` (GPU-free; `INNGEST_ENV` must be unset, the script exits 2 otherwise). Positions are checked relative to each other, since leftover queued jobs on the shared DB shift them.

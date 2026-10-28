@@ -1,5 +1,7 @@
 # B4: Hosted Queue Implementation Plan
 
+> **Amendment (2026-10-28, ADR 0020):** single environment (no preview/staging; Vercel Production + Inngest production env, `INNGEST_ENV` unset, dev Supabase + `adforge-dev` until B6), and the dispatcher is capacity-gated (at most `GENERATE_ADS_CONCURRENCY` = 2 jobs in flight, advisory-locked) with a janitor lost-dispatch bound. Tasks below are unchanged.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** the GPU machine serves Inngest Cloud through an outbound-only `inngest/connect` worker; jobs are dispatched only while a worker is live; the site shows queue position and ETA or "GPU offline, queue paused"; a supervisor restarts the services on crash and reboot; the web app deploys to Vercel.
