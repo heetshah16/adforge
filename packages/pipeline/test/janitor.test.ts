@@ -80,7 +80,69 @@ describe('runJanitor', () => {
     try {
       await heartbeat(m.deps.db, 5);
       await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', progress: [{ stage: 'voice', status: 'running', at: new Date().toISOString() }] });
-      expect(await runJanitor(m.deps.db)).toEqual({ stalled: [] });
+      expect(await runJanitor(m.deps.db)).toEqual({ stalled: [], lost: [] });
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('M1: a running job with no progress counts from the later of created_at and dispatched_at (created 5 h ago, dispatched 10 min ago -> kept)', async () => {
+    const m = await makeDeps();
+    try {
+      await heartbeat(m.deps.db, 5);
+      const [j] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, status: 'running', createdAt: sql`now() - interval '5 hours'`, dispatchedAt: sql`now() - interval '10 minutes'` }).returning();
+      expect((await runJanitor(m.deps.db)).stalled).toEqual([]);
+      expect((await m.deps.db.select().from(jobs).where(eq(jobs.id, j!.id)))[0]!.status).toBe('running');
+    } finally {
+      await m.close();
+    }
+  });
+});
+
+describe('runJanitor: lost dispatches', () => {
+  /** A queued job created 5 h ago, dispatched dispatchedMin minutes ago (null: never dispatched). */
+  const queued = async (m: Awaited<ReturnType<typeof makeDeps>>, dispatchedMin: number | null) => {
+    const [j] = await m.deps.db.insert(jobs).values({ ...m.op, inputSpec: {}, createdAt: sql`now() - interval '5 hours'`,
+      dispatchedAt: dispatchedMin === null ? null : sql`now() - ${dispatchedMin}::int * interval '1 minute'` }).returning();
+    return j!.id;
+  };
+  const row = async (m: Awaited<ReturnType<typeof makeDeps>>, id: string) => (await m.deps.db.select().from(jobs).where(eq(jobs.id, id)))[0]!;
+
+  it('fails a job dispatched > 120 min ago that never started, while online for > 120 min, once', async () => {
+    const m = await makeDeps();
+    try {
+      await heartbeat(m.deps.db, 5, 180);
+      const id = await queued(m, 150);
+      expect(await runJanitor(m.deps.db)).toEqual({ stalled: [], lost: [id] });
+      expect(await row(m, id)).toMatchObject({ status: 'failed', error: { stage: 'janitor', reason: 'dispatched but never started' } });
+      expect((await row(m, id)).completedAt).toBeInstanceOf(Date);
+      expect((await runJanitor(m.deps.db)).lost).toEqual([]);
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('keeps it after a fresh reconnect (online_since recent)', async () => {
+    const m = await makeDeps();
+    try {
+      await heartbeat(m.deps.db, 5, 5);
+      const id = await queued(m, 150);
+      expect((await runJanitor(m.deps.db)).lost).toEqual([]);
+      expect((await row(m, id)).status).toBe('queued');
+    } finally {
+      await m.close();
+    }
+  });
+
+  it('never touches an undispatched queued job, nor any job while offline', async () => {
+    const m = await makeDeps();
+    try {
+      const lostOffline = await queued(m, 150);
+      expect((await runJanitor(m.deps.db)).lost).toEqual([]); // no worker
+      await heartbeat(m.deps.db, 5, 180);
+      const undispatched = await queued(m, null);
+      expect((await runJanitor(m.deps.db)).lost).toEqual([lostOffline]);
+      expect((await row(m, undispatched)).status).toBe('queued');
     } finally {
       await m.close();
     }
