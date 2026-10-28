@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { PIPELINE } from '@adforge/core/config/pipeline';
 import type { Db } from '@adforge/db/client';
 import { jobs, workers } from '@adforge/db/schema';
@@ -13,6 +13,10 @@ export const OFFLINE_ERROR = `GPU offline for ${PIPELINE.jobs.offlineMaxHours} h
 /** A send that has not settled by then rejects, so a hung Inngest call cannot hold the claim's row locks. */
 export const SEND_TIMEOUT_MS = 5_000;
 const CLAIM_LIMIT = 10;
+/** generate-ads' Inngest concurrency limit; the dispatcher never has more jobs than this in flight. One source for both. */
+export const GENERATE_ADS_CONCURRENCY = 2;
+/** pg_advisory_xact_lock key that serializes dispatchers over one DB (any fixed bigint; transaction-scoped, so pooler-safe). */
+const DISPATCH_LOCK_KEY = 4_120_250_001;
 
 const onlineLastSeen = sql`max(${workers.lastSeen}) filter (where ${workers.status} = 'online')`;
 /** A workers row that is online with a heartbeat younger than heartbeatFreshSec, on the SQL clock. */
@@ -41,8 +45,10 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 /**
  * The only sender of job.requested.
- * Online: in ONE transaction, claim up to 10 oldest queued, undispatched jobs under FOR UPDATE SKIP LOCKED (overlapping runs
- * never claim the same row), send each with event id `job:<id>`, and commit after the last send. A failed or timed-out send
+ * Online: in ONE transaction, holding a transaction-scoped advisory lock (dispatchers over one DB take turns), count the jobs
+ * in flight (dispatched, still queued or running) and claim min(10, GENERATE_ADS_CONCURRENCY - inFlight) oldest queued,
+ * undispatched jobs under FOR UPDATE SKIP LOCKED (never the same row twice). No capacity: no claim, no send. Send each with
+ * event id `job:<id>`, and commit after the last send. A failed or timed-out send
  * (or a crash) rolls the claim back, so no job is ever left claimed but unsent; a send that landed before the rollback is
  * re-sent next run and dropped by Inngest's 24 h event-id dedupe.
  * Offline: send nothing; fail every queued job older than offlineMaxHours, dispatched or not (a dispatched job whose run never
@@ -62,11 +68,16 @@ export async function runDispatcher(
   const sent = await db.transaction(async (tx) => {
     // Server-side bound for a frozen (not killed) process: the JS send timeout only runs while the process does. Transaction-scoped, so pooler-safe.
     await tx.execute(sql`set local idle_in_transaction_session_timeout = '60s'`);
+    await tx.execute(sql`select pg_advisory_xact_lock(${DISPATCH_LOCK_KEY}::bigint)`);
+    const [f] = await tx.select({ n: sql<number>`count(*)::int` }).from(jobs)
+      .where(and(isNotNull(jobs.dispatchedAt), inArray(jobs.status, ['queued', 'running'])));
+    const capacity = Math.min(CLAIM_LIMIT, Math.max(0, GENERATE_ADS_CONCURRENCY - Number(f?.n ?? 0)));
+    if (capacity === 0) return [];
     const oldest = tx.select({ id: jobs.id }).from(jobs)
       .where(and(eq(jobs.status, 'queued'), isNull(jobs.dispatchedAt)))
-      .orderBy(jobs.createdAt).limit(CLAIM_LIMIT).for('update', { skipLocked: true });
+      .orderBy(jobs.createdAt).limit(capacity).for('update', { skipLocked: true });
     // = any(array(subquery)), not IN (subquery): the array is an InitPlan run once. A plain IN can be rescanned per outer row,
-    // and each rescan's FOR UPDATE skips the rows this UPDATE already changed, so LIMIT 10 claimed every queued job.
+    // and each rescan's FOR UPDATE skips the rows this UPDATE already changed, so the LIMIT claimed every queued job.
     const claimed = await tx.update(jobs).set({ dispatchedAt: sql`now()` })
       .where(and(sql`${jobs.id} = any(array(${oldest}))`, isNull(jobs.dispatchedAt)))
       .returning({ id: jobs.id, createdAt: jobs.createdAt });

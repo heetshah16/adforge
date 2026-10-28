@@ -4,7 +4,7 @@ import { editVariant, exportRevision, failRevision } from './edit';
 import { HEAVY } from './heavy';
 import { ingestProduct } from './ingest';
 import { failJob } from './progress';
-import type { Priority } from './dispatch';
+import { GENERATE_ADS_CONCURRENCY, type Priority } from './dispatch';
 import { EDIT_FINISH_MIN, EDIT_START_MIN, freeIdleGpu } from './janitor';
 import { generateAds } from './orchestrate';
 import { orgForEvent } from './record';
@@ -47,7 +47,7 @@ export function createFunctions(deps: PipelineDeps): InngestFunction.Any[] {
   });
 
   const generate = inngest.createFunction(
-    { id: 'generate-ads', triggers: [{ event: EVENTS.jobRequested }], retries: 2, concurrency: [{ limit: 2 }],
+    { id: 'generate-ads', triggers: [{ event: EVENTS.jobRequested }], retries: 2, concurrency: [{ limit: GENERATE_ADS_CONCURRENCY }],
       // finish counts from the run's start, and a run exists only after dispatch, which needs a live worker (the offline wait is in Postgres).
       timeouts: { finish: '6h' },
       // Retries exhausted / invoke timed out / load failed: fail the job now instead of waiting for the janitor.
