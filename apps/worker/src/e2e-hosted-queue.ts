@@ -8,19 +8,20 @@ import { REPO_ROOT } from '@adforge/core/config/env';
 import { PIPELINE } from '@adforge/core/config/pipeline';
 
 /**
- * B4 hosted queue, end to end against a deployed Vercel preview + Inngest Cloud + dev Supabase/R2. GPU-FREE: ComfyUI, voice, voice-qwen and vision
+ * B4 hosted queue, end to end against the Vercel production deployment + Inngest Cloud (production env) + dev Supabase/R2 (until B6). GPU-FREE: ComfyUI, voice, voice-qwen and vision
  * are never started, so both jobs are EXPECTED to fail at preflight (that is a PASS condition).
- * Run: E2E_PREVIEW_URL=https://<branch-alias> E2E_SESSION_COOKIE='<Cookie header value>' pnpm e2e:hosted-queue
+ * Run: E2E_BASE_URL=https://<production-url> E2E_SESSION_COOKIE='<Cookie header value>' pnpm e2e:hosted-queue (INNGEST_ENV must stay unset)
  * plus the worker's prod-profile env in .env (ADFORGE_ENV=prod, DATABASE_URL, R2_*, INNGEST_SIGNING_KEY, INNGEST_EVENT_KEY, ADFORGE_WORKER_ID=gpu-dev-1).
  * Prints statuses, positions, ETAs, stages and job ids only. Never secrets, cookies or signed URLs.
  */
-const REQUIRED = ['E2E_PREVIEW_URL', 'E2E_SESSION_COOKIE', 'ADFORGE_ENV', 'DATABASE_URL', 'INNGEST_SIGNING_KEY', 'INNGEST_EVENT_KEY', 'ADFORGE_WORKER_ID', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'];
+const REQUIRED = ['E2E_BASE_URL', 'E2E_SESSION_COOKIE', 'ADFORGE_ENV', 'DATABASE_URL', 'INNGEST_SIGNING_KEY', 'INNGEST_EVENT_KEY', 'ADFORGE_WORKER_ID', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'];
 const missing = REQUIRED.filter((k) => !process.env[k]);
 if (missing.length) { console.error(`Missing env: ${missing.join(', ')}`); process.exit(2); }
 if (process.env.ADFORGE_ENV !== 'prod') { console.error('ADFORGE_ENV must be prod'); process.exit(2); }
+if (process.env.INNGEST_ENV) { console.error('INNGEST_ENV must be unset: only the Inngest production environment is used'); process.exit(2); }
 if (process.platform !== 'win32') { console.error('This check uses taskkill/Get-NetTCPConnection: Windows only'); process.exit(2); }
-const BASE = process.env.E2E_PREVIEW_URL!.replace(/\/+$/, '');
-if (!BASE.startsWith('https://')) { console.error('E2E_PREVIEW_URL must be https'); process.exit(2); }
+const BASE = process.env.E2E_BASE_URL!.replace(/\/+$/, '');
+if (!BASE.startsWith('https://')) { console.error('E2E_BASE_URL must be https'); process.exit(2); }
 const COOKIE = process.env.E2E_SESSION_COOKIE!;
 
 const checks: [string, boolean][] = [];
@@ -97,18 +98,18 @@ const ids: string[] = [];
 try {
   // 1. Worker is STOPPED: submit two jobs. Nothing can dispatch them, so they stay queued.
   for (const l of ['a', 'b']) ids.push(await submitJob(l));
-  check('two jobs created through the preview', ids.length === 2, ids.join(', '));
+  check('two jobs created through the deployment', ids.length === 2, ids.join(', '));
 
-  // 2. Core queue assertion: positions 1 and 2, both 'paused'. Waits out a stale heartbeat (heartbeatFreshSec + margin).
+  // 2. Core queue assertion: adjacent positions (leftover queued jobs on the shared DB shift the absolute ones), both 'paused'. Waits out a stale heartbeat (heartbeatFreshSec + margin).
   const paused = await until((freshSec + 60) * 1000, 5_000, async () => {
     const vs = await Promise.all(ids.map(view));
     return vs.every((v) => v.queue?.etaRange === 'paused') ? vs : undefined;
   });
   const now = paused ?? await Promise.all(ids.map(view));
-  const pos = now.map((v) => v.queue?.position).sort();
+  const p = now.map((v) => v.queue?.position ?? 0).sort((x, y) => x - y);
   console.log(`  statuses before worker start: ${now.map((v) => `${v.job.status}/${v.queue ? (v.queue.etaRange === 'paused' ? 'paused' : 'eta') : 'no-queue'}`).join(' ')}`);
-  check("positions 1 and 2, both etaRange 'paused', jobs still queued", !!paused && pos[0] === 1 && pos[1] === 2 && now.every((v) => v.job.status === 'queued'),
-    paused ? `positions ${pos.join('/')}` : 'never paused: another worker heartbeat is probably fresh (stop it) or the job view lacks queue');
+  check("adjacent positions (n, n+1), both etaRange 'paused', jobs still queued", !!paused && p[0]! >= 1 && p[1] === p[0]! + 1 && now.every((v) => v.job.status === 'queued'),
+    paused ? `positions ${p.join('/')}` : 'never paused: another worker heartbeat is probably fresh (stop it) or the job view lacks queue');
 
   // 3. Start the worker; both jobs dispatch and reach a terminal state (failed at preflight is expected: no ComfyUI).
   if (paused) {
