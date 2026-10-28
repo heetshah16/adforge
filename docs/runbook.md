@@ -30,11 +30,12 @@ All under `<ADFORGE_DATA_DIR>\logs` (keep this outside OneDrive).
 
 The web UI shows "GPU offline, queue paused" when the worker's heartbeat is stale (over 2 minutes). The worker heartbeats only while its Inngest connection is ACTIVE, so a dropped connection also reads as offline. Queued jobs wait; a job queued longer than 24 h is failed. The janitor never fails a running job while the worker is offline, but a long outage can still end in-flight jobs: generate-ads' 6 h finish timeout and the heavy steps' timeouts cancel the run server-side (Inngest), and the janitor fails the job after the worker reconnects.
 
-**How the queue moves (online).** The dispatcher (every minute, plus a nudge on submit) keeps at most 2 jobs dispatched at a time (`GENERATE_ADS_CONCURRENCY`, the generate-ads concurrency limit): it counts jobs that are dispatched and still queued or running, and sends only the difference, oldest first. A Postgres advisory lock makes concurrent dispatchers take turns. A job that was dispatched but never started (the event or run was lost) holds a slot until the janitor fails it as "dispatched but never started": while a worker is online, once both its `dispatched_at` and the worker's current online stretch are older than 2 h.
 1. Is the supervisor running? `Get-ScheduledTask 'AdForge supervisor'`, and a `powershell` process running `supervisor.ps1`.
 2. Last lines of `supervisor-YYYYMMDD.log`: a `gave-up` for the worker means it crashed 5 times in 10 minutes. Read `worker.err.log` and `worker-YYYYMMDD.log` (heartbeat, shutdown and request errors are logged there as `level: error`), fix the cause, then restart the supervisor.
-3. Worker up but still offline: check `worker-YYYYMMDD.log` for a `heartbeat write failed` entry (database URL, network) and that `ADFORGE_ENV=prod` and the Inngest keys are set in `.env`.
+3. Worker up but still offline: check `worker-YYYYMMDD.log` for `heartbeat write failed` (database URL, network) or `heartbeat paused: inngest connection not active` (Inngest keys, network; restart the worker if it never resumes) and that `ADFORGE_ENV=prod` and the Inngest keys are set in `.env`.
 4. The machine slept or rebooted: log on again (the task starts at logon) and wait one heartbeat interval.
+
+**How the queue moves (online).** The dispatcher (every minute, plus a nudge on submit) keeps at most 2 jobs dispatched at a time (`GENERATE_ADS_CONCURRENCY`, the generate-ads concurrency limit): it counts jobs that are dispatched and still queued or running, and sends only the difference, oldest first. A Postgres advisory lock makes concurrent dispatchers take turns. A job that was dispatched but never started (the event or run was lost) holds a slot until the janitor fails it as "dispatched but never started": while a worker is online, once both its `dispatched_at` and the worker's current online stretch are older than 2 h.
 
 ## Alerts
 TBD in B5

@@ -83,7 +83,13 @@ export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; 
       log('heartbeat write failed', e);
     }
   };
-  const beat = (): Promise<void> => (o.isLive?.() ?? true) ? write('online') : Promise.resolve();
+  let wasLive = true;
+  const beat = (): Promise<void> => {
+    const live = o.isLive?.() ?? true;
+    // Log only the change: the runbook's GPU-offline steps look for this line.
+    if (live !== wasLive) { wasLive = live; log(live ? 'heartbeat resumed: inngest connection active' : 'heartbeat paused: inngest connection not active'); }
+    return live ? write('online') : Promise.resolve();
+  };
   let inflight: Promise<void> = beat();
   const timer = setInterval(() => { if (!stopped) inflight = beat(); }, o.intervalMs ?? 30_000);
   timer.unref();

@@ -40,8 +40,8 @@ export async function runJanitor(db: Db): Promise<{ stalled: string[]; lost: str
         .where(and(eq(jobs.id, j.id), eq(jobs.status, 'running'))).returning({ id: jobs.id });
       if (hit) stalled.push(hit.id);
     }
-    // greatest() ignores NULLs, so a worker row without online_since falls back to dispatched_at.
-    const since = sql`(select min(${workers.onlineSince}) from ${workers} where ${freshOnline})`;
+    // coalesce now(): if the worker went stale since the check above (or has no online_since), fail nothing this sweep rather than skip the reconnect window.
+    const since = sql`coalesce((select min(${workers.onlineSince}) from ${workers} where ${freshOnline}), now())`;
     lost = (await db.update(jobs).set({ status: 'failed', completedAt: sql`now()`, error: { stage: 'janitor', reason: 'dispatched but never started' } })
       .where(and(eq(jobs.status, 'queued'), isNotNull(jobs.dispatchedAt),
         sql`greatest(${jobs.dispatchedAt}, ${since}) < now() - ${PIPELINE.jobs.staleAfterMin}::int * interval '1 minute'`))

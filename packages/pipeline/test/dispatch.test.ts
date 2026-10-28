@@ -208,6 +208,10 @@ describe.skipIf(!process.env.ADFORGE_TEST_DATABASE_URL)('Review Focus 2 on Postg
     let ours: string[] = [];
     const sent: JobEvent[] = [];
     try {
+      // Foreign in-flight jobs eat A's capacity (A would send nothing and the test would hang): refuse before writing anything.
+      const [inFlight] = await h.db.select({ n: sql<number>`count(*)::int` }).from(jobs)
+        .where(sql`${jobs.dispatchedAt} is not null and ${jobs.status} in ('queued', 'running')`);
+      if (inFlight!.n > 0) throw new Error(`ADFORGE_TEST_DATABASE_URL has ${inFlight!.n} in-flight job(s); use a DB with none`);
       const op = await seedOperator(h.db);
       await beat(h.db, 0, instanceId);
       // Older than anything real, so these are the ones claimed first.
@@ -218,7 +222,8 @@ describe.skipIf(!process.env.ADFORGE_TEST_DATABASE_URL)('Review Focus 2 on Postg
       const aHolds = new Promise<void>((r) => { holding = r; });
       // A blocks inside its first send: its claim transaction is open and its rows are locked.
       const a = runDispatcher(h.db, async (e) => { sent.push(e); holding(); await gate; }, { sendTimeoutMs: 30_000 });
-      await aHolds;
+      // If A settles without sending, fail now so finally still cleans up (a bare await aHolds would hang to the timeout).
+      await Promise.race([aHolds, a.then(() => { throw new Error('A sent nothing: the DB has foreign in-flight jobs'); })]);
       // B on another pooled connection. Any send it makes throws, rolling B back, so B commits nothing on the shared DB.
       // B blocks on A's advisory lock; once A commits, A's jobs are in flight, so B has no capacity left for them.
       const seenB: string[] = [];

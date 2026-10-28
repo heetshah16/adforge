@@ -26,4 +26,5 @@
 - Owner-connection queries outside withUser are bounded only by Supabase's 2-minute global cap for the postgres role; a dedicated web login role with its own statement_timeout is the upgrade path.
 - Killing the supervisor process itself orphans its children (no Job Object); the stop file or Ctrl-C is the clean stop.
 - The dispatcher, janitor and gpu-idle crons are about 60k Inngest runs a month before steps — check the plan quota at launch.
-- Steps after generate-ads' load step still write status unconditionally (a run continuing after the janitor failed its job could overwrite 'failed'); recorded for a later fix.
+- Load and finalize are status-guarded, but a run continuing after the janitor failed its job keeps spending GPU time (and may rewrite `error` or append progress); cancelling the Inngest run on janitor failure is the later fix.
+- The capacity gate counts jobs by DB status while Inngest's concurrency limit counts live runs: after the janitor fails a stalled job whose run is still alive, the next dispatched job can wait behind that run and be failed as "dispatched but never started" after 2 h. Narrow (only after a stall); same later fix.
