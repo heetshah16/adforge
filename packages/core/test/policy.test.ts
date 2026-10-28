@@ -3,7 +3,7 @@ import { parseEnv } from '../src/config/env';
 import { POC_ONLY_PROVIDERS, assertProviderPolicy } from '../src/providers/policy';
 
 const pocOnly = new Set(['claude-agent-sdk']);
-const prodEnv = () => parseEnv({ ADFORGE_ENV: 'prod', DATABASE_URL: 'postgresql://u:p@h:5432/d', ADFORGE_PROVIDER_STORAGE: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_ACCESS_KEY_ID: 'AKID', R2_SECRET_ACCESS_KEY: 'SECRET', R2_BUCKET: 'adforge-media' });
+const prodEnv = () => parseEnv({ ADFORGE_ENV: 'prod', ADFORGE_WORKER_ID: 'gpu-box-1', INNGEST_SIGNING_KEY: 'signkey-test', INNGEST_EVENT_KEY: 'evt-test', DATABASE_URL: 'postgresql://u:p@h:5432/d', ADFORGE_PROVIDER_STORAGE: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_ACCESS_KEY_ID: 'AKID', R2_SECRET_ACCESS_KEY: 'SECRET', R2_BUCKET: 'adforge-media' });
 
 describe('assertProviderPolicy', () => {
   it('allows POC-only providers in dev', () => {
@@ -18,6 +18,6 @@ describe('assertProviderPolicy', () => {
 
   it('passes in prod with the real (empty) POC-only set', () => {
     expect(POC_ONLY_PROVIDERS.size).toBe(0);
-    expect(() => parseEnv({ ADFORGE_ENV: 'prod', DATABASE_URL: 'postgresql://u:p@h:5432/d', ADFORGE_PROVIDER_STORAGE: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_ACCESS_KEY_ID: 'AKID', R2_SECRET_ACCESS_KEY: 'SECRET', R2_BUCKET: 'adforge-media' })).not.toThrow();
+    expect(() => parseEnv({ ADFORGE_ENV: 'prod', ADFORGE_WORKER_ID: 'gpu-box-1', INNGEST_SIGNING_KEY: 'signkey-test', INNGEST_EVENT_KEY: 'evt-test', DATABASE_URL: 'postgresql://u:p@h:5432/d', ADFORGE_PROVIDER_STORAGE: 'r2', R2_ACCOUNT_ID: 'a'.repeat(32), R2_ACCESS_KEY_ID: 'AKID', R2_SECRET_ACCESS_KEY: 'SECRET', R2_BUCKET: 'adforge-media' })).not.toThrow();
   });
 });

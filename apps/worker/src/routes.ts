@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { loadRegistry } from '@adforge/db/registry';
 import { assets, jobs, variants } from '@adforge/db/schema';
@@ -38,12 +38,15 @@ export function makeRoutes(ctx: {
         await saveAsset(deps.db, operator, 'upload', ref);
         photoKeys.push(ref.id);
       }
+      // Dev only: the route is its own dispatcher (the worker serving it is the live worker), so it claims the job at insert and
+      // sends job.requested with the dispatcher's event id. adforge-web's dispatcher then never sees it as undispatched.
       const [job] = await deps.db.insert(jobs).values({
         ...operator,
+        dispatchedAt: sql`now()`,
         inputSpec: { product: { name: f.name, price: f.price, description: f.description, ...(f.brand ? { brand: f.brand } : {}) }, language: f.language, broll: f.broll, photoKeys },
       }).returning();
       try {
-        await ctx.sendEvent('adforge/job.requested', { jobId: job!.id }, job!.id);
+        await ctx.sendEvent('adforge/job.requested', { jobId: job!.id, priority: 'job' }, `job:${job!.id}`);
       } catch (e) {
         await failJob(deps.db, job!.id, e instanceof Error ? e.message : String(e), 'enqueue');
         return json({ error: 'could not queue the job' }, 503);

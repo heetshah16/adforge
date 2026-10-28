@@ -6,11 +6,12 @@
     "test": "vitest run",
     "typecheck": "tsc -p .",
     "start": "tsx src/main.ts",
-    "inngest:dev": "inngest-cli dev -u http://127.0.0.1:3001/api/inngest --no-discovery",
+    "inngest:dev": "inngest-cli dev -u http://127.0.0.1:3001/api/inngest -u http://127.0.0.1:3000/api/inngest --no-discovery",
     "e2e": "tsx src/e2e.ts",
     "e2e:library": "tsx src/e2e-library.ts",
     "e2e:r2": "tsx src/e2e-r2.ts",
-    "e2e:edit": "tsx src/e2e-edit.ts"
+    "e2e:edit": "tsx src/e2e-edit.ts",
+    "e2e:hosted-queue": "tsx src/e2e-hosted-queue.ts"
   },
   "dependencies": {
     "@adforge/core": "workspace:*",

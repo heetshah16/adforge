@@ -4,15 +4,17 @@ import { routeAccess } from '../lib/route-access';
 
 describe('routeAccess (deny by default)', () => {
   it.each(['/signin', '/waitlist', '/favicon.ico', '/auth/confirm', '/auth/signout', '/_next/static/x.js'])('%s is public', (p) => expect(routeAccess(p)).toBe('public'));
-  it.each(['/api/jobs', '/api/jobs/1', '/api/uploads', '/api/uploads/local/ab/x.png'])('%s is api', (p) => expect(routeAccess(p)).toBe('api'));
+  // /api/inngest: Inngest calls it with no session; serve() verifies the request signature in cloud mode.
+  it.each(['/api/jobs', '/api/jobs/1', '/api/uploads', '/api/uploads/local/ab/x.png', '/api/inngest'])('%s is api', (p) => expect(routeAccess(p)).toBe('api'));
   it.each(['/', '/jobs/x', '/jobs/x.js', '/anything', '/signin/x', '/waitlist/x', '/authx', '/x.png', '/admin'])('%s is gated', (p) => expect(routeAccess(p)).toBe('gated'));
 });
 
 describe('proxy matcher', () => {
   // Next compiles the matcher source to an anchored regex; mirror that.
   const re = new RegExp(`^${config.matcher[0]}$`);
-  it.each(['/', '/jobs/x', '/signin', '/api/jobs', '/favicon.ico/x', '/faviconXico', '/favicon.icox'])('%s runs the proxy', (p) => expect(re.test(p)).toBe(true));
-  it.each(['/favicon.ico', '/_next/static/a.js', '/auth/confirm'])('%s skips the proxy', (p) => expect(re.test(p)).toBe(false));
+  it.each(['/', '/jobs/x', '/signin', '/api/jobs', '/favicon.ico/x', '/faviconXico', '/favicon.icox', '/api/inngestx', '/api/inngest/x', '/api/inngest-x'])('%s runs the proxy', (p) => expect(re.test(p)).toBe(true));
+  // /api/inngest: Inngest's calls carry no session, so no Supabase refresh round trip per call.
+  it.each(['/favicon.ico', '/_next/static/a.js', '/auth/confirm', '/api/inngest'])('%s skips the proxy', (p) => expect(re.test(p)).toBe(false));
 });
 
 describe('/media', () => {

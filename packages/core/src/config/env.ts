@@ -25,12 +25,16 @@ export const Env = z
   .object({
     ADFORGE_ENV: z.enum(['dev', 'prod']).default('dev'),
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }).optional(),
+    INNGEST_SIGNING_KEY: z.string().min(1).optional(),
+    INNGEST_EVENT_KEY: z.string().min(1).optional(),
 
     ADFORGE_DATA_DIR: z
       .string()
       .min(1)
       .default('.data')
       .transform((p) => resolve(REPO_ROOT, p)),
+    /** Identifies this GPU worker in `workers` and as the connect instanceId. Required in prod; dev falls back to 'dev-local'. */
+    ADFORGE_WORKER_ID: z.string().regex(/^[a-z0-9-]{3,40}$/).optional(),
     ADFORGE_WORKER_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
     ADFORGE_PUBLIC_URL: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:3001').transform((u) => u.replace(/\/+$/, '')),
     ADFORGE_UI_ORIGIN: z.url({ protocol: /^https?$/ }).default('http://localhost:3000').transform((u) => new URL(u).origin),
@@ -67,6 +71,12 @@ export const Env = z
   .superRefine((env, ctx) => {
     if (env.ADFORGE_ENV === 'prod' && !env.DATABASE_URL) {
       ctx.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'DATABASE_URL is required when ADFORGE_ENV=prod' });
+    }
+    for (const k of ['INNGEST_SIGNING_KEY', 'INNGEST_EVENT_KEY'] as const) {
+      if (env.ADFORGE_ENV === 'prod' && !env[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when ADFORGE_ENV=prod` });
+    }
+    if (env.ADFORGE_ENV === 'prod' && !env.ADFORGE_WORKER_ID) {
+      ctx.addIssue({ code: 'custom', path: ['ADFORGE_WORKER_ID'], message: 'ADFORGE_WORKER_ID is required when ADFORGE_ENV=prod' });
     }
     if (env.ADFORGE_ENV === 'prod' && env.ADFORGE_PROVIDER_STORAGE !== 'r2') {
       ctx.addIssue({ code: 'custom', path: ['ADFORGE_PROVIDER_STORAGE'], message: 'must be r2 when ADFORGE_ENV=prod' });

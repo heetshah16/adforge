@@ -20,7 +20,7 @@ const post = (body: FormData, headers?: Record<string, string>) => new Request('
 async function setup() {
   const m = await makeDeps();
   const sent: unknown[] = [];
-  const routes = makeRoutes({ deps: m.deps, operator: m.op, storage: m.deps.storage as LocalDiskStorage, sendEvent: async (name, data) => { sent.push({ name, data }); } });
+  const routes = makeRoutes({ deps: m.deps, operator: m.op, storage: m.deps.storage as LocalDiskStorage, sendEvent: async (name, data, id) => { sent.push({ name, data, id }); } });
   return { ...m, routes, sent };
 }
 
@@ -40,7 +40,7 @@ describe('createJob enqueue failure', () => {
 });
 
 describe('createJob', () => {
-  it('stores photos, creates the job and sends the event', async () => {
+  it('stores photos, creates the job claimed for dispatch and sends the event', async () => {
     const s = await setup();
     try {
       const res = await s.routes.createJob(post(form({ brand: 'Glow Rx' })));
@@ -51,7 +51,9 @@ describe('createJob', () => {
       expect((j!.inputSpec as { photoKeys: string[] }).photoKeys).toHaveLength(3);
       expect(j).toMatchObject({ orgId: s.op.orgId, projectId: s.op.projectId, userId: s.op.userId });
       expect((await s.deps.db.select().from(assets)).map((a) => a.orgId)).toEqual([s.op.orgId, s.op.orgId, s.op.orgId]);
-      expect(s.sent).toEqual([{ name: 'adforge/job.requested', data: { jobId } }]);
+      // Dev only: the route claims its own job (dispatched_at set) so the dispatcher never sends it a second time.
+      expect(s.sent).toEqual([{ name: 'adforge/job.requested', data: { jobId, priority: 'job' }, id: `job:${jobId}` }]);
+      expect(j!.dispatchedAt).toBeInstanceOf(Date);
     } finally { await s.close(); }
   });
 

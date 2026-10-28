@@ -8,7 +8,7 @@ const R2 = {
   R2_SECRET_ACCESS_KEY: 'SECRET',
   R2_BUCKET: 'adforge-media',
 };
-const PROD = { ADFORGE_ENV: 'prod', DATABASE_URL: 'postgresql://u:p@h:5432/d', ADFORGE_PROVIDER_STORAGE: 'r2', ...R2 };
+const PROD = { ADFORGE_ENV: 'prod', ADFORGE_WORKER_ID: 'gpu-box-1', INNGEST_SIGNING_KEY: 'signkey-test', INNGEST_EVENT_KEY: 'evt-test', DATABASE_URL: 'postgresql://u:p@h:5432/d', ADFORGE_PROVIDER_STORAGE: 'r2', ...R2 };
 
 describe('parseEnv', () => {
   it('defaults to the dev profile with no DATABASE_URL', () => {
@@ -21,6 +21,21 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ ADFORGE_ENV: 'prod', ADFORGE_PROVIDER_STORAGE: 'r2', ...R2 })).toThrow(/DATABASE_URL/);
     const env = parseEnv(PROD);
     expect(env.ADFORGE_ENV).toBe('prod');
+  });
+
+  it('ADFORGE_WORKER_ID is required in prod, optional in dev, and must match ^[a-z0-9-]{3,40}$', () => {
+    const { ADFORGE_WORKER_ID: _omit, ...noId } = PROD;
+    expect(() => parseEnv(noId)).toThrow(/ADFORGE_WORKER_ID/);
+    expect(() => parseEnv({ ...PROD, ADFORGE_WORKER_ID: 'Bad_ID' })).toThrow(/ADFORGE_WORKER_ID/);
+    expect(parseEnv({}).ADFORGE_WORKER_ID).toBeUndefined();
+  });
+
+  it('prod requires INNGEST_SIGNING_KEY and INNGEST_EVENT_KEY; dev does not', () => {
+    const { INNGEST_SIGNING_KEY: _s, ...noSign } = PROD;
+    const { INNGEST_EVENT_KEY: _e, ...noEvent } = PROD;
+    expect(() => parseEnv(noSign)).toThrow(/INNGEST_SIGNING_KEY/);
+    expect(() => parseEnv(noEvent)).toThrow(/INNGEST_EVENT_KEY/);
+    expect(() => parseEnv({})).not.toThrow();
   });
 
   it('prod with ADFORGE_PROVIDER_STORAGE=local fails to parse', () => {

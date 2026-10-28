@@ -13,7 +13,7 @@ import { withUser } from '../src/with-user';
 const url = process.env.ADFORGE_TEST_DATABASE_URL;
 
 /** Tables without org_id. Each is covered by its own policy; adding a table means adding it here or giving it org_id. */
-const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes'];
+const NON_TENANT = ['users', 'orgs', 'memberships', 'waitlist', 'vocab_families', 'archetypes', 'formats', 'hook_archetypes', 'workers'];
 /** Every org_id table, in creation order (parents first). The coverage test fails if the schema gains one not listed. */
 const TENANT = ['projects', 'products', 'assets', 'jobs', 'variants', 'provider_calls', 'library_assets', 'recipes', 'variant_revisions'] as const;
 /** Primary-key column where it is not `id`. */
@@ -44,6 +44,7 @@ const PRIVILEGES: Record<string, string[]> = {
   archetypes: ['SELECT'],
   formats: ['SELECT'],
   hook_archetypes: ['SELECT'],
+  workers: [],
 };
 
 /** PGlite returns { rows }, postgres-js returns the row array directly. */
@@ -255,6 +256,30 @@ describe.each(backends)('RLS on %s', (_name, open) => {
     });
   }
 
+  it('B4: members cannot write jobs.dispatched_at and cannot touch workers', async () => {
+    const id = randomUUID();
+    const withDispatch = withUser(db, a.user, (u) => u.execute(sql`
+      insert into jobs (id, org_id, project_id, user_id, input_spec, dispatched_at)
+      values (${id}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb, now())`));
+    expect(await errorCode(withDispatch)).toBe('42501');
+    // Positive control: the same insert without dispatched_at succeeds, so the denial above is the dispatch claim and nothing else.
+    expect(await errorCode(withUser(db, a.user, (u) => u.execute(sql`
+      insert into jobs (id, org_id, project_id, user_id, input_spec)
+      values (${randomUUID()}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb)`)))).toBe('no error');
+    expect(await affected(withUser(db, a.user, (u) => u.execute(sql`update jobs set dispatched_at = now() where id = ${a.jobs} returning id`)))).toBe('denied');
+    // 0020 queue-jump close: the dispatcher claims oldest created_at first, so a member cannot backdate (or future-date) a job, or plant a non-queued one.
+    const plant = (status: string, createdAt: ReturnType<typeof sql>) => withUser(db, a.user, (u) => u.execute(sql`
+      insert into jobs (id, org_id, project_id, user_id, input_spec, status, created_at)
+      values (${randomUUID()}, ${a.org}, ${a.projects}, ${a.user}, '{}'::jsonb, ${status}, ${createdAt})`));
+    expect(await errorCode(plant('queued', sql`now() - interval '1 hour'`))).toBe('42501');
+    expect(await errorCode(plant('queued', sql`now() + interval '1 hour'`))).toBe('42501');
+    for (const s of ['running', 'completed', 'failed']) expect(await errorCode(plant(s, sql`now()`)), s).toBe('42501');
+    expect(await errorCode(plant('queued', sql`now()`))).toBe('no error'); // positive control: explicit, current, queued
+
+    expect(await affected(withUser(db, a.user, (u) => u.execute(sql`select * from workers`)))).toBe('denied');
+    expect(await errorCode(withUser(db, a.user, (u) => u.execute(sql`insert into workers (instance_id, last_seen, status) values ('x', now(), 'online')`)))).toBe('42501');
+  });
+
   it('variant_revisions: members cannot plant ready/locked/spec rows, lock only a ready row, and never unlock', async () => {
     const child = (cols: string, vals: ReturnType<typeof sql>) => withUser(db, a.user, (u) => u.execute(sql`
       insert into variant_revisions (id, org_id, variant_id, parent_id, ops, beats, ${sql.raw(cols)})
@@ -320,16 +345,16 @@ describe.each(backends)('RLS on %s', (_name, open) => {
   });
 
   it('withUser leaks nothing past its transaction, even when fn throws', async () => {
-    const [owner] = rows<{ u: string }>(await db.execute(sql`select current_user as u`));
+    const [owner] = rows<{ u: string; t: string }>(await db.execute(sql`select current_user as u, current_setting('statement_timeout') as t`));
     const inside = await withUser(db, a.user, async (u) =>
       rows<{ u: string; uid: string }>(await u.execute(sql`select current_user as u, auth.uid() as uid`))[0]);
     expect(inside).toEqual({ u: 'authenticated', uid: a.user });
     await expect(withUser(db, a.user, async () => { throw new Error('boom'); })).rejects.toThrow('boom');
-    const [after] = rows<{ u: string; claims: string | null; sub: string | null }>(await db.execute(sql`
-      select current_user as u, nullif(current_setting('request.jwt.claims', true), '') as claims,
+    const [after] = rows<{ u: string; t: string; claims: string | null; sub: string | null }>(await db.execute(sql`
+      select current_user as u, current_setting('statement_timeout') as t, nullif(current_setting('request.jwt.claims', true), '') as claims,
         nullif(current_setting('request.jwt.claim.sub', true), '') as sub
     `));
-    expect(after).toEqual({ u: owner!.u, claims: null, sub: null });
+    expect(after).toEqual({ u: owner!.u, t: owner!.t, claims: null, sub: null });
   });
 
   it('withUser refuses to run inside a transaction: SET LOCAL would outlive the savepoint', async () => {

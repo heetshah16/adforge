@@ -82,3 +82,14 @@ export function briefSummary(brief: unknown): { archetypes: string; rationale: s
     objection: typeof b.core_objection === 'string' ? b.core_objection : '',
   };
 }
+
+/** Queue badge for the job page. Minutes are seconds/60 rounded, at least 1. Null without a queue or on a terminal status. */
+export function queueBadgeText(queue: JobView['queue'], status: string): string | null {
+  if (!queue) return null;
+  if (queue.etaRange === 'paused') return 'GPU offline, queue paused';
+  const mins = (sec: number) => Math.max(1, Math.round(sec / 60));
+  const [lo, hi] = queue.etaRange;
+  if (status === 'queued') return `In queue: #${queue.position} · about ${mins(lo)}–${mins(hi)} min`;
+  if (status === 'running') return `Running · about ${mins(lo)}–${mins(hi)} min left`;
+  return null;
+}

@@ -9,7 +9,7 @@ import { seedVocabulary } from '@adforge/db/seed/seed';
 import { assets, jobs, projects, variantRevisions, variants } from '@adforge/db/schema';
 import { withUser } from '@adforge/db/with-user';
 import { LocalDiskStorage } from '@adforge/provider-local-storage';
-import { approveHandler, createJobHandler, getJobHandler, type JobsCtx } from '../lib/server/jobs-api';
+import { NUDGE_TIMEOUT_MS, approveHandler, createJobHandler, getJobHandler, type JobsCtx } from '../lib/server/jobs-api';
 import { requireApiUserWith } from '../lib/server/session';
 import { ProvisionRefused } from '../lib/server/provision-owner';
 import { dropTenants, makeTenant, type Tenant } from './tenant-fixture';
@@ -25,9 +25,8 @@ describe('job routes (pglite, fake session)', () => {
   let h: Awaited<ReturnType<typeof openDb>>;
   let a: Tenant;
   let b: Tenant;
-  const sent: string[] = [];
-  const failed: string[] = [];
-  let sendError: Error | undefined;
+  let nudges = 0;
+  let nudge: () => Promise<void> = async () => {};
   const storage = new LocalDiskStorage(join(mkdtempSync(join(tmpdir(), 'adforge-web-')), 'media'), 'http://pub');
   // Three distinct photos already in the (dev) store, as the browser leaves them after its PUTs.
   const stored = async () => Promise.all([1, 2, 3].map(async (i) => (await storage.put(new Uint8Array([...PNG, i]), { mime: 'image/png' })).id));
@@ -37,8 +36,8 @@ describe('job routes (pglite, fake session)', () => {
     run: (userId, fn) => withUser(h.db, userId, fn),
     r2: false,
     storage,
-    send: async (id) => { if (sendError) throw sendError; sent.push(id); },
-    fail: async (id) => { failed.push(id); },
+    nudge: async () => { nudges++; await nudge(); },
+    queue: async () => null,
   });
   beforeAll(async () => {
     h = await openDb();
@@ -95,18 +94,20 @@ describe('job routes (pglite, fake session)', () => {
     expect((await approveHandler(c, appr(), a.jobId, '3')).status).toBe(409);
   });
 
-  it('POST creates the job in the caller org and default project, stores assets, then sends the event -> 202', async () => {
+  it('POST creates the queued, undispatched job in the caller org and default project, stores assets, then nudges the dispatcher -> 202', async () => {
     const t = await makeTenant(h.db, []);
     try {
       await h.db.delete(jobs).where(eq(jobs.orgId, t.orgId));
       await h.db.delete(projects).where(eq(projects.orgId, t.orgId));
+      const before = nudges;
+      // The ctx has no job.requested sender at all: the dispatcher is its only sender (B4).
       const res = await createJobHandler(ctxFor(t), post({ ...FIELDS, photoKeys: await stored() }));
       expect(res.status).toBe(202);
       const { jobId } = (await res.json()) as { jobId: string };
-      expect(sent).toContain(jobId);
+      expect(nudges).toBe(before + 1);
       const [j] = await h.db.select().from(jobs).where(eq(jobs.id, jobId));
       const [p] = await h.db.select().from(projects).where(eq(projects.orgId, t.orgId));
-      expect(j).toMatchObject({ orgId: t.orgId, userId: t.userId, projectId: p!.id, status: 'queued' });
+      expect(j).toMatchObject({ orgId: t.orgId, userId: t.userId, projectId: p!.id, status: 'queued', dispatchedAt: null });
       expect(p!.name).toBe('Default');
       expect(await h.db.select().from(assets).where(eq(assets.orgId, t.orgId))).toHaveLength(3);
       const keys = await stored();
@@ -116,17 +117,21 @@ describe('job routes (pglite, fake session)', () => {
     } finally { await h.db.delete(assets).where(eq(assets.orgId, t.orgId)); await dropTenants(h.db, [t]); }
   });
 
-  it('POST: invalid upload -> 400; send failure -> 503 and the job is failed', async () => {
+  it('POST: invalid upload -> 400; a failing or hanging nudge still -> 202 with the job queued (the cron dispatches it)', async () => {
     expect((await createJobHandler(ctxFor(a), post({ ...FIELDS, photoKeys: [] }))).status).toBe(400);
     const t = await makeTenant(h.db, []);
     try {
-      sendError = new Error('inngest down');
-      const res = await createJobHandler(ctxFor(t), post({ ...FIELDS, photoKeys: await stored() }));
-      expect([res.status, await res.json()]).toEqual([503, { error: 'could not queue the job' }]);
-      const created = (await h.db.select({ id: jobs.id }).from(jobs).where(eq(jobs.orgId, t.orgId))).find((j) => j.id !== t.jobId);
-      expect(created).toBeDefined();
-      expect(failed).toEqual([created!.id]);
-    } finally { sendError = undefined; await h.db.delete(assets).where(eq(assets.orgId, t.orgId)); await dropTenants(h.db, [t]); }
+      for (const n of [async () => { throw new Error('inngest down'); }, () => new Promise<void>(() => {})]) {
+        nudge = n;
+        const t0 = Date.now();
+        const res = await createJobHandler(ctxFor(t), post({ ...FIELDS, photoKeys: await stored() }));
+        expect(Date.now() - t0).toBeLessThan(NUDGE_TIMEOUT_MS + 1_000);
+        expect(res.status).toBe(202);
+        const { jobId } = (await res.json()) as { jobId: string };
+        const [j] = await h.db.select().from(jobs).where(eq(jobs.id, jobId));
+        expect(j).toMatchObject({ status: 'queued', dispatchedAt: null });
+      }
+    } finally { nudge = async () => {}; await h.db.delete(assets).where(eq(assets.orgId, t.orgId)); await dropTenants(h.db, [t]); }
   });
 });
 
@@ -143,7 +148,8 @@ describe('job create: key ownership (prod store)', () => {
     auth: async () => ({ userId: t.userId, email: 'x@y.z', isAdmin: false, orgId: t.orgId }),
     run: (userId, fn) => withUser(h.db, userId, fn),
     storage: { id: 'r2', urlFor: (k: string) => `http://pub/media/${k}`, head: async (k: string) => (present.has(k) ? { bytes: 9, mime: 'image/png' } : null) } as never,
-    send: async () => {}, fail: async () => {},
+    queue: async () => null,
+    nudge: async () => {},
   });
   const counts = async (t: Tenant) => [(await h.db.select().from(assets).where(eq(assets.orgId, t.orgId))).length, (await h.db.select().from(jobs).where(eq(jobs.orgId, t.orgId))).length];
 
@@ -198,7 +204,7 @@ describe('job create: key ownership (prod store)', () => {
 });
 
 describe('route-level guards and retry', () => {
-  const base = { r2: false, siteUrl: SITE, auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, send: async () => {}, fail: async () => {} };
+  const base = { r2: false, siteUrl: SITE, auth: async () => ({ userId: 'u', email: 'e', isAdmin: false, orgId: 'o' }), storage: {} as never, nudge: async () => {}, queue: async () => null };
   it('declared Content-Length over 16 KB -> 413 before parsing', async () => {
     const ctx: JobsCtx = { ...base, run: async () => { throw new Error('must not touch the db'); } };
     const res = await createJobHandler(ctx, new Request('http://w/api/jobs', { method: 'POST', body: 'x', headers: { origin: SITE, 'content-length': String(17 * 1024) } }));
@@ -243,4 +249,72 @@ describe('requireApiUserWith', () => {
     expect(((await refuse('conflict')) as Response).status).toBe(409);
     expect(await requireApiUserWith({ supabase: claims, provision: async () => ({ isAdmin: false, orgId: 'org1' }) })).toEqual({ userId: ok.sub, email: 'a@b.test', isAdmin: false, orgId: 'org1' });
   });
+});
+
+describe('job view queue (pglite, fake session)', () => {
+  let h: Awaited<ReturnType<typeof openDb>>;
+  let a: Tenant;
+  let b: Tenant;
+  const storage = new LocalDiskStorage(join(mkdtempSync(join(tmpdir(), 'adforge-web-q-')), 'media'), 'http://pub');
+  const ctxFor = (t: Tenant, queue: JobsCtx['queue']): JobsCtx => ({
+    siteUrl: SITE,
+    auth: async () => ({ userId: t.userId, email: 'x@y.z', isAdmin: false, orgId: t.orgId }),
+    run: (userId, fn) => withUser(h.db, userId, fn),
+    r2: false,
+    storage,
+    nudge: async () => {},
+    queue,
+  });
+  beforeAll(async () => {
+    h = await openDb();
+    await seedVocabulary(h.db);
+    a = await makeTenant(h.db);
+    b = await makeTenant(h.db);
+  });
+  afterAll(async () => { await dropTenants(h.db, [a, b]); await h.close(); });
+
+  it('Review Focus 5: GET includes queue and contains no other job id or org id', async () => {
+    const seen: string[] = [];
+    const res = await getJobHandler(ctxFor(a, async (id) => { seen.push(id); return { position: 2, etaRange: [720, 1200] }; }), a.jobId);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { job: { id: string }; queue: unknown };
+    expect(body.queue).toEqual({ position: 2, etaRange: [720, 1200] });
+    expect(seen).toEqual([a.jobId]);
+    const dumped = JSON.stringify(body);
+    expect(dumped).toContain(a.jobId);
+    expect(dumped).not.toContain(b.jobId);
+    expect(dumped).not.toContain(b.orgId);
+    expect(dumped).not.toContain(a.orgId);
+  });
+
+  it('GET returns queue null when the owner call says the job is not queued or running', async () => {
+    const res = await getJobHandler(ctxFor(a, async () => null), a.jobId);
+    expect(res.status).toBe(200);
+    expect((await res.json() as { queue: unknown }).queue).toBeNull();
+  });
+
+  it('a queue failure does not take down the job view: 200 with queue null, job id logged', async () => {
+    const logged: unknown[][] = [];
+    const orig = console.error;
+    console.error = ((...a: unknown[]) => { logged.push(a); }) as typeof console.error;
+    try {
+      const res = await getJobHandler(ctxFor(a, async () => { throw new Error('owner db down'); }), a.jobId);
+      expect(res.status).toBe(200);
+      expect((await res.json() as { queue: unknown }).queue).toBeNull();
+      expect(logged).toHaveLength(1);
+      expect(String(logged[0]?.[0])).toContain(a.jobId);
+      expect(String(logged[0]?.[0])).not.toContain(a.orgId);
+    } finally {
+      console.error = orig;
+    }
+  });
+
+  it('a foreign or unknown job id is 404 and never calls the queue function', async () => {
+    let calls = 0;
+    const q: JobsCtx['queue'] = async () => { calls++; return null; };
+    expect((await getJobHandler(ctxFor(a, q), b.jobId)).status).toBe(404);
+    expect((await getJobHandler(ctxFor(a, q), randomUUID())).status).toBe(404);
+    expect(calls).toBe(0);
+  });
+
 });

@@ -6,8 +6,9 @@ import type { makeRoutes } from './routes';
 type Env = { ADFORGE_WORKER_PORT: number; ADFORGE_UI_ORIGIN: string };
 
 /** All request dispatch. The Host/Origin guard runs first, for every path including /api/inngest. */
-export function makeHandler(ctx: { routes: ReturnType<typeof makeRoutes>; inngestHandler(req: IncomingMessage, res: ServerResponse): unknown; env: Env }): RequestListener {
+export function makeHandler(ctx: { routes: ReturnType<typeof makeRoutes>; inngestHandler(req: IncomingMessage, res: ServerResponse): unknown; env: Env; log?(msg: string, e?: unknown): void }): RequestListener {
   const { routes, inngestHandler, env } = ctx;
+  const log = ctx.log ?? ((m, e) => console.error(m, e));
   const base = `http://127.0.0.1:${env.ADFORGE_WORKER_PORT}`;
   const cors = (h: Record<string, string>) => ({ ...h, 'access-control-allow-origin': env.ADFORGE_UI_ORIGIN, vary: 'origin' });
   return async (req, res) => {
@@ -37,7 +38,7 @@ export function makeHandler(ctx: { routes: ReturnType<typeof makeRoutes>; innges
         : null;
       await send(res, withCors(handler ? await handler(r) : new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } }), env.ADFORGE_UI_ORIGIN));
     } catch (e) {
-      console.error(e);
+      log('request failed', e);
       if (res.headersSent) res.end();
       else res.writeHead(500, cors({ 'content-type': 'application/json' })).end(JSON.stringify({ error: 'internal error' }));
     }

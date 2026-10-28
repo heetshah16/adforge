@@ -1,4 +1,3 @@
-import { failJob } from '@adforge/pipeline/progress';
 import { and, eq } from 'drizzle-orm';
 import { variantRevisions } from '@adforge/db/schema';
 import { withUser, type UserDb } from '@adforge/db/with-user';
@@ -9,12 +8,7 @@ export async function withCurrentUser<T>(userId: string, fn: (udb: UserDb) => Pr
   return withUser(await getDb(), userId, fn);
 }
 
-/** `authenticated` cannot update jobs, so marking a job failed when its event could not be queued needs the owner connection. */
-export async function failJobOwner(jobId: string, reason: string, stage: string): Promise<void> {
-  await failJob(await getDb(), jobId, reason, stage);
-}
-
-/** Same for a revision whose edit event could not be queued: it would otherwise stay pending forever. */
+/** `authenticated` cannot set a revision's status, so failing one whose edit event could not be queued needs the owner connection: it would otherwise stay pending forever. */
 export async function failRevisionOwner(revisionId: string, reason: string): Promise<void> {
   await (await getDb()).update(variantRevisions).set({ status: 'failed', error: { message: reason } }).where(and(eq(variantRevisions.id, revisionId), eq(variantRevisions.status, 'pending')));
 }

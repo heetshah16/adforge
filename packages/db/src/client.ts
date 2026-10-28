@@ -105,9 +105,17 @@ export async function openDb(dataDir?: string): Promise<{ db: Db; close(): Promi
   }
 }
 
+/**
+ * postgres-js options. `prepare: false` for Supabase's transaction pooler (:6543). No `connection: { statement_timeout }`:
+ * that is a startup parameter and session state, which Supavisor transaction mode does not honour (docs/providers/vercel.md).
+ */
+export function pgOptions(opts: { connectTimeoutSec?: number } = {}) {
+  return { prepare: false, max: 5, connect_timeout: opts.connectTimeoutSec ?? 10 } as const satisfies postgres.Options<{}>;
+}
+
 /** Applies migrations before returning unless `migrate: false` (the web app). `prepare: false` keeps it working behind Supabase's transaction pooler. */
 export async function openPostgres(url: string, opts: { connectTimeoutSec?: number; migrate?: boolean } = {}): Promise<{ db: Db; close(): Promise<void> }> {
-  const client = postgres(url, { prepare: false, max: 5, connect_timeout: opts.connectTimeoutSec ?? 10 });
+  const client = postgres(url, pgOptions(opts));
   const db = drizzlePg({ client, schema, casing: 'snake_case' });
   try {
     if (opts.migrate ?? true) await migratePg(db, { migrationsFolder: MIGRATIONS });

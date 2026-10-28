@@ -38,6 +38,7 @@ export function provisionWith(
   const email = p.email.toLowerCase();
   const isAdmin = cfg.adminEmails.includes(email);
   return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('statement_timeout', '15000', true)`); // transaction-local: the pooler (:6543) ignores session settings
     const [clash] = await tx.select({ id: users.id }).from(users).where(and(eq(users.email, email), ne(users.id, p.userId))).limit(1);
     if (clash) throw new ProvisionRefused('conflict');
     if (cfg.prod && !isAdmin) {

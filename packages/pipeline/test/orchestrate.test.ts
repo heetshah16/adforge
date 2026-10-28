@@ -17,6 +17,27 @@ let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; specFault.variantNo = 0; });
 
 describe('generateAds', () => {
+  it.each(['failed', 'completed'] as const)('I2: a %s job (e.g. failed by the offline bound) is never resurrected: load is a no-op, no fail step, no GPU work', async (status) => {
+    const m = await makeDeps(); close = m.close;
+    const id = await newJob(m.deps);
+    await m.deps.db.update(jobs).set({ status, error: { stage: 'dispatch', reason: 'GPU offline for 24 h' } }).where(eq(jobs.id, id));
+    const step = memoStep(m.deps);
+    const r = await generateAds(id, step, m.deps);
+    expect(r).toEqual({ status: 'skipped', warnings: [] });
+    expect([...step.cache.keys()]).toEqual(['load']);
+    const [j] = await m.deps.db.select().from(jobs).where(eq(jobs.id, id));
+    expect(j).toMatchObject({ status, error: { stage: 'dispatch', reason: 'GPU offline for 24 h' } });
+    expect(m.calls.llm + m.calls.image + m.calls.free).toBe(0);
+  });
+
+  it('I2: a retried load on an already-running job proceeds (running is allowed, not only queued)', async () => {
+    const m = await makeDeps(); close = m.close;
+    const id = await newJob(m.deps);
+    await m.deps.db.update(jobs).set({ status: 'running' }).where(eq(jobs.id, id));
+    const r = await generateAds(id, memoStep(m.deps), m.deps);
+    expect(r.status).toBe('completed');
+  });
+
   it('a rejected photo fails the job at stage normalize with the message; no plates step runs', async () => {
     const m = await makeDeps(); close = m.close;
     const id = await newJob(m.deps);
