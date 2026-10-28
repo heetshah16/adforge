@@ -13,12 +13,27 @@ describe('startRuntime', () => {
 
   it('prod connects outbound and never builds or listens on a server', () => withDb(async (h) => {
     const makeServer = vi.fn(server);
-    const connectFn = vi.fn(async () => ({ close: async () => {} })) as never;
+    const connectFn = vi.fn(async () => ({ close: async () => {}, state: 'ACTIVE' })) as never;
     const r = await startRuntime({ env: { ADFORGE_ENV: 'prod', ADFORGE_WORKER_ID: 'gpu-1', ADFORGE_WORKER_PORT: 3001 }, db: h.db, probes: ok, functions: [], makeServer, connectFn });
     expect(makeServer).not.toHaveBeenCalled();
     expect(r.server).toBeUndefined();
     expect(connectFn).toHaveBeenCalledWith(expect.objectContaining({ instanceId: 'gpu-1', maxWorkerConcurrency: 1, handleShutdownSignals: [] }));
     await r.heartbeat.stop();
+  }));
+
+  it('prod: the heartbeat is gated on the connection state (isLive = connect.isActive)', () => withDb(async (h) => {
+    const conn = { close: async () => {}, state: 'CONNECTING' };
+    const connectFn = vi.fn(async () => conn) as never;
+    const env = { ADFORGE_ENV: 'prod' as const, ADFORGE_WORKER_ID: 'gpu-1', ADFORGE_WORKER_PORT: 3001 };
+    const down = await startRuntime({ env, db: h.db, probes: ok, functions: [], makeServer: server, connectFn });
+    expect(down.connect!.isActive()).toBe(false);
+    await down.heartbeat.stop();
+    expect(await h.db.select().from(workers)).toEqual([]); // not ACTIVE: no online write
+    conn.state = 'ACTIVE';
+    expect(down.connect!.isActive()).toBe(true);
+    const up = await startRuntime({ env, db: h.db, probes: ok, functions: [], makeServer: server, connectFn });
+    await up.heartbeat.stop();
+    expect(await h.db.select().from(workers)).toHaveLength(1);
   }));
 
   it('prod: a failed connect leaves no heartbeat row', () => withDb(async (h) => {

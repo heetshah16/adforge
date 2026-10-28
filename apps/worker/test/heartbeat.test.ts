@@ -25,6 +25,26 @@ describe('startHeartbeat', () => {
     await hb.stop();
   });
 
+  it('F3: isLive false skips the online write (row absent, then last_seen frozen); true again resumes', async () => {
+    let live = false;
+    const hb = startHeartbeat({ db: h.db, instanceId: 'gpu-1', probes: ok, intervalMs: 30_000, isLive: () => live, log: () => {} });
+    const tick = async () => { await vi.advanceTimersByTimeAsync(30_000); await vi.advanceTimersByTimeAsync(0); };
+    await vi.advanceTimersByTimeAsync(0);
+    await tick();
+    expect(await h.db.select().from(workers)).toEqual([]);
+    live = true;
+    await tick();
+    const first = await row();
+    expect(first.status).toBe('online');
+    live = false;
+    await tick();
+    expect((await row()).lastSeen).toEqual(first.lastSeen);
+    live = true;
+    await tick();
+    expect((await row()).lastSeen.getTime()).toBeGreaterThan(first.lastSeen.getTime());
+    await hb.stop();
+  });
+
   it('I3: online_since is set on the first write, kept while the row stays fresh and online, reset after a stale gap or an offline row', async () => {
     const hb = startHeartbeat({ db: h.db, instanceId: 'gpu-1', probes: ok, intervalMs: 30_000, log: () => {} });
     const beat = async () => { await vi.advanceTimersByTimeAsync(30_000); await vi.advanceTimersByTimeAsync(0); };

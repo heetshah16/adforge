@@ -54,8 +54,12 @@ export function makeProbes(env: Pick<Env, 'COMFYUI_URL' | 'ADFORGE_VOICE_URL' | 
 const OFFLINE_WRITE_MS = 1_000;
 const SERVICES = ['comfyui', 'voice', 'qwen', 'vision'];
 
-/** Upserts a `workers` row now and every intervalMs. A failed probe or write is logged-and-swallowed: the heartbeat must never take the worker down. */
-export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; intervalMs?: number; log?(m: string, e?: unknown): void }): { stop(): Promise<void> } {
+/**
+ * Upserts a `workers` row now and every intervalMs. A failed probe or write is logged-and-swallowed: the heartbeat must never take the worker down.
+ * isLive (default: always) gates each 'online' write: while it is false (the Inngest connection is down) nothing is written, so the row goes
+ * stale and readers see the worker offline (queue paused) instead of dispatching to a worker that cannot receive runs.
+ */
+export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; intervalMs?: number; isLive?(): boolean; log?(m: string, e?: unknown): void }): { stop(): Promise<void> } {
   const log = o.log ?? ((m, e) => console.error(m, e ?? ''));
   let stopped = false;
   const write = async (status: 'online' | 'offline'): Promise<void> => {
@@ -79,8 +83,9 @@ export function startHeartbeat(o: { db: Db; instanceId: string; probes: Probes; 
       log('heartbeat write failed', e);
     }
   };
-  let inflight: Promise<void> = write('online');
-  const timer = setInterval(() => { if (!stopped) inflight = write('online'); }, o.intervalMs ?? 30_000);
+  const beat = (): Promise<void> => (o.isLive?.() ?? true) ? write('online') : Promise.resolve();
+  let inflight: Promise<void> = beat();
+  const timer = setInterval(() => { if (!stopped) inflight = beat(); }, o.intervalMs ?? 30_000);
   timer.unref();
   return {
     async stop() {

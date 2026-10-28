@@ -23,7 +23,8 @@ export async function startRuntime(o: {
   if (o.env.ADFORGE_ENV === 'prod') {
     // Heartbeat only after connect resolves: a failed connect must not leave a fresh 'online' row.
     const connect = await startConnect({ functions: o.functions, instanceId, connectFn: o.connectFn });
-    return { heartbeat: startHeartbeat({ db: o.db, instanceId, probes: o.probes, log: o.log }), connect, server: undefined };
+    // isLive: while the connection is down the row goes stale, so the dispatcher pauses instead of sending to a worker that cannot run.
+    return { heartbeat: startHeartbeat({ db: o.db, instanceId, probes: o.probes, isLive: connect.isActive, log: o.log }), connect, server: undefined };
   }
   const heartbeat = startHeartbeat({ db: o.db, instanceId, probes: o.probes, log: o.log });
   const server = o.makeServer();
