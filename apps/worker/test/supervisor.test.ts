@@ -40,7 +40,8 @@ setInterval(()=>{if(fs.existsSync(sig))process.exit(0);},200);`);
     const logs = join(dir, 'logs');
     if (!existsSync(logs)) return [];
     const f = readdirSync(logs).find((n) => n.startsWith('supervisor-'));
-    return f ? readFileSync(join(logs, f), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Rec) : [];
+    // A line the supervisor is still appending does not parse yet: skip it, the next poll sees it whole.
+    return f ? readFileSync(join(logs, f), 'utf8').split('\n').flatMap((l) => { try { return [JSON.parse(l) as Rec]; } catch { return []; } }) : [];
   };
   const until = async (pred: () => boolean, ms: number) => { const t = Date.now(); while (Date.now() - t < ms) { if (pred()) return true; await sleep(250); } return false; };
   return { dir, stop, recs, until, sup, started: () => recs().filter((r) => r.event === 'started') };
@@ -95,7 +96,8 @@ d('supervisor.ps1', () => {
   }, 50_000);
 });
 
-d('supervisor.config.json', () => {
+// Pure JSON: runs on every platform.
+describe('supervisor.config.json', () => {
   it('every service has the full policy shape', () => {
     const { services } = JSON.parse(readFileSync(join(SCRIPTS, 'supervisor.config.json'), 'utf8')) as { services: Record<string, unknown>[] };
     expect(services.map((s) => s.name)).toEqual(['comfyui', 'voice', 'voice-qwen', 'vision', 'worker']);
