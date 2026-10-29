@@ -37,6 +37,9 @@ async function authenticate({ supabase, provision }: SessionDeps): Promise<{ use
   const { data, error } = await supabase.auth.getClaims();
   const claims = data?.claims;
   if (error || !claims?.sub || !claims.email) return { refusal: 'signin' };
+  // The invite gate trusts claims.email for links and Discord alike (ADR 0021). That holds because Supabase issues no session
+  // for an unverified provider email while "Confirm email" is on (mailer_autoconfirm=false, asserted by
+  // scripts/supabase-auth-config.mjs). Do not gate on user_metadata.email_verified: users can write user_metadata.
   const email = claims.email.toLowerCase();
   try {
     const { isAdmin, orgId } = await provision({ userId: claims.sub, email });

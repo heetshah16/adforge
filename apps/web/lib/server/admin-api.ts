@@ -26,17 +26,20 @@ export async function inviteHandler(ctx: AdminCtx, req: Request): Promise<Respon
   const entry = await ctx.get(parsed.data.waitlistId);
   if (!entry) return json({ error: 'not found' }, 404);
   if (entry.status !== 'new') return json({ ok: true, status: entry.status });
+  // The email is a courtesy (ADR 0021): invitees sign in with Discord, so a mailer failure (Supabase's built-in mailer is
+  // rate-limited) must not block the invite. The waitlist status is what the provision gate reads.
+  let emailSent = true;
   try {
     await ctx.invite(entry.email, new URL('/signin?invited=1', ctx.siteUrl).toString());
   } catch (e) {
     console.warn('inviteUserByEmail:', (e as Error).message);
-    return json({ error: `invite failed: ${(e as Error).message}` }, 502);
+    emailSent = false;
   }
   try {
     await ctx.markInvited(entry.id);
   } catch (e) {
-    console.error(`markInvited failed after a successful invite (waitlist ${entry.id}):`, e);
-    return json({ error: 'invite sent but status update failed' }, 500);
+    console.error(`markInvited failed (waitlist ${entry.id}, email sent: ${emailSent}):`, e);
+    return json({ error: 'status update failed' }, 500);
   }
-  return json({ ok: true, status: 'invited' });
+  return json({ ok: true, status: 'invited', emailSent });
 }

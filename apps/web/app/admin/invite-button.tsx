@@ -13,8 +13,9 @@ export function InviteButton({ waitlistId }: { waitlistId: string }) {
       const res = await fetch('/api/admin/invite', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ waitlistId }),
       });
-      if (res.ok) router.refresh();
-      else setError(`Failed (${res.status})`);
+      if (!res.ok) setError(`Failed (${res.status})`);
+      else if ((await res.json().catch(() => ({}))).emailSent === false) setError('Invited, but the email was not sent: tell them to use Continue with Discord.');
+      else router.refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {

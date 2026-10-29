@@ -52,6 +52,19 @@ describe('GET /auth/confirm', () => {
   it('neither param -> error', async () => {
     expect(await get('')).toBe('https://app.example.com/signin?error=link');
   });
+  it('OAuth refused for an unverified provider email -> /signin?error=unverified, no exchange', async () => {
+    expect(await get('error=server_error&error_description=Unverified+email+with+discord.+A+confirmation+email+has+been+sent')).toBe('https://app.example.com/signin?error=unverified');
+    expect(await get('error=access_denied&error_description=The+user+denied')).toBe('https://app.example.com/signin?error=link');
+    expect(exchangeCodeForSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('/signin errors', () => {
+  const html = async (sp: object) => renderToStaticMarkup(await SignIn({ searchParams: Promise.resolve(sp) }));
+  it('unverified shows the Discord verification hint; the Discord button is always there', async () => {
+    expect(await html({ error: 'unverified' })).toContain('Discord email isn&#x27;t verified');
+    expect(await html({})).toContain('Continue with Discord');
+  });
 });
 
 describe('/signin invited copy', () => {

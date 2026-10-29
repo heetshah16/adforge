@@ -20,3 +20,21 @@ export async function sendLinkWith(
   if (error) console.warn('signInWithOtp:', error.message);
   return '/signin?sent=1';
 }
+
+type OAuth = { auth: { signInWithOAuth(a: { provider: 'discord'; options: { redirectTo: string; skipBrowserRedirect: boolean } }): Promise<{ data: { url: string | null }; error: { message: string } | null }> } };
+
+/**
+ * Discord sign-in start (ADR 0021). Returns Discord's authorize URL; the PKCE verifier cookie is set by the server client, and
+ * /auth/confirm exchanges the returned ?code=. Who gets in is unchanged: provision gates on the (verified) email, as for links.
+ */
+export async function discordUrlWith(supabase: OAuth, env: { ADFORGE_SITE_URL: string }): Promise<string> {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'discord',
+    options: { redirectTo: new URL('/auth/confirm', env.ADFORGE_SITE_URL).href, skipBrowserRedirect: true },
+  });
+  if (error || !data.url) {
+    console.warn('signInWithOAuth:', error?.message ?? 'no url');
+    return '/signin?error=link';
+  }
+  return data.url;
+}

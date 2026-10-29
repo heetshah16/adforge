@@ -99,14 +99,14 @@ describe('admin invite (pglite)', () => {
     expect((await inviteHandler(ctx, post({}))).status).toBe(400);
   });
 
-  it('invite API error -> 502 and row unchanged', async () => {
+  it('invite email error (mailer rate limit) still marks the row invited, reporting emailSent: false', async () => {
     reset();
     const w = await add('fail@x.com');
     inviteError = true;
-    expect((await inviteHandler(ctx, post({ waitlistId: w.id }))).status).toBe(502);
-    expect((await (await inviteHandler(ctx, post({ waitlistId: w.id }))).json()).error).toContain('rate limit exceeded');
-    const r = await row(w.id);
-    expect([r.status, r.invitedAt]).toEqual(['new', null]);
+    const res = await inviteHandler(ctx, post({ waitlistId: w.id }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, status: 'invited', emailSent: false });
+    expect((await row(w.id)).status).toBe('invited');
   });
 
   it('markInvited never moves a joined row back to invited', async () => {
