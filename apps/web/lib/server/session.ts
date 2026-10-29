@@ -3,9 +3,11 @@ import { createSupabaseServer } from '../supabase/server';
 import { ProvisionRefused, provisionCurrent } from './provision-owner';
 import { NOT_INVITED } from '../not-invited';
 
-export type SessionUser = { userId: string; email: string; isAdmin: boolean; orgId: string };
+type Claims = { sub: string; email?: string; app_metadata?: { provider?: string }; user_metadata?: { email_verified?: boolean } };
+
+export type SessionUser ={ userId: string; email: string; isAdmin: boolean; orgId: string };
 export type SessionDeps = {
-  supabase: { auth: { getClaims(): Promise<{ data: { claims: { sub: string; email?: string } } | null; error: unknown }> } };
+  supabase: { auth: { getClaims(): Promise<{ data: { claims: Claims } | null; error: unknown }> } };
   provision: (u: { userId: string; email: string }) => Promise<{ isAdmin: boolean; orgId: string }>;
 };
 
@@ -37,6 +39,10 @@ async function authenticate({ supabase, provision }: SessionDeps): Promise<{ use
   const { data, error } = await supabase.auth.getClaims();
   const claims = data?.claims;
   if (error || !claims?.sub || !claims.email) return { refusal: 'signin' };
+  // The invite gate trusts the email. An OAuth email counts only when the provider verified it (Supabase already
+  // refuses unverified ones; this keeps the gate safe if that ever changes). Email-link users proved their address.
+  const provider = claims.app_metadata?.provider;
+  if (provider && provider !== 'email' && claims.user_metadata?.email_verified !== true) return { refusal: 'signin' };
   const email = claims.email.toLowerCase();
   try {
     const { isAdmin, orgId } = await provision({ userId: claims.sub, email });

@@ -6,7 +6,7 @@ import { users } from '@adforge/db/schema';
 import { provisionWith } from '../lib/server/provision-owner';
 import { requireUserWith } from '../lib/server/session';
 
-type Claims = { data: { claims: { sub: string; email?: string } } | null; error: Error | null };
+type Claims = { data: { claims: { sub: string; email?: string; app_metadata?: { provider?: string }; user_metadata?: { email_verified?: boolean } } } | null; error: Error | null };
 const fake = (r: Claims) => ({ auth: { getClaims: async () => r } });
 
 describe('requireUserWith', () => {
@@ -40,5 +40,26 @@ describe('requireUserWith', () => {
     await redirectsTo(requireUserWith({ supabase: fake({ data: { claims: { sub: userId, email } }, error: null }), provision: prov({ adminEmails: [], prod: true }) }), '/waitlist');
     await provisionWith(h.db, { userId: randomUUID(), email }, { adminEmails: [], prod: false });
     await redirectsTo(requireUserWith({ supabase: fake({ data: { claims: { sub: userId, email } }, error: null }), provision: prov({ adminEmails: [], prod: false }) }), '/signin?error=conflict');
+  });
+  it('OAuth (discord) with an unverified email -> /signin, nothing provisioned, even for an admin email', async () => {
+    const userId = randomUUID();
+    const email = `boss-${userId}@example.test`;
+    for (const user_metadata of [{ email_verified: false }, {}, undefined]) {
+      const claims = { sub: userId, email, app_metadata: { provider: 'discord' }, user_metadata };
+      await redirectsTo(requireUserWith({ supabase: fake({ data: { claims }, error: null }), provision: prov({ adminEmails: [email], prod: true }) }), '/signin');
+    }
+    expect(await h.db.select().from(users).where(eq(users.id, userId))).toHaveLength(0);
+  });
+  it('OAuth (discord) with a verified email passes the same invite gate; email-link users need no flag', async () => {
+    const admin = randomUUID();
+    const adminEmail = `boss-${admin}@example.test`;
+    const claims = { sub: admin, email: adminEmail, app_metadata: { provider: 'discord' }, user_metadata: { email_verified: true } };
+    expect(await requireUserWith({ supabase: fake({ data: { claims }, error: null }), provision: prov({ adminEmails: [adminEmail], prod: true }) })).toMatchObject({ userId: admin, isAdmin: true });
+    const stranger = randomUUID();
+    const strangerClaims = { ...claims, sub: stranger, email: `x-${stranger}@example.test` };
+    await redirectsTo(requireUserWith({ supabase: fake({ data: { claims: strangerClaims }, error: null }), provision: prov({ adminEmails: [adminEmail], prod: true }) }), '/waitlist');
+    const linkUser = randomUUID();
+    const linkEmail = `boss-${linkUser}@example.test`;
+    expect(await requireUserWith({ supabase: fake({ data: { claims: { sub: linkUser, email: linkEmail, app_metadata: { provider: 'email' } } }, error: null }), provision: prov({ adminEmails: [linkEmail], prod: true }) })).toMatchObject({ userId: linkUser });
   });
 });
