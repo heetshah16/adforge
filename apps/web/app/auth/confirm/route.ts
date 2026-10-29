@@ -7,6 +7,8 @@ const TYPES: EmailOtpType[] = ['email', 'magiclink', 'invite', 'signup'];
 
 export async function GET(request: NextRequest) {
   const site = serverEnv().ADFORGE_SITE_URL;
+  // OAuth (Discord) refused by Supabase because the provider email is unverified: say so instead of the generic error.
+  if (/unverified email/i.test(request.nextUrl.searchParams.get('error_description') ?? '')) return NextResponse.redirect(new URL('/signin?error=unverified', site));
   const code = request.nextUrl.searchParams.get('code');
   // Default mailer: sign-in links are PKCE (`?code=`), the verifier cookie was set by the same browser's signInWithOtp.
   if (code) {

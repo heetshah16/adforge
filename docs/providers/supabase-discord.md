@@ -28,5 +28,5 @@ The secret never passes through the repo or the agents.
 
 - **Automatic linking:** an OAuth sign-in with the same email as an existing user is linked to that user, so an invited or admin account keeps its id.
 - **Unverified emails:** the docs call linking an identity to an unverified email insecure (pre-account takeover). Whether a session is issued for an unverified provider email is not documented on these pages.
-- **Our handling:** `session.ts` refuses non-email-provider claims unless `user_metadata.email_verified === true` (ADR 0021).
+- **Our handling:** we rely on Supabase. With "Confirm email" on, no session is issued for an unverified provider email. Do not gate on `user_metadata.email_verified`: users can write `user_metadata` through `updateUser`. Supabase's refusal arrives at the redirect URL as `?error=…&error_description=Unverified email with discord…`.
 - **Scopes:** the Discord page documents no `scopes` option. We pass none.

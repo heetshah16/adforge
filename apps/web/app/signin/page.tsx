@@ -29,7 +29,8 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<{
         <form action={sendLink}>
           {q.invited && <p>You&apos;re invited — enter your email to get a sign-in link.</p>}
           <label>Email<input name="email" type="email" required autoComplete="email" /></label>
-          {q.error === 'link' && <p className="errors" role="alert">That sign-in didn&apos;t work or the link expired. Try again.</p>}
+          {q.error === 'unverified' && <p className="errors" role="alert">Your Discord email isn&apos;t verified. Verify it in Discord (User Settings → My Account), then try again.</p>}
+          {q.error === 'link' &&<p className="errors" role="alert">That sign-in didn&apos;t work or the link expired. Try again.</p>}
           {q.error === 'conflict' && <p className="errors" role="alert">Account conflict — ask the admin.</p>}
           {q.error === 'email' && <p className="errors" role="alert">Enter a valid email.</p>}
           <button type="submit">Email me a sign-in link</button>
